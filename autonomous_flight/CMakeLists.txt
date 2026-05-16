@@ -135,6 +135,7 @@ add_library(
   ${PROJECT_NAME}
    include/${PROJECT_NAME}/flightBase.cpp
    include/${PROJECT_NAME}/mpcNavigation.cpp
+   include/${PROJECT_NAME}/im2MppiNavigation.cpp   # Phase 3: IM2-MPPI navigation orchestrator
 )
 
 ## Add cmake target dependencies of the library
@@ -149,6 +150,7 @@ add_library(
 # add_executable(test_bspline_node src/simulation/test_bspline_node.cpp)
 
 add_executable(mpc_navigation_node src/mpc_navigation_node.cpp)
+add_executable(im2_mppi_navigation_node src/im2_mppi_navigation_node.cpp)  # Phase 3
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -167,6 +169,7 @@ add_executable(mpc_navigation_node src/mpc_navigation_node.cpp)
 # target_link_libraries(test_bspline_node ${catkin_LIBRARIES})
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES})
 target_link_libraries(mpc_navigation_node ${catkin_LIBRARIES} ${PROJECT_NAME})
+target_link_libraries(im2_mppi_navigation_node ${catkin_LIBRARIES} ${PROJECT_NAME})  # Phase 3
 
 
 #############

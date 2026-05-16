@@ -434,18 +434,18 @@ void IM2MPPIPlanner::buildJointModes()
         return;
     }
 
-    // ── mean_prediction_mppi: Phase 3 stub ───────────────────────────────────
-    // Will compress each obstacle's modes into a single probability-weighted
-    // mean trajectory.  For now, fall back to vanilla with a one-time warning.
-    if (params_.method_type == "mean_prediction_mppi") {
-        ROS_WARN_ONCE("[IM2-MPPI] mean_prediction_mppi not yet implemented "
-                      "(Phase 3). Falling back to vanilla_mppi.");
-        JointMode jm;
-        jm.probability = 1.0;
-        jm.score       = 1.0;
-        joint_modes_.push_back(jm);
-        return;
-    }
+    // ── mean_prediction_mppi ─────────────────────────────────────────────────
+    // The navigation layer (im2MppiNavigation) pre-processes multi-modal
+    // predictions into a single probability-weighted mean mode per obstacle
+    // before calling setDynamicObstaclePredictions().  By the time we reach
+    // here, each DynamicObstaclePrediction already has exactly one mode
+    // (pi=1.0, mu_seq = Σ pi_m * mu_m_seq).
+    //
+    // The Cartesian product below will therefore produce exactly one
+    // JointMode with obstacle_mode_indices[j]=0 for all j — which is
+    // the correct single-world-hypothesis behaviour for mean_prediction_mppi.
+    //
+    // No special branch needed here; fall through to Cartesian product.
 
     // ── mode_aware_mppi / mode_aware_mppi_cvar / im2_mppi_full ──────────────
     // Enumerate Cartesian product of per-obstacle mode indices, then prune.
