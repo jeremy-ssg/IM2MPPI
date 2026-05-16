@@ -155,6 +155,9 @@ add_library(
   include/${PROJECT_NAME}/mpcPlanner.cpp
   include/${PROJECT_NAME}/obstacle_test/dynamicObstacleGenerator.cpp
 
+  # IM2-MPPI planner (point-mass MPPI; no ACADO/OSQP dependency)
+  src/im2_mppi_planner.cpp
+
   include/${PROJECT_NAME}/mpc_solver/acado_auxiliary_functions.c
   include/${PROJECT_NAME}/mpc_solver/acado_integrator.c
   include/${PROJECT_NAME}/mpc_solver/acado_qpoases_interface.cpp
