@@ -2,7 +2,7 @@
     FILE: im2_mppi_planner.h
     --------------------------------
     IM2-MPPI: Intent-Modal Risk-Aware MPPI planner for UAV dynamic avoidance.
-    Phases 1 – 3 ONLY (vanilla / mean / mode-aware). Phase 4 (CVaR) deferred.
+    Phases 1 – 4: vanilla / mean_prediction / mode_aware / cvar.
 
     UAV model: 3-D point mass
         state   x = [px, py, pz, vx, vy, vz]
@@ -172,6 +172,21 @@ private:
     void updateControlSequence(
         const std::vector<JointMode>&                  modes,
         const std::vector<std::vector<RolloutResult>>& all_results);
+
+    // ── CVaR aggregation (Phase 4) ───────────────────────────────────────────
+    // Given a per-mode cost / probability list for one rollout, return the
+    // CVaR_α — the expected cost over the worst α tail of mode scenarios.
+    //   α = 1.0  → ordinary expected value
+    //   α → 0    → worst-case (max cost)
+    double computeCVaR(const std::vector<double>& costs,
+                       const std::vector<double>& probs,
+                       double alpha) const;
+
+    // Per-rollout CVaR vector used by both updateControlSequence and the
+    // visualization cache when method_type == "cvar_mppi".
+    std::vector<double> computeRolloutCVaR(
+        const std::vector<JointMode>&                  modes,
+        const std::vector<std::vector<RolloutResult>>& all_results) const;
 
     // ── Yaw post-processing ──────────────────────────────────────────────────
     void generateYawReference(std::vector<TrajectoryPoint>& traj) const;

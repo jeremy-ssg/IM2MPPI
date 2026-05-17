@@ -1,23 +1,24 @@
 /*
     FILE: im2_mppi_planner.cpp
     --------------------------------
-    IM2MPPIPlanner — Phases 1 – 3 implementation.
+    IM2MPPIPlanner — Phases 1 – 4 implementation.
 
     Implemented:
       ✓ 3-D point-mass dynamics (propagate / clamp)
       ✓ Gaussian control noise sampling
       ✓ Parallel rollouts (CPU)
-      ✓ Cost: goal + path + smoothness + static + dynamic-mean obstacles
+      ✓ Cost: goal + path + smoothness + static + map + dynamic obstacles
       ✓ Numerically-stable MPPI update (S_min subtraction)
       ✓ Warm-start (shift control sequence)
       ✓ Yaw post-processing from velocity
       ✓ method_type dispatch:
           - vanilla_mppi         : no dynamic obstacle awareness
           - mean_prediction_mppi : nav layer pre-compresses K modes → 1 mean mode
-          - mode_aware_mppi      : Cartesian product of per-obstacle modes + prune
+          - mode_aware_mppi      : Cartesian product of per-obstacle modes + prune,
+                                   π_m-weighted MPPI update
+          - cvar_mppi            : same joint modes; per-rollout CVaR_α aggregation
+                                   replaces π_m-weighted update (Phase 4)
       ✓ Visualization data caching (rollouts + weights) for RViz
-
-    Phase 4 (CVaR) intentionally NOT included.
 */
 
 #include <trajectory_planner/im2_mppi_planner.h>
@@ -501,29 +502,67 @@ void IM2MPPIPlanner::updateControlSequence(
     const int H = params_.horizon_steps;
     const int N = params_.num_rollouts;
 
-    double S_min = std::numeric_limits<double>::infinity();
-    for (const auto& mode_results : all_results) {
-        for (const auto& r : mode_results) {
-            S_min = std::min(S_min, r.cost);
-        }
-    }
-    if (!std::isfinite(S_min)) {
-        ROS_WARN("[IM2-MPPI] All rollout costs non-finite — skipping update.");
+    if (modes.empty() || all_results.empty()) {
+        ROS_WARN("[IM2-MPPI] updateControlSequence: no modes/results.");
         return;
     }
 
     std::vector<Eigen::Vector3d> weighted_a(H, Eigen::Vector3d::Zero());
     double total_weight = 0.0;
 
-    for (size_t mi = 0; mi < modes.size(); ++mi) {
-        const double pi_m = modes[mi].probability;
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Phase 4 branch: CVaR aggregation
+    //    Per-rollout effective cost = CVaR_α({S_{m,i}}_m, π_m).
+    //    Weight = exp(-(CVaR_i - CVaR_min) / λ).
+    //    Controls are identical across modes (dynamics don't depend on mode),
+    //    so we read from all_results[0][i].controls.
+    // ─────────────────────────────────────────────────────────────────────────
+    if (params_.method_type == "cvar_mppi") {
+        const std::vector<double> cvar = computeRolloutCVaR(modes, all_results);
+        double S_min = std::numeric_limits<double>::infinity();
+        for (double c : cvar) {
+            if (std::isfinite(c)) S_min = std::min(S_min, c);
+        }
+        if (!std::isfinite(S_min)) {
+            ROS_WARN("[IM2-MPPI/CVaR] All rollout CVaRs non-finite — skipping update.");
+            return;
+        }
+
         for (int i = 0; i < N; ++i) {
-            const double w =
-                pi_m * std::exp(-(all_results[mi][i].cost - S_min) / params_.lambda);
+            if (!std::isfinite(cvar[i])) continue;
+            const double w = std::exp(-(cvar[i] - S_min) / params_.lambda);
             if (!std::isfinite(w)) continue;
             total_weight += w;
             for (int k = 0; k < H; ++k) {
-                weighted_a[k] += w * all_results[mi][i].controls[k].a;
+                weighted_a[k] += w * all_results[0][i].controls[k].a;
+            }
+        }
+    } else {
+        // ────────────────────────────────────────────────────────────────────
+        //  Phases 1 – 3 branch: standard mode-weighted MPPI update
+        //    w_{m,i} = π_m · exp(-(S_{m,i} - S_min) / λ)
+        // ────────────────────────────────────────────────────────────────────
+        double S_min = std::numeric_limits<double>::infinity();
+        for (const auto& mode_results : all_results) {
+            for (const auto& r : mode_results) {
+                if (std::isfinite(r.cost)) S_min = std::min(S_min, r.cost);
+            }
+        }
+        if (!std::isfinite(S_min)) {
+            ROS_WARN("[IM2-MPPI] All rollout costs non-finite — skipping update.");
+            return;
+        }
+
+        for (size_t mi = 0; mi < modes.size(); ++mi) {
+            const double pi_m = modes[mi].probability;
+            for (int i = 0; i < N; ++i) {
+                const double w =
+                    pi_m * std::exp(-(all_results[mi][i].cost - S_min) / params_.lambda);
+                if (!std::isfinite(w)) continue;
+                total_weight += w;
+                for (int k = 0; k < H; ++k) {
+                    weighted_a[k] += w * all_results[mi][i].controls[k].a;
+                }
             }
         }
     }
@@ -538,6 +577,81 @@ void IM2MPPIPlanner::updateControlSequence(
         u.a           = weighted_a[k] / total_weight;
         u_nominal_[k] = clampControl(u);
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CVaR aggregation (Phase 4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+double IM2MPPIPlanner::computeCVaR(const std::vector<double>& costs,
+                                    const std::vector<double>& probs,
+                                    double alpha) const
+{
+    const size_t M = costs.size();
+    if (M == 0) return std::numeric_limits<double>::infinity();
+    if (M != probs.size()) return std::numeric_limits<double>::infinity();
+    alpha = std::max(1e-6, std::min(1.0, alpha));
+
+    // Filter finite (cost, prob) pairs and normalize probabilities.
+    std::vector<std::pair<double, double>> cp;
+    cp.reserve(M);
+    double psum = 0.0;
+    for (size_t i = 0; i < M; ++i) {
+        if (!std::isfinite(costs[i]) || probs[i] <= 0.0) continue;
+        cp.emplace_back(costs[i], probs[i]);
+        psum += probs[i];
+    }
+    if (cp.empty() || psum < 1e-12) return std::numeric_limits<double>::infinity();
+    for (auto& kv : cp) kv.second /= psum;
+
+    // Sort by cost DESCENDING (worst case first).
+    std::sort(cp.begin(), cp.end(),
+        [](const std::pair<double, double>& a, const std::pair<double, double>& b) {
+            return a.first > b.first;
+        });
+
+    // Accumulate from worst-case tail until cumulative probability = alpha.
+    //   CVaR_α = (1/α) · Σ_{m ∈ tail} π_m · S_m
+    double accum_prob = 0.0;
+    double accum_cost = 0.0;
+    for (const auto& kv : cp) {
+        const double s_m  = kv.first;
+        const double pi_m = kv.second;
+        const double need = alpha - accum_prob;
+        if (need <= 0.0) break;
+
+        if (pi_m <= need + 1e-12) {
+            accum_cost += pi_m * s_m;
+            accum_prob += pi_m;
+        } else {
+            // Partial inclusion of this mode (linear-interpolate to hit α exactly).
+            accum_cost += need * s_m;
+            accum_prob  = alpha;
+            break;
+        }
+    }
+    if (accum_prob < 1e-12) return cp.front().first;
+    return accum_cost / accum_prob;   // = expected cost over the α-tail
+}
+
+std::vector<double> IM2MPPIPlanner::computeRolloutCVaR(
+    const std::vector<JointMode>&                  modes,
+    const std::vector<std::vector<RolloutResult>>& all_results) const
+{
+    const int N = params_.num_rollouts;
+    const int M = static_cast<int>(modes.size());
+    std::vector<double> cvar(N, std::numeric_limits<double>::infinity());
+    if (M == 0 || all_results.empty()) return cvar;
+
+    std::vector<double> costs(M);
+    std::vector<double> probs(M);
+    for (int m = 0; m < M; ++m) probs[m] = modes[m].probability;
+
+    for (int i = 0; i < N; ++i) {
+        for (int m = 0; m < M; ++m) costs[m] = all_results[m][i].cost;
+        cvar[i] = computeCVaR(costs, probs, params_.cvar_alpha);
+    }
+    return cvar;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -575,19 +689,29 @@ void IM2MPPIPlanner::cacheVisualizationData(
 
     if (target == 0 || all_results.empty()) return;
 
-    // Aggregate per-rollout cost = min cost across joint modes (most-favourable
-    // hypothesis), giving a visually meaningful weight for the rollout.
-    std::vector<double> rollout_min_cost(N, std::numeric_limits<double>::infinity());
-    for (const auto& mode_results : all_results) {
-        for (int i = 0; i < N; ++i) {
-            rollout_min_cost[i] = std::min(rollout_min_cost[i], mode_results[i].cost);
+    // Aggregate per-rollout cost — choice depends on method_type:
+    //   cvar_mppi : per-rollout CVaR (matches what the planner actually optimizes)
+    //   others    : min cost across joint modes (best-case visualization)
+    std::vector<double> rollout_cost(N, std::numeric_limits<double>::infinity());
+    if (params_.method_type == "cvar_mppi") {
+        rollout_cost = computeRolloutCVaR(joint_modes_, all_results);
+    } else {
+        for (const auto& mode_results : all_results) {
+            for (int i = 0; i < N; ++i) {
+                if (std::isfinite(mode_results[i].cost)) {
+                    rollout_cost[i] = std::min(rollout_cost[i], mode_results[i].cost);
+                }
+            }
         }
     }
 
     // Stride-based subsampling so we cover the rollout space evenly.
     const int stride = std::max(1, N / target);
 
-    double S_min = *std::min_element(rollout_min_cost.begin(), rollout_min_cost.end());
+    double S_min = std::numeric_limits<double>::infinity();
+    for (double c : rollout_cost) {
+        if (std::isfinite(c)) S_min = std::min(S_min, c);
+    }
     if (!std::isfinite(S_min)) return;
 
     double w_max = 0.0;
@@ -600,8 +724,8 @@ void IM2MPPIPlanner::cacheVisualizationData(
         for (int k = 0; k <= H; ++k) pos[k] = r.states[k].p;
 
         double w = 0.0;
-        if (std::isfinite(rollout_min_cost[i])) {
-            w = std::exp(-(rollout_min_cost[i] - S_min) / params_.lambda);
+        if (std::isfinite(rollout_cost[i])) {
+            w = std::exp(-(rollout_cost[i] - S_min) / params_.lambda);
         }
         viz_rollout_weights_[slot] = w;
         if (w > w_max) w_max = w;
