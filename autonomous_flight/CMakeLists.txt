@@ -128,6 +128,9 @@ catkin_package(
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
+  # Explicit path for IM2-MPPI headers: catkin does not always propagate
+  # trajectory_planner's include dir to autonomous_flight in a clean build.
+  ${CMAKE_CURRENT_SOURCE_DIR}/../trajectory_planner/include
 )
 
 ## Declare a C++ library
