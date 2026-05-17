@@ -13,7 +13,7 @@ im2_mppi:
   num_joint_modes_keep: 4   # Kbar retained joint modes after pruning
 
   # ── MPPI temperature ────────────────────────────────────────────────
-  lambda: 1.0               # cost-to-weight sharpness; lower = greedier
+  lambda: 5.0               # cost-to-weight sharpness; lower = greedier
 
   # ── Safety geometry ─────────────────────────────────────────────────
   d_safe: 0.5               # minimum clearance distance [m]
@@ -24,9 +24,9 @@ im2_mppi:
   a_max: 3.0                # max acceleration norm [m/s²]
 
   # ── Control noise std-dev per axis [m/s²] ───────────────────────────
-  sigma_ax: 1.5
-  sigma_ay: 1.5
-  sigma_az: 0.5
+  sigma_ax: 0.8
+  sigma_ay: 0.8
+  sigma_az: 0.3
 
   # ── Cost weights ────────────────────────────────────────────────────
   w_goal:   10.0

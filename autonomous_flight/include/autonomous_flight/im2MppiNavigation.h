@@ -32,6 +32,7 @@
 #include <vector>
 #include <string>
 #include <cmath>
+#include <mutex>
 
 #include <nav_msgs/Path.h>
 #include <visualization_msgs/MarkerArray.h>
@@ -62,6 +63,7 @@ private:
     ros::Timer mppiTimer_;     // planning loop  (~20 Hz)
     ros::Timer trajExeTimer_;  // target publishing (100 Hz)
     ros::Timer visTimer_;      // RViz visualization (~20 Hz)
+    ros::Timer predTimer_;     // prediction loop (~5 Hz, decoupled from planning)
 
     // ── Publishers ─────────────────────────────────────────────────────────
     ros::Publisher bestTrajPub_;     // nav_msgs/Path  — current MPPI output
@@ -97,10 +99,16 @@ private:
 
     std::vector<Eigen::Vector3d> lastReferencePath_;
 
+    // ── Prediction cache (updated by predTimer_ at ~5 Hz) ──────────────────
+    // Decoupled from mppiTimer_ so slow inference doesn't block planning.
+    std::mutex                                      predMutex_;
+    std::vector<im2mppi::DynamicObstaclePrediction> cachedDynPreds_;
+
     // ── Callbacks ──────────────────────────────────────────────────────────
     void mppiCB    (const ros::TimerEvent&);
     void trajExeCB (const ros::TimerEvent&);
     void visCB     (const ros::TimerEvent&);
+    void predCB    (const ros::TimerEvent&);  // async prediction update
 
     // ── Prediction conversion ──────────────────────────────────────────────
     // dynamicPredictor::obstacle → im2mppi format, with dt interpolation

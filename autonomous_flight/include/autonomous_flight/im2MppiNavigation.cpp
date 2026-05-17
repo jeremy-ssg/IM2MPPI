@@ -122,6 +122,11 @@ void im2MppiNavigation::registerCallback()
                             &im2MppiNavigation::trajExeCB, this);
     this->visTimer_     = this->nh_.createTimer(ros::Duration(0.05),
                             &im2MppiNavigation::visCB, this);
+    // Prediction at 5 Hz — decoupled so slow inference doesn't block planning
+    if (this->usePredictor_) {
+        this->predTimer_ = this->nh_.createTimer(ros::Duration(0.2),
+                            &im2MppiNavigation::predCB, this);
+    }
 }
 
 void im2MppiNavigation::run()
@@ -158,23 +163,17 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
     this->lastReferencePath_ = this->buildReferencePath();
     this->mppi_->setReferencePath(this->lastReferencePath_);
 
-    // 4. Method-type dispatch
+    // 4. Method-type dispatch — predictions come from async cache (predCB)
     const std::string& method = this->mppi_->getParams().method_type;
 
     if (this->usePredictor_ && method != "vanilla_mppi") {
-        std::vector<dynamicPredictor::obstacle> predOb;
-        this->predictor_->getPrediction(predOb);
-
-        if (!predOb.empty()) {
-            auto dynPreds = this->convertPredictions(predOb);
-            if (method == "mean_prediction_mppi") {
-                dynPreds = this->compressToMeanPrediction(dynPreds);
-            }
-            this->mppi_->setDynamicObstaclePredictions(dynPreds);
-        } else {
-            this->mppi_->setDynamicObstaclePredictions({});
+        // Read from cache (filled by predCB at 5 Hz); never blocks planning
+        std::vector<im2mppi::DynamicObstaclePrediction> dynPreds;
+        {
+            std::lock_guard<std::mutex> lk(this->predMutex_);
+            dynPreds = this->cachedDynPreds_;
         }
-        // Clear static fallback so we don't double-count
+        this->mppi_->setDynamicObstaclePredictions(dynPreds);
         this->mppi_->setStaticObstacles({});
     } else {
         // vanilla_mppi or predictor disabled: treat current obstacles as static
@@ -247,6 +246,36 @@ void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
     }
 
     this->updateTargetWithState(target);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Prediction callback (~5 Hz) — runs inference asynchronously
+//  Result is cached in cachedDynPreds_ behind predMutex_.
+//  mppiCB reads the cache without blocking.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void im2MppiNavigation::predCB(const ros::TimerEvent&)
+{
+    if (!this->predictor_) return;
+
+    const std::string& method = this->mppi_->getParams().method_type;
+    if (method == "vanilla_mppi") return;
+
+    std::vector<dynamicPredictor::obstacle> predOb;
+    this->predictor_->getPrediction(predOb);   // may take 100–200 ms; OK here
+
+    std::vector<im2mppi::DynamicObstaclePrediction> dynPreds;
+    if (!predOb.empty()) {
+        dynPreds = this->convertPredictions(predOb);
+        if (method == "mean_prediction_mppi") {
+            dynPreds = this->compressToMeanPrediction(dynPreds);
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(this->predMutex_);
+        this->cachedDynPreds_ = std::move(dynPreds);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
