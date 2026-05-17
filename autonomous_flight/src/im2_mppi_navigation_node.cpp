@@ -21,11 +21,12 @@ int main(int argc, char** argv)
     AutoFlight::im2MppiNavigation navigator(nh);
     navigator.run();   // takeoff() + registerCallback()
 
-    // Two threads:
-    //   - one handles the slow predCB (~200 ms inference)
-    //   - the other handles mppiCB / trajExeCB / visCB
+    // Three threads:
+    //   - one for slow predCB (~200 ms inference)
+    //   - one for mppiCB / plan()
+    //   - one for trajExeCB (100 Hz) / visCB / odomCB
     //   Concurrent access to the planner is protected by planMutex_.
-    ros::AsyncSpinner spinner(2);
+    ros::AsyncSpinner spinner(3);
     spinner.start();
     ros::waitForShutdown();
     return 0;

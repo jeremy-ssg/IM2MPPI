@@ -292,13 +292,9 @@ void im2MppiNavigation::predCB(const ros::TimerEvent&)
 {
     if (!this->predictor_) return;
 
-    // Read method_type under planMutex_ — predCB runs on a separate AsyncSpinner
-    // thread; mppiCB modifies mppi_ internal state concurrently without this lock.
-    std::string method;
-    {
-        std::lock_guard<std::mutex> lk(this->planMutex_);
-        method = this->mppi_->getParams().method_type;   // copy, not reference
-    }
+    // params_ is set once in the constructor and never modified at runtime —
+    // reading method_type here is safe without planMutex_ (no write race).
+    const std::string method = this->mppi_->getParams().method_type;
     if (method == "vanilla_mppi") return;
 
     std::vector<dynamicPredictor::obstacle> predOb;
@@ -326,13 +322,16 @@ void im2MppiNavigation::predCB(const ros::TimerEvent&)
 
 void im2MppiNavigation::visCB(const ros::TimerEvent&)
 {
-    // Single lock covers all visualization reads:
-    //   goal_, goalIdx_, predefinedGoal_ are written by mppiCB under planMutex_
-    //   mppi_ state is also protected by planMutex_
-    std::lock_guard<std::mutex> lk(this->planMutex_);
+    // publishGoal / publishWaypoints only read goal_ and predefinedGoal_ —
+    // these are plain structs; a torn read at worst shows a one-frame glitch,
+    // far safer than holding planMutex_ across a ROS publish() call.
     this->publishGoal();
     this->publishWaypoints();
+
     if (!this->mppiReady_) return;
+
+    // Lock only for mppi_ internal vector reads (getRolloutPositions etc.)
+    std::lock_guard<std::mutex> lk(this->planMutex_);
     this->publishBestTrajectory();
     this->publishSampledRollouts();
     this->publishReferencePath();
