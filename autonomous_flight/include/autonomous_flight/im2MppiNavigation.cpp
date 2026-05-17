@@ -190,9 +190,9 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
         this->mppi_->setDynamicObstaclePredictions(dynPreds);
         this->mppi_->setStaticObstacles({});
     } else {
-        std::vector<im2mppi::SphereObstacle> spheres;
-        this->getDynamicSpheres(spheres);
-        this->mppi_->setStaticObstacles(spheres);
+        std::vector<im2mppi::BoxObstacle> boxes;
+        this->getDynamicBoxes(boxes);
+        this->mppi_->setStaticObstacles(boxes);
         this->mppi_->setDynamicObstaclePredictions({});
     }
 
@@ -350,13 +350,14 @@ im2MppiNavigation::convertPredictions(
         im2mppi::DynamicObstaclePrediction pred;
         pred.id = static_cast<int>(j);
 
+        // Preserve full 3-axis dimensions (matches Intent-MPC AABB representation).
+        // sizePred[intent][step] gives the (x, y, z) widths in metres.
         if (!ob.sizePred.empty() &&
             !ob.sizePred[0].empty() &&
             ob.sizePred[0][0].x() > 0.0) {
-            const Eigen::Vector3d& sz0 = ob.sizePred[0][0];
-            pred.radius = std::max(sz0.x(), sz0.y()) * 0.5;
+            pred.size = ob.sizePred[0][0].cwiseMax(0.05);
         } else {
-            pred.radius = 0.3;
+            pred.size = Eigen::Vector3d(0.6, 0.6, 1.8);
         }
 
         const int K = static_cast<int>(ob.intentProb.size());
@@ -428,8 +429,8 @@ im2MppiNavigation::compressToMeanPrediction(
 
     for (const auto& pred : preds) {
         im2mppi::DynamicObstaclePrediction cp;
-        cp.id     = pred.id;
-        cp.radius = pred.radius;
+        cp.id   = pred.id;
+        cp.size = pred.size;
 
         if (pred.modes.empty()) {
             compressed.push_back(cp);
@@ -461,26 +462,27 @@ im2MppiNavigation::compressToMeanPrediction(
     return compressed;
 }
 
-void im2MppiNavigation::getDynamicSpheres(
-    std::vector<im2mppi::SphereObstacle>& spheres) const
+void im2MppiNavigation::getDynamicBoxes(
+    std::vector<im2mppi::BoxObstacle>& boxes_out) const
 {
-    spheres.clear();
+    boxes_out.clear();
     if (!this->useFakeDetector_ || !this->detector_) return;
 
     Eigen::Vector3d robotSize(0.0, 0.0, 0.0);
     if (this->map_) this->map_->getRobotSize(robotSize);
-    const double inflation =
-        std::max({robotSize.x(), robotSize.y(), robotSize.z()}) * 0.5;
+    // Inflate per-axis by the robot's half-extent so the box clearance test
+    // effectively becomes "free space for the robot's centre".
+    const Eigen::Vector3d inflate = robotSize.cwiseMax(0.0);
 
     std::vector<onboardDetector::box3D> boxes;
     this->detector_->getObstaclesInSensorRange(2.0 * M_PI, boxes, robotSize);
 
-    spheres.reserve(boxes.size());
+    boxes_out.reserve(boxes.size());
     for (const auto& b : boxes) {
-        im2mppi::SphereObstacle s;
-        s.center = Eigen::Vector3d(b.x, b.y, b.z);
-        s.radius = std::max({b.x_width, b.y_width, b.z_width}) * 0.5 + inflation;
-        spheres.push_back(s);
+        im2mppi::BoxObstacle bo;
+        bo.center = Eigen::Vector3d(b.x, b.y, b.z);
+        bo.size   = Eigen::Vector3d(b.x_width, b.y_width, b.z_width) + inflate;
+        boxes_out.push_back(bo);
     }
 }
 
@@ -723,33 +725,38 @@ void im2MppiNavigation::publishDynamicObstaclePred() const
             }
             arr.markers.push_back(line);
 
-            // Sphere at first step
-            visualization_msgs::Marker sphere;
-            sphere.header           = line.header;
-            sphere.ns               = "im2mppi_dyn_pred";
-            sphere.id               = id++;
-            sphere.type             = visualization_msgs::Marker::SPHERE;
-            sphere.action           = visualization_msgs::Marker::ADD;
-            sphere.pose.position.x  = mode.mu_seq.front().x();
-            sphere.pose.position.y  = mode.mu_seq.front().y();
-            sphere.pose.position.z  = mode.mu_seq.front().z();
-            sphere.pose.orientation.w = 1.0;
-            sphere.scale.x = sphere.scale.y = sphere.scale.z = 2.0 * pred.radius;
-            sphere.color.r = c[0]; sphere.color.g = c[1]; sphere.color.b = c[2];
-            sphere.color.a = 0.25f;
-            sphere.lifetime = ros::Duration(0.5);
-            arr.markers.push_back(sphere);
+            // Axis-aligned bounding box at the first prediction step
+            visualization_msgs::Marker box;
+            box.header              = line.header;
+            box.ns                  = "im2mppi_dyn_pred";
+            box.id                  = id++;
+            box.type                = visualization_msgs::Marker::CUBE;
+            box.action              = visualization_msgs::Marker::ADD;
+            box.pose.position.x     = mode.mu_seq.front().x();
+            box.pose.position.y     = mode.mu_seq.front().y();
+            box.pose.position.z     = mode.mu_seq.front().z();
+            box.pose.orientation.w  = 1.0;
+            box.scale.x             = std::max(0.05, pred.size.x());
+            box.scale.y             = std::max(0.05, pred.size.y());
+            box.scale.z             = std::max(0.05, pred.size.z());
+            box.color.r = c[0]; box.color.g = c[1]; box.color.b = c[2];
+            box.color.a             = 0.30f;
+            box.lifetime            = ros::Duration(0.5);
+            arr.markers.push_back(box);
 
-            // Sphere at horizon end
+            // Box at horizon end (faded)
             if (mode.mu_seq.size() > 1) {
-                visualization_msgs::Marker sphere_end = sphere;
-                sphere_end.id              = id++;
-                sphere_end.pose.position.x = mode.mu_seq.back().x();
-                sphere_end.pose.position.y = mode.mu_seq.back().y();
-                sphere_end.pose.position.z = mode.mu_seq.back().z();
-                sphere_end.color.a         = 0.15f;
-                arr.markers.push_back(sphere_end);
+                visualization_msgs::Marker box_end = box;
+                box_end.id              = id++;
+                box_end.pose.position.x = mode.mu_seq.back().x();
+                box_end.pose.position.y = mode.mu_seq.back().y();
+                box_end.pose.position.z = mode.mu_seq.back().z();
+                box_end.color.a         = 0.15f;
+                arr.markers.push_back(box_end);
             }
+
+            // Optional: thin wire-frame outlines at intermediate prediction steps
+            // (kept off by default to reduce marker count; uncomment if desired).
         }
     }
 

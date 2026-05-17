@@ -52,11 +52,17 @@ struct TrajectoryPoint {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  Obstacle types
+//      All obstacles are represented as axis-aligned bounding boxes (AABB),
+//      consistent with the original Intent-MPC formulation. This matches
+//      Gazebo's box collision shapes for humans / cylinders / cars and
+//      avoids the z-axis under-estimation a single-radius sphere would cause.
+//
+//      `size` is the FULL extent (width on each axis), not the half-extent.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-struct SphereObstacle {
+struct BoxObstacle {
     Eigen::Vector3d center = Eigen::Vector3d::Zero();
-    double          radius = 0.3;
+    Eigen::Vector3d size   = Eigen::Vector3d(0.6, 0.6, 1.8);   // (x, y, z) widths
 };
 
 struct ObstacleMode {
@@ -66,8 +72,8 @@ struct ObstacleMode {
 };
 
 struct DynamicObstaclePrediction {
-    int    id     = -1;
-    double radius = 0.3;
+    int             id   = -1;
+    Eigen::Vector3d size = Eigen::Vector3d(0.6, 0.6, 1.8);     // (x, y, z) widths
     std::vector<ObstacleMode> modes;
 };
 
@@ -111,7 +117,7 @@ public:
 
     // Obstacle setters
     void setMap(const std::shared_ptr<mapManager::dynamicMap>& map);
-    void setStaticObstacles(const std::vector<SphereObstacle>& obstacles);
+    void setStaticObstacles(const std::vector<BoxObstacle>& obstacles);
     void setDynamicObstaclePredictions(
         const std::vector<DynamicObstaclePrediction>& preds);
 
@@ -215,7 +221,7 @@ private:
     std::vector<Eigen::Vector3d> ref_path_;
     std::vector<Control>         u_nominal_;
 
-    std::vector<SphereObstacle>             static_obstacles_;
+    std::vector<BoxObstacle>                static_obstacles_;
     std::vector<DynamicObstaclePrediction>  dyn_predictions_;
     std::vector<JointMode>                  joint_modes_;
 

@@ -132,8 +132,8 @@ private:
     std::vector<im2mppi::DynamicObstaclePrediction> compressToMeanPrediction(
         const std::vector<im2mppi::DynamicObstaclePrediction>& preds) const;
 
-    // Fallback static spheres when predictor disabled.
-    void getDynamicSpheres(std::vector<im2mppi::SphereObstacle>& spheres) const;
+    // Fallback static AABBs when predictor disabled.
+    void getDynamicBoxes(std::vector<im2mppi::BoxObstacle>& boxes) const;
 
     // Build local horizon reference path (sliced from predefined waypoints).
     std::vector<Eigen::Vector3d> buildReferencePath() const;

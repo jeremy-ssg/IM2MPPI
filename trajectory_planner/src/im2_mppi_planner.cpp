@@ -30,6 +30,26 @@
 namespace im2mppi {
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  AABB signed-distance function
+//      Replaces the sphere clearance `‖p - c‖ - r` of earlier phases.
+//      Positive outside the box (= Euclidean distance to nearest face),
+//      zero on the surface, negative inside (= -distance to nearest face).
+//      `size_full` is the (x, y, z) width — half-extents are size_full * 0.5.
+// ─────────────────────────────────────────────────────────────────────────────
+namespace {
+inline double aabbSDF(const Eigen::Vector3d& p,
+                      const Eigen::Vector3d& center,
+                      const Eigen::Vector3d& size_full)
+{
+    const Eigen::Vector3d half = 0.5 * size_full.cwiseMax(1e-6);
+    const Eigen::Vector3d q    = (p - center).cwiseAbs() - half;
+    const double outside       = q.cwiseMax(0.0).norm();
+    const double inside        = std::min(q.maxCoeff(), 0.0);
+    return outside + inside;
+}
+} // anonymous
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  Constructor
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -80,7 +100,7 @@ void IM2MPPIPlanner::setMap(const std::shared_ptr<mapManager::dynamicMap>& map)
 }
 
 void IM2MPPIPlanner::setStaticObstacles(
-    const std::vector<SphereObstacle>& obstacles)
+    const std::vector<BoxObstacle>& obstacles)
 {
     static_obstacles_ = obstacles;
 }
@@ -95,8 +115,8 @@ void IM2MPPIPlanner::setDynamicObstaclePredictions(
         if (pred.modes.empty()) continue;
 
         DynamicObstaclePrediction clean;
-        clean.id     = pred.id;
-        clean.radius = std::max(0.0, pred.radius);
+        clean.id   = pred.id;
+        clean.size = pred.size.cwiseMax(1e-3);   // guard against zero / negative widths
 
         std::vector<ObstacleMode> modes;
         modes.reserve(pred.modes.size());
@@ -308,7 +328,7 @@ double IM2MPPIPlanner::computeStaticObstacleCost(const RolloutResult& r) const
     for (int k = 1; k <= params_.horizon_steps; ++k) {
         const Eigen::Vector3d& p = r.states[k].p;
         for (const auto& obs : static_obstacles_) {
-            const double clearance = (p - obs.center).norm() - obs.radius;
+            const double clearance = aabbSDF(p, obs.center, obs.size);
             if (clearance < params_.d_safe) {
                 const double pen = params_.d_safe - clearance;
                 cost += pen * pen;
@@ -366,7 +386,7 @@ double IM2MPPIPlanner::computeDynamicObstacleCost(const RolloutResult& r,
         for (int k = 1; k <= H; ++k) {
             const int pk = std::min(k - 1, pred_H - 1);
             const double clearance =
-                (r.states[k].p - mode.mu_seq[pk]).norm() - pred.radius;
+                aabbSDF(r.states[k].p, mode.mu_seq[pk], pred.size);
             if (clearance < params_.d_safe) {
                 const double pen = params_.d_safe - clearance;
                 cost += pen * pen;
@@ -411,8 +431,7 @@ double IM2MPPIPlanner::computePreliminaryRisk(const JointMode& jm) const
             const auto& mode = pred.modes[mode_idx];
             const int pk = std::min(k, static_cast<int>(mode.mu_seq.size()) - 1);
             if (pk < 0) continue;
-            const double clearance =
-                (s.p - mode.mu_seq[pk]).norm() - pred.radius;
+            const double clearance = aabbSDF(s.p, mode.mu_seq[pk], pred.size);
             min_clearance = std::min(min_clearance, clearance);
         }
     }
