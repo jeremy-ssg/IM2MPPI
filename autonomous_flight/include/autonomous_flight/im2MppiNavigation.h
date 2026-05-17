@@ -32,8 +32,12 @@
 #include <vector>
 #include <string>
 #include <cmath>
+<<<<<<< HEAD
 #include <algorithm>
 #include <limits>
+=======
+#include <mutex>
+>>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
 
 #include <nav_msgs/Path.h>
 #include <visualization_msgs/MarkerArray.h>
@@ -63,7 +67,12 @@ private:
     // ── ROS timers ─────────────────────────────────────────────────────────
     ros::Timer mppiTimer_;     // planning loop  (~10 Hz)
     ros::Timer trajExeTimer_;  // target publishing (100 Hz)
+<<<<<<< HEAD
     ros::Timer visTimer_;      // RViz visualization (~5 Hz)
+=======
+    ros::Timer visTimer_;      // RViz visualization (~20 Hz)
+    ros::Timer predTimer_;     // prediction loop (~5 Hz, decoupled from planning)
+>>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
 
     // ── Publishers ─────────────────────────────────────────────────────────
     ros::Publisher bestTrajPub_;     // nav_msgs/Path  — current MPPI output
@@ -71,6 +80,7 @@ private:
     ros::Publisher refPathPub_;      // nav_msgs/Path  — reference / straight-line
     ros::Publisher dynObsPredPub_;   // MarkerArray    — dynamic obstacle modes
     ros::Publisher goalPub_;         // MarkerArray    — current goal sphere
+    ros::Publisher waypointPub_;     // MarkerArray    — all waypoints (sliding mode)
 
     // ── Component modules ──────────────────────────────────────────────────
     std::shared_ptr<mapManager::dynamicMap>          map_;
@@ -83,10 +93,11 @@ private:
     bool        usePredictor_      = false;
     bool        useYawControl_     = false;
     bool        usePredefinedGoal_ = false;
-    double      desiredVel_        = 1.5;
-    double      desiredAcc_        = 1.5;
-    double      desiredAngularVel_ = 0.5;
-    int         repeatPathNum_     = 1;
+    double      desiredVel_           = 1.5;
+    double      desiredAcc_           = 1.5;
+    double      desiredAngularVel_    = 0.5;
+    double      waypointSwitchDist_   = 1.0;  // advance goalIdx_ when closer than this [m]
+    int         repeatPathNum_        = 1;
     std::string refTrajPath_;
 
     nav_msgs::Path predefinedGoal_;
@@ -99,10 +110,21 @@ private:
 
     std::vector<Eigen::Vector3d> lastReferencePath_;
 
+    // ── Prediction cache (updated by predTimer_ at ~5 Hz) ──────────────────
+    // Decoupled from mppiTimer_ so slow inference doesn't block planning.
+    std::mutex                                      predMutex_;
+    std::vector<im2mppi::DynamicObstaclePrediction> cachedDynPreds_;
+
+    // Protects all access to mppi_ (read or write) across the
+    // AsyncSpinner threads. predCB does NOT take this lock — it only
+    // touches cachedDynPreds_ under predMutex_.
+    mutable std::mutex planMutex_;
+
     // ── Callbacks ──────────────────────────────────────────────────────────
     void mppiCB    (const ros::TimerEvent&);
     void trajExeCB (const ros::TimerEvent&);
     void visCB     (const ros::TimerEvent&);
+    void predCB    (const ros::TimerEvent&);  // async prediction update
 
     // ── Prediction conversion ──────────────────────────────────────────────
     // dynamicPredictor::obstacle → im2mppi format, with dt interpolation
@@ -128,6 +150,7 @@ private:
     void publishReferencePath()        const;
     void publishDynamicObstaclePred()  const;
     void publishGoal()                 const;
+    void publishWaypoints()            const;  // all waypoints; highlights current goalIdx_
 };
 
 } // namespace AutoFlight

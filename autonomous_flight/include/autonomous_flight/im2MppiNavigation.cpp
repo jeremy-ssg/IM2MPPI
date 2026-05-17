@@ -61,9 +61,15 @@ void im2MppiNavigation::initParam()
         this->nh_.param("autonomous_flight/execute_path_times", this->repeatPathNum_, 1);
         this->predefinedGoal_ = this->loadRefTraj(this->refTrajPath_);
         if (!this->predefinedGoal_.poses.empty()) {
-            this->goal_ = this->predefinedGoal_.poses.back();
+            // Sliding-waypoint mode: start from the first waypoint, not the last.
+            this->goalIdx_ = 0;
+            this->goal_    = this->predefinedGoal_.poses.front();
         }
     }
+
+    // Waypoint-switch distance (used in mppiCB to advance goalIdx_).
+    this->nh_.param("im2_mppi/waypoint_switch_dist", this->waypointSwitchDist_, 1.0);
+    ROS_INFO("[IM2-MPPI Nav] waypoint_switch_dist = %.2f m", this->waypointSwitchDist_);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -109,6 +115,8 @@ void im2MppiNavigation::registerPub()
         "im2mppi/dynamic_obstacle_predictions", 10);
     this->goalPub_      = this->nh_.advertise<visualization_msgs::MarkerArray>(
         "im2mppi/goal", 10);
+    this->waypointPub_  = this->nh_.advertise<visualization_msgs::MarkerArray>(
+        "im2mppi/waypoints", 10);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,6 +131,11 @@ void im2MppiNavigation::registerCallback()
                             &im2MppiNavigation::trajExeCB, this);
     this->visTimer_     = this->nh_.createTimer(ros::Duration(0.2),
                             &im2MppiNavigation::visCB, this);
+    // Prediction at 5 Hz — decoupled so slow inference doesn't block planning
+    if (this->usePredictor_) {
+        this->predTimer_ = this->nh_.createTimer(ros::Duration(0.2),
+                            &im2MppiNavigation::predCB, this);
+    }
 }
 
 void im2MppiNavigation::run()
@@ -140,13 +153,44 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
     if (!this->goalReceived_ && !this->usePredefinedGoal_) return;
     if (!this->odomReceived_) return;
 
+    // Lock planner for the whole iteration — trajExeCB/visCB will wait.
+    std::lock_guard<std::mutex> lk(this->planMutex_);
+
     // 1. Current state
     this->mppi_->setCurrentState(this->currPos_, this->currVel_);
 
+<<<<<<< HEAD
     // 2. Goal
     const Eigen::Vector3d globalGoal(this->goal_.pose.position.x,
                                      this->goal_.pose.position.y,
                                      this->goal_.pose.position.z);
+=======
+    // 2. Sliding-waypoint: advance goalIdx_ when within switch distance
+    if (this->usePredefinedGoal_ && !this->predefinedGoal_.poses.empty()) {
+        const int totalWPs = static_cast<int>(this->predefinedGoal_.poses.size());
+        // Advance as long as we are close enough AND there are more waypoints
+        while (this->goalIdx_ < totalWPs - 1) {
+            const auto& wp = this->predefinedGoal_.poses[this->goalIdx_];
+            const Eigen::Vector3d wpPos(wp.pose.position.x,
+                                        wp.pose.position.y,
+                                        wp.pose.position.z);
+            if ((this->currPos_ - wpPos).norm() < this->waypointSwitchDist_) {
+                this->goalIdx_++;
+                ROS_INFO("[IM2-MPPI Nav] → waypoint %d / %d",
+                         this->goalIdx_, totalWPs - 1);
+            } else {
+                break;
+            }
+        }
+        // Always sync goal_ to current sliding target
+        this->goal_ = this->predefinedGoal_.poses[this->goalIdx_];
+    }
+
+    const Eigen::Vector3d goalEigen(this->goal_.pose.position.x,
+                                    this->goal_.pose.position.y,
+                                    this->goal_.pose.position.z);
+    this->mppi_->setGoal(goalEigen);
+>>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
 
     // Update facing yaw for yaw control
     Eigen::Vector3d gv = globalGoal - this->currPos_;
@@ -158,27 +202,25 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
     this->lastReferencePath_ = this->buildReferencePath();
     this->mppi_->setReferencePath(this->lastReferencePath_);
 
+<<<<<<< HEAD
     const Eigen::Vector3d plannerGoal =
         this->lastReferencePath_.empty() ? globalGoal : this->lastReferencePath_.back();
     this->mppi_->setGoal(plannerGoal);
 
     // 4. Method-type dispatch
+=======
+    // 4. Method-type dispatch — predictions come from async cache (predCB)
+>>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
     const std::string& method = this->mppi_->getParams().method_type;
 
     if (this->usePredictor_ && method != "vanilla_mppi") {
-        std::vector<dynamicPredictor::obstacle> predOb;
-        this->predictor_->getPrediction(predOb);
-
-        if (!predOb.empty()) {
-            auto dynPreds = this->convertPredictions(predOb);
-            if (method == "mean_prediction_mppi") {
-                dynPreds = this->compressToMeanPrediction(dynPreds);
-            }
-            this->mppi_->setDynamicObstaclePredictions(dynPreds);
-        } else {
-            this->mppi_->setDynamicObstaclePredictions({});
+        // Read from cache (filled by predCB at 5 Hz); never blocks planning
+        std::vector<im2mppi::DynamicObstaclePrediction> dynPreds;
+        {
+            std::lock_guard<std::mutex> lk(this->predMutex_);
+            dynPreds = this->cachedDynPreds_;
         }
-        // Clear static fallback so we don't double-count
+        this->mppi_->setDynamicObstaclePredictions(dynPreds);
         this->mppi_->setStaticObstacles({});
     } else {
         // vanilla_mppi or predictor disabled: treat current obstacles as static
@@ -209,6 +251,9 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
 void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
 {
     if (!this->mppiReady_) return;
+
+    // Brief lock to read planner state safely (typical < 0.1 ms).
+    std::lock_guard<std::mutex> lk(this->planMutex_);
 
     const auto&  params  = this->mppi_->getParams();
     const double endTime = static_cast<double>(params.horizon_steps) * params.dt;
@@ -254,11 +299,50 @@ void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+<<<<<<< HEAD
 //  Visualization callback (~5 Hz)
+=======
+//  Prediction callback (~5 Hz) — runs inference asynchronously
+//  Result is cached in cachedDynPreds_ behind predMutex_.
+//  mppiCB reads the cache without blocking.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void im2MppiNavigation::predCB(const ros::TimerEvent&)
+{
+    if (!this->predictor_) return;
+
+    // params_ is set once in the constructor and never modified at runtime —
+    // reading method_type here is safe without planMutex_ (no write race).
+    const std::string method = this->mppi_->getParams().method_type;
+    if (method == "vanilla_mppi") return;
+
+    std::vector<dynamicPredictor::obstacle> predOb;
+    this->predictor_->getPrediction(predOb);   // may take 100–200 ms; lock released above
+
+    // If predictor returns empty (detector momentarily lost tracks), keep the
+    // previous cache so visualization & MPPI don't lose all obstacle info.
+    if (predOb.empty()) return;
+
+    std::vector<im2mppi::DynamicObstaclePrediction> dynPreds =
+        this->convertPredictions(predOb);
+    if (method == "mean_prediction_mppi") {
+        dynPreds = this->compressToMeanPrediction(dynPreds);
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(this->predMutex_);
+        this->cachedDynPreds_ = std::move(dynPreds);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Visualization callback (~20 Hz)
+>>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
 // ─────────────────────────────────────────────────────────────────────────────
 
 void im2MppiNavigation::visCB(const ros::TimerEvent&)
 {
+<<<<<<< HEAD
     if (this->goalPub_.getNumSubscribers() > 0) {
         this->publishGoal();
     }
@@ -276,6 +360,22 @@ void im2MppiNavigation::visCB(const ros::TimerEvent&)
     if (this->dynObsPredPub_.getNumSubscribers() > 0) {
         this->publishDynamicObstaclePred();
     }
+=======
+    // publishGoal / publishWaypoints only read goal_ and predefinedGoal_ —
+    // these are plain structs; a torn read at worst shows a one-frame glitch,
+    // far safer than holding planMutex_ across a ROS publish() call.
+    this->publishGoal();
+    this->publishWaypoints();
+
+    if (!this->mppiReady_) return;
+
+    // Lock only for mppi_ internal vector reads (getRolloutPositions etc.)
+    std::lock_guard<std::mutex> lk(this->planMutex_);
+    this->publishBestTrajectory();
+    this->publishSampledRollouts();
+    this->publishReferencePath();
+    this->publishDynamicObstaclePred();
+>>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -437,6 +537,7 @@ void im2MppiNavigation::getDynamicSpheres(
 std::vector<Eigen::Vector3d> im2MppiNavigation::buildReferencePath() const
 {
     if (this->usePredefinedGoal_ && !this->predefinedGoal_.poses.empty()) {
+<<<<<<< HEAD
         const auto& params = this->mppi_->getParams();
         const double local_len =
             std::max(0.3, this->desiredVel_) *
@@ -484,6 +585,16 @@ std::vector<Eigen::Vector3d> im2MppiNavigation::buildReferencePath() const
 
         if (path.size() < 2) {
             const auto& ps = this->predefinedGoal_.poses.back();
+=======
+        // Only return the sub-path from the current waypoint onward.
+        // This keeps the reference path local so w_path pulls forward, not sideways.
+        const int N = static_cast<int>(this->predefinedGoal_.poses.size());
+        const int start = std::min(this->goalIdx_, N - 1);
+        std::vector<Eigen::Vector3d> path;
+        path.reserve(N - start);
+        for (int i = start; i < N; ++i) {
+            const auto& ps = this->predefinedGoal_.poses[i];
+>>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
             path.emplace_back(ps.pose.position.x, ps.pose.position.y, ps.pose.position.z);
         }
         return path;
@@ -724,6 +835,34 @@ void im2MppiNavigation::publishGoal() const
     m.color.a = 1.0f;
     arr.markers.push_back(m);
     this->goalPub_.publish(arr);
+}
+
+void im2MppiNavigation::publishWaypoints() const
+{
+    if (!this->usePredefinedGoal_ || this->predefinedGoal_.poses.empty()) return;
+
+    const int cur = std::min(this->goalIdx_,
+                             static_cast<int>(this->predefinedGoal_.poses.size()) - 1);
+    const auto& ps = this->predefinedGoal_.poses[cur];
+
+    visualization_msgs::MarkerArray arr;
+
+    // Single cyan sphere at the current target waypoint
+    visualization_msgs::Marker m;
+    m.header.frame_id    = "map";
+    m.header.stamp       = ros::Time::now();
+    m.ns                 = "im2mppi_waypoints";
+    m.id                 = 0;
+    m.type               = visualization_msgs::Marker::SPHERE;
+    m.action             = visualization_msgs::Marker::ADD;
+    m.pose.position      = ps.pose.position;
+    m.pose.orientation.w = 1.0;
+    m.scale.x = m.scale.y = m.scale.z = 0.42;
+    m.color.r = 0.0f; m.color.g = 0.95f; m.color.b = 1.0f; m.color.a = 1.0f;
+    m.lifetime           = ros::Duration(0.5);
+    arr.markers.push_back(m);
+
+    this->waypointPub_.publish(arr);
 }
 
 } // namespace AutoFlight
