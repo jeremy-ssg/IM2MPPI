@@ -1,9 +1,9 @@
 /*
     FILE: im2_mppi_planner.cpp
     --------------------------------
-    Implementation of IM2MPPIPlanner — Phase 2 baseline.
+    Implementation of IM2MPPIPlanner.
 
-    What is implemented here (Phase 2):
+    What is implemented here (Phases 2 – 4):
       ✓ 3-D point-mass dynamics (propagate / clamp)
       ✓ Gaussian control noise sampling
       ✓ Parallel rollout execution (CPU, Eigen + STL)
@@ -11,13 +11,13 @@
       ✓ Numerically-stable MPPI weighted control update (with S_min subtraction)
       ✓ Warm-start via shiftControlSequence()
       ✓ Yaw post-processing from velocity direction
-      ✓ method_type dispatch skeleton (vanilla_mppi active; others stubbed)
-      ✓ buildJointModes / pruneJointModes interface (single trivial mode for now)
+      ✓ method_type dispatch (vanilla / mean_prediction / mode_aware / CVaR / full)
+      ✓ buildJointModes: Cartesian product of per-obstacle modes + risk-aware prune
+      ✓ computeDynamicObstacleCost: mean-trajectory dynamic obstacle cost
+      ✓ computeCVaRCost (Phase 4): per-rollout CVaR over R sampled obstacle trajs
 
-    Stubs for later phases:
-      computeDynamicObstacleCost — returns 0 when dyn_predictions_ is empty (Phase 3)
-      computeCVaRCost            — always returns 0 (Phase 4)
-      buildJointModes (multi-modal) — Cartesian product skeleton ready (Phase 3/5)
+    Phase 5 (in progress):
+      risk-aware joint-mode pruning is wired; validate with real multi-obstacle runs.
 */
 
 #include <trajectory_planner/im2_mppi_planner.h>
@@ -332,27 +332,101 @@ double IM2MPPIPlanner::computeDynamicObstacleCost(const RolloutResult& r,
     return params_.w_dyn * cost;
 }
 
-double IM2MPPIPlanner::computeCVaRCost(const RolloutResult& /*r*/,
-                                        const JointMode&    /*jm*/) const
+double IM2MPPIPlanner::computeCVaRCost(const RolloutResult& r,
+                                        const JointMode&    jm) const
 {
-    // Phase 4 placeholder.
-    // Will compute per-rollout CVaR_alpha over R sampled obstacle trajectories:
-    //   o_{m,j,r}(k) ~ N(mu_{m,j}(k), Sigma_{m,j}(k))
-    //   L_{i,m,j,r}  = max(0, d_safe - ||p_i(k) - o(k)||)^2
-    //   CVaR_alpha    = mean of worst (1-alpha) fraction over r
-    return 0.0;
+    // ── Phase 4: per-rollout CVaR dynamic risk ────────────────────────────────
+    //
+    // Only active for the two CVaR-enabled method types.
+    // For vanilla / mean_prediction / mode_aware — return 0 so ablation is clean.
+    const std::string& mt = params_.method_type;
+    if (mt != "mode_aware_mppi_cvar" && mt != "im2_mppi_full") {
+        return 0.0;
+    }
+
+    if (dyn_predictions_.empty() || jm.obstacle_mode_indices.empty()) {
+        return 0.0;
+    }
+
+    const int H = params_.horizon_steps;
+    const int R = params_.num_obstacle_samples_for_cvar;
+
+    // ── Sample R obstacle trajectory realisations ─────────────────────────────
+    // Local RNG: seeded deterministically so CVaR is reproducible across calls.
+    // A fixed seed is fine — the expectation is taken over the *rollouts*, not
+    // over the obstacle samples.
+    std::mt19937 local_rng(static_cast<unsigned>(params_.random_seed));
+
+    // sample_losses[r] = Σ_j  Σ_k  max(0, d_safe - dist)²
+    //                    summed over all obstacles for one sample realisation.
+    std::vector<double> sample_losses(R, 0.0);
+
+    for (int j = 0; j < static_cast<int>(dyn_predictions_.size()); ++j) {
+        const auto& pred = dyn_predictions_[j];
+        if (j >= static_cast<int>(jm.obstacle_mode_indices.size())) continue;
+
+        const int mode_idx = jm.obstacle_mode_indices[j];
+        if (mode_idx >= static_cast<int>(pred.modes.size())) continue;
+
+        const ObstacleMode& mode = pred.modes[mode_idx];
+        const int pred_H = static_cast<int>(mode.mu_seq.size());
+        if (pred_H == 0) continue;
+        // sigma_diag_seq must be available; skip obstacle if missing.
+        if (static_cast<int>(mode.sigma_diag_seq.size()) != pred_H) continue;
+
+        for (int s = 0; s < R; ++s) {
+            double loss_s = 0.0;
+            for (int k = 1; k <= H; ++k) {
+                const int pk = std::min(k - 1, pred_H - 1);
+                const Eigen::Vector3d& mu    = mode.mu_seq[pk];
+                const Eigen::Vector3d& sigma = mode.sigma_diag_seq[pk];
+
+                // o(k) ~ N(mu, diag(sigma²))
+                std::normal_distribution<double> dx(mu.x(), std::max(sigma.x(), 1e-6));
+                std::normal_distribution<double> dy(mu.y(), std::max(sigma.y(), 1e-6));
+                std::normal_distribution<double> dz(mu.z(), std::max(sigma.z(), 1e-6));
+                const Eigen::Vector3d o(dx(local_rng), dy(local_rng), dz(local_rng));
+
+                const double clearance = (r.states[k].p - o).norm() - pred.radius;
+                if (clearance < params_.d_safe) {
+                    const double pen = params_.d_safe - clearance;
+                    loss_s += pen * pen;
+                }
+            }
+            sample_losses[s] += loss_s;  // accumulate across obstacles
+        }
+    }
+
+    // ── CVaR_alpha = mean of worst (1 - alpha) fraction ───────────────────────
+    // Sort descending and take the top tail_count samples.
+    std::sort(sample_losses.begin(), sample_losses.end(),
+              std::greater<double>());
+
+    const int tail_count = std::max(1,
+        static_cast<int>(std::ceil(
+            (1.0 - params_.alpha_cvar) * static_cast<double>(R))));
+
+    double cvar = 0.0;
+    for (int s = 0; s < tail_count; ++s) {
+        cvar += sample_losses[s];
+    }
+    cvar /= static_cast<double>(tail_count);
+
+    return params_.w_cvar * cvar;
 }
 
 double IM2MPPIPlanner::computeTrajectoryCost(const RolloutResult& r,
                                               const JointMode&    jm) const
 {
+    // computeCVaRCost returns 0 unless method_type ∈ {mode_aware_mppi_cvar,
+    // im2_mppi_full}, so adding it here is always safe.
     double cost = 0.0;
     cost += computeGoalCost(r);
     cost += computePathCost(r);
     cost += computeSmoothnessCost(r);
     cost += computeStaticObstacleCost(r);
     cost += computeDynamicObstacleCost(r, jm);
-    cost += computeCVaRCost(r, jm);
+    cost += computeCVaRCost(r, jm);   // Phase 4: live for cvar/full methods
     return cost;
 }
 
