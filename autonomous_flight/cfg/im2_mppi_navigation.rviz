@@ -186,6 +186,14 @@ Visualization Manager:
         im2mppi_goal: true
       Queue Size: 100
       Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /im2mppi/waypoints
+      Name: IM2-MPPI Waypoints
+      Namespaces:
+        im2mppi_waypoints: true
+      Queue Size: 100
+      Value: true
 
     # ─── Detector / predictor (optional overlay) ──────────────────────
     - Class: rviz/MarkerArray

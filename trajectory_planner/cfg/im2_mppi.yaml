@@ -50,6 +50,10 @@ im2_mppi:
   viz_num_rollouts: 60        # how many rollouts to draw as line strips
   viz_color_by_weight: true   # true: red(low)->green(high); false: flat
 
+  # ── Sliding waypoint ────────────────────────────────────────────────
+  # Advance goalIdx_ when UAV is within this distance of the current waypoint [m]
+  waypoint_switch_dist: 1.0
+
   # ── Misc ────────────────────────────────────────────────────────────
   random_seed: 42
   use_yaw_postprocess: true

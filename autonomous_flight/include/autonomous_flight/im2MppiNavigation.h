@@ -71,6 +71,7 @@ private:
     ros::Publisher refPathPub_;      // nav_msgs/Path  — reference / straight-line
     ros::Publisher dynObsPredPub_;   // MarkerArray    — dynamic obstacle modes
     ros::Publisher goalPub_;         // MarkerArray    — current goal sphere
+    ros::Publisher waypointPub_;     // MarkerArray    — all waypoints (sliding mode)
 
     // ── Component modules ──────────────────────────────────────────────────
     std::shared_ptr<mapManager::dynamicMap>          map_;
@@ -83,10 +84,11 @@ private:
     bool        usePredictor_      = false;
     bool        useYawControl_     = false;
     bool        usePredefinedGoal_ = false;
-    double      desiredVel_        = 1.5;
-    double      desiredAcc_        = 1.5;
-    double      desiredAngularVel_ = 0.5;
-    int         repeatPathNum_     = 1;
+    double      desiredVel_           = 1.5;
+    double      desiredAcc_           = 1.5;
+    double      desiredAngularVel_    = 0.5;
+    double      waypointSwitchDist_   = 1.0;  // advance goalIdx_ when closer than this [m]
+    int         repeatPathNum_        = 1;
     std::string refTrajPath_;
 
     nav_msgs::Path predefinedGoal_;
@@ -139,6 +141,7 @@ private:
     void publishReferencePath()        const;
     void publishDynamicObstaclePred()  const;
     void publishGoal()                 const;
+    void publishWaypoints()            const;  // all waypoints; highlights current goalIdx_
 };
 
 } // namespace AutoFlight

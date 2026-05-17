@@ -61,9 +61,15 @@ void im2MppiNavigation::initParam()
         this->nh_.param("autonomous_flight/execute_path_times", this->repeatPathNum_, 1);
         this->predefinedGoal_ = this->loadRefTraj(this->refTrajPath_);
         if (!this->predefinedGoal_.poses.empty()) {
-            this->goal_ = this->predefinedGoal_.poses.back();
+            // Sliding-waypoint mode: start from the first waypoint, not the last.
+            this->goalIdx_ = 0;
+            this->goal_    = this->predefinedGoal_.poses.front();
         }
     }
+
+    // Waypoint-switch distance (used in mppiCB to advance goalIdx_).
+    this->nh_.param("im2_mppi/waypoint_switch_dist", this->waypointSwitchDist_, 1.0);
+    ROS_INFO("[IM2-MPPI Nav] waypoint_switch_dist = %.2f m", this->waypointSwitchDist_);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -108,6 +114,8 @@ void im2MppiNavigation::registerPub()
         "im2mppi/dynamic_obstacle_predictions", 10);
     this->goalPub_      = this->nh_.advertise<visualization_msgs::MarkerArray>(
         "im2mppi/goal", 10);
+    this->waypointPub_  = this->nh_.advertise<visualization_msgs::MarkerArray>(
+        "im2mppi/waypoints", 10);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,7 +158,27 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
     // 1. Current state
     this->mppi_->setCurrentState(this->currPos_, this->currVel_);
 
-    // 2. Goal
+    // 2. Sliding-waypoint: advance goalIdx_ when within switch distance
+    if (this->usePredefinedGoal_ && !this->predefinedGoal_.poses.empty()) {
+        const int totalWPs = static_cast<int>(this->predefinedGoal_.poses.size());
+        // Advance as long as we are close enough AND there are more waypoints
+        while (this->goalIdx_ < totalWPs - 1) {
+            const auto& wp = this->predefinedGoal_.poses[this->goalIdx_];
+            const Eigen::Vector3d wpPos(wp.pose.position.x,
+                                        wp.pose.position.y,
+                                        wp.pose.position.z);
+            if ((this->currPos_ - wpPos).norm() < this->waypointSwitchDist_) {
+                this->goalIdx_++;
+                ROS_INFO("[IM2-MPPI Nav] → waypoint %d / %d",
+                         this->goalIdx_, totalWPs - 1);
+            } else {
+                break;
+            }
+        }
+        // Always sync goal_ to current sliding target
+        this->goal_ = this->predefinedGoal_.poses[this->goalIdx_];
+    }
+
     const Eigen::Vector3d goalEigen(this->goal_.pose.position.x,
                                     this->goal_.pose.position.y,
                                     this->goal_.pose.position.z);
@@ -292,11 +320,13 @@ void im2MppiNavigation::predCB(const ros::TimerEvent&)
 
 void im2MppiNavigation::visCB(const ros::TimerEvent&)
 {
-    this->publishGoal();              // does not touch mppi_
-    if (!this->mppiReady_) return;
-
-    // Lock for planner reads; publishers iterate over planner-owned vectors.
+    // Single lock covers all visualization reads:
+    //   goal_, goalIdx_, predefinedGoal_ are written by mppiCB under planMutex_
+    //   mppi_ state is also protected by planMutex_
     std::lock_guard<std::mutex> lk(this->planMutex_);
+    this->publishGoal();
+    this->publishWaypoints();
+    if (!this->mppiReady_) return;
     this->publishBestTrajectory();
     this->publishSampledRollouts();
     this->publishReferencePath();
@@ -462,9 +492,14 @@ void im2MppiNavigation::getDynamicSpheres(
 std::vector<Eigen::Vector3d> im2MppiNavigation::buildReferencePath() const
 {
     if (this->usePredefinedGoal_ && !this->predefinedGoal_.poses.empty()) {
+        // Only return the sub-path from the current waypoint onward.
+        // This keeps the reference path local so w_path pulls forward, not sideways.
+        const int N = static_cast<int>(this->predefinedGoal_.poses.size());
+        const int start = std::min(this->goalIdx_, N - 1);
         std::vector<Eigen::Vector3d> path;
-        path.reserve(this->predefinedGoal_.poses.size());
-        for (const auto& ps : this->predefinedGoal_.poses) {
+        path.reserve(N - start);
+        for (int i = start; i < N; ++i) {
+            const auto& ps = this->predefinedGoal_.poses[i];
             path.emplace_back(ps.pose.position.x, ps.pose.position.y, ps.pose.position.z);
         }
         return path;
@@ -720,6 +755,86 @@ void im2MppiNavigation::publishGoal() const
     m.color.a = 1.0f;
     arr.markers.push_back(m);
     this->goalPub_.publish(arr);
+}
+
+void im2MppiNavigation::publishWaypoints() const
+{
+    if (!this->usePredefinedGoal_ || this->predefinedGoal_.poses.empty()) return;
+
+    visualization_msgs::MarkerArray arr;
+
+    // ── DELETEALL to clear stale markers ────────────────────────────────────
+    visualization_msgs::Marker del;
+    del.action          = visualization_msgs::Marker::DELETEALL;
+    del.header.frame_id = "map";
+    del.header.stamp    = ros::Time::now();
+    del.ns              = "im2mppi_waypoints";
+    arr.markers.push_back(del);
+
+    const int N   = static_cast<int>(this->predefinedGoal_.poses.size());
+    const int cur = this->goalIdx_;
+
+    // ── Sphere per waypoint ──────────────────────────────────────────────────
+    for (int i = 0; i < N; ++i) {
+        const auto& ps = this->predefinedGoal_.poses[i];
+
+        visualization_msgs::Marker m;
+        m.header.frame_id = "map";
+        m.header.stamp    = ros::Time::now();
+        m.ns              = "im2mppi_waypoints";
+        m.id              = i;
+        m.type            = visualization_msgs::Marker::SPHERE;
+        m.action          = visualization_msgs::Marker::ADD;
+        m.pose             = ps.pose;
+        m.pose.orientation.w = 1.0;
+        m.lifetime        = ros::Duration(0.5);
+
+        if (i < cur) {
+            // Completed waypoints — small, dim gray
+            m.scale.x = m.scale.y = m.scale.z = 0.20;
+            m.color.r = 0.55f; m.color.g = 0.55f; m.color.b = 0.55f;
+            m.color.a = 0.45f;
+        } else if (i == cur) {
+            // Current target — larger, bright cyan
+            m.scale.x = m.scale.y = m.scale.z = 0.45;
+            m.color.r = 0.0f; m.color.g = 0.95f; m.color.b = 1.0f;
+            m.color.a = 1.0f;
+        } else {
+            // Future waypoints — medium, light blue
+            m.scale.x = m.scale.y = m.scale.z = 0.28;
+            m.color.r = 0.3f; m.color.g = 0.6f; m.color.b = 1.0f;
+            m.color.a = 0.75f;
+        }
+        arr.markers.push_back(m);
+    }
+
+    // ── LINE_STRIP connecting all waypoints ──────────────────────────────────
+    {
+        visualization_msgs::Marker line;
+        line.header.frame_id = "map";
+        line.header.stamp    = ros::Time::now();
+        line.ns              = "im2mppi_waypoints";
+        line.id              = N;          // after the N sphere ids
+        line.type            = visualization_msgs::Marker::LINE_STRIP;
+        line.action          = visualization_msgs::Marker::ADD;
+        line.pose.orientation.w = 1.0;
+        line.scale.x         = 0.04;
+        line.lifetime        = ros::Duration(0.5);
+        // Dashed look via alpha; completed portion dim, future bright
+        line.color.r = 0.3f; line.color.g = 0.75f; line.color.b = 1.0f;
+        line.color.a = 0.55f;
+        line.points.reserve(N);
+        for (const auto& p : this->predefinedGoal_.poses) {
+            geometry_msgs::Point pt;
+            pt.x = p.pose.position.x;
+            pt.y = p.pose.position.y;
+            pt.z = p.pose.position.z;
+            line.points.push_back(pt);
+        }
+        arr.markers.push_back(line);
+    }
+
+    this->waypointPub_.publish(arr);
 }
 
 } // namespace AutoFlight
