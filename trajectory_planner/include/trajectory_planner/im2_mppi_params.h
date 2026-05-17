@@ -1,8 +1,10 @@
 /*
     FILE: im2_mppi_params.h
     --------------------------------
-    Parameter struct for IM2-MPPI planner.
-    All fields have safe defaults; call loadParams() to override from rosparam.
+    Parameter struct for the IM2-MPPI planner (Phases 1 – 3).
+
+    Phase 4 (CVaR) has been intentionally removed for this rewrite; the
+    params struct will be re-extended in a later iteration.
 */
 
 #ifndef IM2_MPPI_PARAMS_H
@@ -16,84 +18,79 @@ namespace im2mppi {
 struct IM2MPPIParams {
     // ── Dynamics / horizon ──────────────────────────────────────────────────
     double dt           = 0.05;  // simulation timestep [s]
-    int horizon_steps   = 30;    // planning horizon length H
+    int    horizon_steps = 30;   // planning horizon length H
 
     // ── Sampling ─────────────────────────────────────────────────────────────
-    int num_rollouts                  = 1024;  // N: parallel trajectory samples
-    int num_modes_per_obstacle        = 4;     // K: intent modes per obstacle
-    int num_joint_modes_keep          = 8;     // Kbar: retained joint modes after pruning
-    int num_obstacle_samples_for_cvar = 16;    // R: per-rollout obstacle samples for CVaR
+    int num_rollouts           = 512;   // N: parallel trajectory samples
+    int num_modes_per_obstacle = 4;     // K: intent modes per obstacle
+    int num_joint_modes_keep   = 4;     // Kbar: retained joint modes after pruning
 
-    // ── MPPI temperature ──────────────────────────────────────────────────────
+    // ── MPPI temperature ─────────────────────────────────────────────────────
     double lambda = 1.0;  // cost-to-weight sharpness; lower → greedier
 
-    // ── CVaR (Phase 4) ────────────────────────────────────────────────────────
-    double alpha_cvar = 0.95;  // CVaR confidence level; 0.95 → worst 5% tail
+    // ── Safety geometry ──────────────────────────────────────────────────────
+    double d_safe     = 0.5;  // minimum clearance distance [m]
+    double sigma_risk = 1.0;  // scale for preliminary risk: exp(-d_min / sigma_risk)
 
-    // ── Safety geometry ───────────────────────────────────────────────────────
-    double d_safe    = 0.5;  // minimum clearance distance [m]
-    double sigma_risk = 1.0; // scale for preliminary risk: exp(-d_min / sigma_risk)
-
-    // ── Kinematic constraints ─────────────────────────────────────────────────
+    // ── Kinematic constraints ────────────────────────────────────────────────
     double v_max = 2.0;   // max velocity norm [m/s]
     double a_max = 3.0;   // max acceleration norm [m/s²]
-    double j_max = 8.0;   // max jerk norm [m/s³] — used as cost context, not hard constraint
 
     // ── Control noise std-dev (per axis) [m/s²] ──────────────────────────────
-    double sigma_ax = 1.0;
-    double sigma_ay = 1.0;
+    double sigma_ax = 1.5;
+    double sigma_ay = 1.5;
     double sigma_az = 0.5;
 
     // ── Cost weights ─────────────────────────────────────────────────────────
-    double w_goal   = 10.0;   // terminal position error ||p_H - goal||²
+    double w_goal   = 10.0;   // terminal position error
     double w_path   = 1.0;    // tracking deviation from reference path
     double w_vel    = 0.1;    // velocity magnitude penalty
     double w_acc    = 0.05;   // acceleration magnitude penalty
-    double w_jerk   = 0.05;   // jerk penalty ||a_k - a_{k-1}||²
-    double w_static = 20.0;   // static obstacle proximity penalty
-    double w_dyn    = 30.0;   // dynamic obstacle proximity penalty (mean trajectory)
-    double w_cvar   = 50.0;   // CVaR tail-risk penalty (Phase 4)
+    double w_jerk   = 0.05;   // jerk penalty
+    double w_static = 30.0;   // static obstacle proximity penalty
+    double w_dyn    = 50.0;   // dynamic obstacle proximity penalty
 
-    // ── Ablation / method selection ───────────────────────────────────────────
-    // Supported values:
-    //   vanilla_mppi          — no predictions, basic MPPI
-    //   mean_prediction_mppi  — compress modes into weighted-mean trajectory
-    //   mode_aware_mppi       — multi-modal weighting, no CVaR
-    //   mode_aware_mppi_cvar  — multi-modal weighting + CVaR
-    //   im2_mppi_full         — multi-modal + CVaR + risk-aware pruning
-    std::string method_type = "im2_mppi_full";
+    // ── Ablation / method selection ──────────────────────────────────────────
+    // Supported values (Phase 3 scope):
+    //   vanilla_mppi          — no predictions, basic MPPI baseline
+    //   mean_prediction_mppi  — compress K modes into weighted-mean trajectory
+    //   mode_aware_mppi       — multi-modal weighting (Cartesian product + prune)
+    std::string method_type = "mode_aware_mppi";
 
     // Supported values: probability | risk_aware
     std::string mode_pruning_type = "risk_aware";
 
+    // ── Visualization ────────────────────────────────────────────────────────
+    int  viz_num_rollouts     = 60;    // how many rollouts to draw in RViz
+    bool viz_color_by_weight  = true;  // true: gradient red→green; false: flat
+
     // ── Misc ──────────────────────────────────────────────────────────────────
-    int  random_seed          = 42;
-    bool use_yaw_postprocess  = true;
-    double v_yaw_min          = 0.1;  // min horizontal speed to update yaw [m/s]
+    int    random_seed         = 42;
+    bool   use_yaw_postprocess = true;
+    double v_yaw_min           = 0.1;  // min horizontal speed to update yaw
 };
 
-// Load all parameters from the ROS parameter server.
-// Expects keys under <ns>/<param_name>, e.g. "im2_mppi/dt".
+// ───────────────────────────────────────────────────────────────────────────
+//  Load all parameters from the ROS parameter server.
+//  Expects keys under <ns>/<param_name>, e.g. "im2_mppi/dt".
+// ───────────────────────────────────────────────────────────────────────────
 inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
                                  const std::string& ns = "im2_mppi")
 {
     IM2MPPIParams p;
 
-    nh.param(ns + "/dt",                            p.dt,                            p.dt);
-    nh.param(ns + "/horizon_steps",                 p.horizon_steps,                 p.horizon_steps);
-    nh.param(ns + "/num_rollouts",                  p.num_rollouts,                  p.num_rollouts);
-    nh.param(ns + "/num_modes_per_obstacle",        p.num_modes_per_obstacle,        p.num_modes_per_obstacle);
-    nh.param(ns + "/num_joint_modes_keep",          p.num_joint_modes_keep,          p.num_joint_modes_keep);
-    nh.param(ns + "/num_obstacle_samples_for_cvar", p.num_obstacle_samples_for_cvar, p.num_obstacle_samples_for_cvar);
+    nh.param(ns + "/dt",                     p.dt,                     p.dt);
+    nh.param(ns + "/horizon_steps",          p.horizon_steps,          p.horizon_steps);
+    nh.param(ns + "/num_rollouts",           p.num_rollouts,           p.num_rollouts);
+    nh.param(ns + "/num_modes_per_obstacle", p.num_modes_per_obstacle, p.num_modes_per_obstacle);
+    nh.param(ns + "/num_joint_modes_keep",   p.num_joint_modes_keep,   p.num_joint_modes_keep);
 
     nh.param(ns + "/lambda",      p.lambda,      p.lambda);
-    nh.param(ns + "/alpha_cvar",  p.alpha_cvar,  p.alpha_cvar);
     nh.param(ns + "/d_safe",      p.d_safe,      p.d_safe);
     nh.param(ns + "/sigma_risk",  p.sigma_risk,  p.sigma_risk);
 
     nh.param(ns + "/v_max",  p.v_max,  p.v_max);
     nh.param(ns + "/a_max",  p.a_max,  p.a_max);
-    nh.param(ns + "/j_max",  p.j_max,  p.j_max);
 
     nh.param(ns + "/sigma_ax", p.sigma_ax, p.sigma_ax);
     nh.param(ns + "/sigma_ay", p.sigma_ay, p.sigma_ay);
@@ -106,10 +103,12 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
     nh.param(ns + "/w_jerk",   p.w_jerk,   p.w_jerk);
     nh.param(ns + "/w_static", p.w_static, p.w_static);
     nh.param(ns + "/w_dyn",    p.w_dyn,    p.w_dyn);
-    nh.param(ns + "/w_cvar",   p.w_cvar,   p.w_cvar);
 
     nh.param(ns + "/method_type",       p.method_type,       p.method_type);
     nh.param(ns + "/mode_pruning_type", p.mode_pruning_type, p.mode_pruning_type);
+
+    nh.param(ns + "/viz_num_rollouts",    p.viz_num_rollouts,    p.viz_num_rollouts);
+    nh.param(ns + "/viz_color_by_weight", p.viz_color_by_weight, p.viz_color_by_weight);
 
     nh.param(ns + "/random_seed",         p.random_seed,         p.random_seed);
     nh.param(ns + "/use_yaw_postprocess", p.use_yaw_postprocess, p.use_yaw_postprocess);

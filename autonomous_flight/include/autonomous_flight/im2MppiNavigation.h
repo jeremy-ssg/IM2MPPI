@@ -1,21 +1,24 @@
 /*
     FILE: im2MppiNavigation.h
     --------------------------------
-    IM2-MPPI navigation orchestrator.
+    IM2-MPPI navigation orchestrator (Phases 1 – 3, no CVaR).
 
-    Replaces mpcNavigation for the IM2-MPPI pipeline.
-    Inherits flight primitives (takeoff, odom, goal) from flightBase.
-    Wires together:
+    Wires:
         dynamicPredictor::predictor  → intent-modal predictions
         im2mppi::IM2MPPIPlanner      → MPPI trajectory optimizer
         tracking_controller::Target  → downstream tracking controller
 
     Method-type dispatch:
-        vanilla_mppi         → no predictions fed to planner
-        mean_prediction_mppi → compress K modes → 1 mean mode per obstacle
-        mode_aware_mppi      → full K modes, Cartesian product, no CVaR
-        mode_aware_mppi_cvar → full K modes + CVaR (Phase 4)
-        im2_mppi_full        → full K modes + CVaR + risk-aware pruning (Phase 5)
+        vanilla_mppi          → no predictions fed to planner
+        mean_prediction_mppi  → compress K modes → 1 weighted-mean mode per obstacle
+        mode_aware_mppi       → full K modes, Cartesian product, then prune
+
+    Visualization (RViz topics, all under node namespace):
+        ~im2mppi/best_trajectory          (nav_msgs/Path)         green
+        ~im2mppi/sampled_rollouts         (visualization_msgs/MarkerArray)
+        ~im2mppi/reference_path           (nav_msgs/Path)         yellow
+        ~im2mppi/dynamic_obstacle_predictions (MarkerArray)
+        ~im2mppi/goal                     (MarkerArray)
 */
 
 #ifndef IM2_MPPI_NAVIGATION_H
@@ -25,8 +28,6 @@
 #include <ros/package.h>
 #include <fstream>
 #include <sstream>
-#include <thread>
-#include <mutex>
 #include <memory>
 #include <vector>
 #include <string>
@@ -35,15 +36,12 @@
 #include <nav_msgs/Path.h>
 #include <visualization_msgs/MarkerArray.h>
 
-// Original AutoFlight base
 #include <autonomous_flight/flightBase.h>
 
-// Dynamic obstacle prediction
 #include <map_manager/dynamicMap.h>
 #include <onboard_detector/fakeDetector.h>
 #include <dynamic_predictor/dynamicPredictor.h>
 
-// IM2-MPPI planner
 #include <trajectory_planner/im2_mppi_planner.h>
 
 namespace AutoFlight {
@@ -61,13 +59,16 @@ public:
 
 private:
     // ── ROS timers ─────────────────────────────────────────────────────────
-    ros::Timer mppiTimer_;    // MPPI planning loop  (~20 Hz)
-    ros::Timer trajExeTimer_; // Target publishing   (100 Hz)
-    ros::Timer visTimer_;     // Visualization       (~30 Hz)
+    ros::Timer mppiTimer_;     // planning loop  (~20 Hz)
+    ros::Timer trajExeTimer_;  // target publishing (100 Hz)
+    ros::Timer visTimer_;      // RViz visualization (~20 Hz)
 
     // ── Publishers ─────────────────────────────────────────────────────────
-    ros::Publisher mppiTrajPub_;   // nav_msgs::Path of MPPI output
-    ros::Publisher goalPub_;       // MarkerArray visualising the current goal
+    ros::Publisher bestTrajPub_;     // nav_msgs/Path  — current MPPI output
+    ros::Publisher rolloutsPub_;     // MarkerArray    — sampled trajectory cloud
+    ros::Publisher refPathPub_;      // nav_msgs/Path  — reference / straight-line
+    ros::Publisher dynObsPredPub_;   // MarkerArray    — dynamic obstacle modes
+    ros::Publisher goalPub_;         // MarkerArray    — current goal sphere
 
     // ── Component modules ──────────────────────────────────────────────────
     std::shared_ptr<mapManager::dynamicMap>          map_;
@@ -76,54 +77,55 @@ private:
     std::shared_ptr<im2mppi::IM2MPPIPlanner>         mppi_;
 
     // ── Navigation parameters ──────────────────────────────────────────────
-    bool   useFakeDetector_   = false;
-    bool   usePredictor_      = false;
-    bool   useYawControl_     = false;
-    bool   usePredefinedGoal_ = false;
-    double desiredVel_        = 1.5;
-    double desiredAcc_        = 1.5;
-    double desiredAngularVel_ = 0.5;
-    int    repeatPathNum_     = 1;
+    bool        useFakeDetector_   = false;
+    bool        usePredictor_      = false;
+    bool        useYawControl_     = false;
+    bool        usePredefinedGoal_ = false;
+    double      desiredVel_        = 1.5;
+    double      desiredAcc_        = 1.5;
+    double      desiredAngularVel_ = 0.5;
+    int         repeatPathNum_     = 1;
     std::string refTrajPath_;
 
-    nav_msgs::Path predefinedGoal_;  // loaded from file
+    nav_msgs::Path predefinedGoal_;
     int            goalIdx_ = 0;
 
     // ── Planning state ─────────────────────────────────────────────────────
-    bool          mppiReady_    = false;   // planner has produced a valid traj
-    ros::Time     trajStartTime_;          // time stamp of last successful plan
-    double        facingYaw_    = 0.0;     // yaw direction towards goal
+    bool          mppiReady_  = false;
+    ros::Time     trajStartTime_;
+    double        facingYaw_  = 0.0;
 
-    nav_msgs::Path mppiTrajMsg_;           // last trajectory for visualisation
+    std::vector<Eigen::Vector3d> lastReferencePath_;
 
-    // ── Internal helpers ───────────────────────────────────────────────────
-
-    // Timer callbacks
+    // ── Callbacks ──────────────────────────────────────────────────────────
     void mppiCB    (const ros::TimerEvent&);
     void trajExeCB (const ros::TimerEvent&);
     void visCB     (const ros::TimerEvent&);
 
-    // Convert dynamicPredictor::obstacle vector → IM2-MPPI prediction format.
-    // Handles time-step interpolation (pred dt=0.1 s → MPPI dt=0.05 s).
+    // ── Prediction conversion ──────────────────────────────────────────────
+    // dynamicPredictor::obstacle → im2mppi format, with dt interpolation
+    // (predictor dt 0.1s → MPPI dt 0.05s).
     std::vector<im2mppi::DynamicObstaclePrediction> convertPredictions(
         const std::vector<dynamicPredictor::obstacle>& predOb) const;
 
-    // For mean_prediction_mppi: compress K modes into one weighted-mean mode.
+    // For mean_prediction_mppi: compress K modes → 1 weighted-mean mode.
     std::vector<im2mppi::DynamicObstaclePrediction> compressToMeanPrediction(
         const std::vector<im2mppi::DynamicObstaclePrediction>& preds) const;
 
-    // Build im2mppi::SphereObstacle list from current dynamic obstacle state
-    // (used when predictor is disabled).
+    // Fallback static spheres when predictor disabled.
     void getDynamicSpheres(std::vector<im2mppi::SphereObstacle>& spheres) const;
 
-    // Load predefined waypoints from text file (dt x y z, one per line).
-    nav_msgs::Path loadRefTraj(const std::string& path) const;
-
-    // Build and publish a reference-path nav_msgs::Path for the MPPI planner.
+    // Build reference path (predefined waypoints or straight-line).
     std::vector<Eigen::Vector3d> buildReferencePath() const;
 
-    // Visualisation helpers
-    void publishGoal() const;
+    nav_msgs::Path loadRefTraj(const std::string& path) const;
+
+    // ── Visualization publishers ───────────────────────────────────────────
+    void publishBestTrajectory()       const;
+    void publishSampledRollouts()      const;
+    void publishReferencePath()        const;
+    void publishDynamicObstaclePred()  const;
+    void publishGoal()                 const;
 };
 
 } // namespace AutoFlight

@@ -1,9 +1,8 @@
 <launch>
   <!-- ═══════════════════════════════════════════════════════════════════════
-       IM2-MPPI demo launch file
-       Mirrors intent_mpc_demo.launch but replaces mpc_navigation_node with
-       im2_mppi_navigation_node.  The original intent_mpc_demo.launch is
-       untouched and can still be run independently.
+       IM2-MPPI demo launch file (Phases 1 – 3, no CVaR)
+       Mirrors intent_mpc_demo.launch but uses im2_mppi_navigation_node and
+       loads the IM2-MPPI-specific RViz config.
   ═══════════════════════════════════════════════════════════════════════════ -->
 
   <!-- Tracking controller parameters -->
@@ -34,19 +33,23 @@
 
   <!-- ─── Nodes ──────────────────────────────────────────────────────────── -->
 
-  <!-- Low-level tracking controller (unchanged from original pipeline) -->
+  <!-- Low-level tracking controller (unchanged) -->
   <node pkg="tracking_controller"
         type="tracking_controller_node"
         name="tracking_controller_node"
         output="screen"/>
 
-  <!-- IM2-MPPI navigation node (replaces mpc_navigation_node) -->
+  <!-- IM2-MPPI navigation node -->
   <node pkg="autonomous_flight"
         type="im2_mppi_navigation_node"
         name="im2_mppi_navigation_node"
         output="screen"/>
 
-  <!-- RViz (reuse the same rviz config as the original MPC demo) -->
-  <include file="$(find remote_control)/launch/mpc_navigation_rviz.launch"/>
+  <!-- IM2-MPPI-specific RViz config -->
+  <node pkg="rviz"
+        type="rviz"
+        name="im2_mppi_rviz"
+        args="-d $(find autonomous_flight)/cfg/im2_mppi_navigation.rviz"
+        required="false"/>
 
 </launch>

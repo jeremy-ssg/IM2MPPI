@@ -1,65 +1,56 @@
-# IM2-MPPI planner parameters
-# All values are loaded under the "im2_mppi" namespace.
-# Load in launch: <rosparam file="$(find trajectory_planner)/cfg/im2_mppi.yaml" ns="im2_mppi"/>
-
+# =====================================================================
+#  IM2-MPPI planner parameters (Phases 1 – 3, no CVaR)
+#  All keys live under the "im2_mppi" namespace.
+# =====================================================================
 im2_mppi:
+  # ── Dynamics / horizon ──────────────────────────────────────────────
+  dt: 0.05                  # simulation timestep [s]
+  horizon_steps: 30         # planning horizon length (=> 1.5 s)
 
-  # ── Dynamics / horizon ────────────────────────────────────────────────────
-  dt:            0.05   # planning timestep [s]
-  horizon_steps: 30     # number of steps H in the receding horizon
+  # ── Sampling ────────────────────────────────────────────────────────
+  num_rollouts: 512         # N parallel trajectory samples
+  num_modes_per_obstacle: 4 # K intent modes per obstacle (predictor side)
+  num_joint_modes_keep: 4   # Kbar retained joint modes after pruning
 
-  # ── Sampling ──────────────────────────────────────────────────────────────
-  num_rollouts:                  1024  # N: parallel rollouts per MPPI iteration
-  num_modes_per_obstacle:        4     # K: intent modes per dynamic obstacle
-  num_joint_modes_keep:          8     # Kbar: modes retained after pruning
-  num_obstacle_samples_for_cvar: 16    # R: per-rollout obstacle samples (Phase 4)
+  # ── MPPI temperature ────────────────────────────────────────────────
+  lambda: 1.0               # cost-to-weight sharpness; lower = greedier
 
-  # ── MPPI temperature ──────────────────────────────────────────────────────
-  lambda: 1.0   # cost-to-weight sharpness; lower → winner-takes-all
+  # ── Safety geometry ─────────────────────────────────────────────────
+  d_safe: 0.5               # minimum clearance distance [m]
+  sigma_risk: 1.0           # preliminary-risk scale: exp(-d_min / sigma_risk)
 
-  # ── CVaR ─────────────────────────────────────────────────────────────────
-  alpha_cvar: 0.95  # confidence level; 0.95 means worst 5% tail (Phase 4)
+  # ── Kinematic constraints ───────────────────────────────────────────
+  v_max: 2.0                # max velocity norm [m/s]
+  a_max: 3.0                # max acceleration norm [m/s²]
 
-  # ── Safety geometry ───────────────────────────────────────────────────────
-  d_safe:    0.5   # minimum clearance [m] below which penalty activates
-  sigma_risk: 1.0  # risk decay scale for mode pruning: exp(-d / sigma_risk)
+  # ── Control noise std-dev per axis [m/s²] ───────────────────────────
+  sigma_ax: 1.5
+  sigma_ay: 1.5
+  sigma_az: 0.5
 
-  # ── Kinematic constraints ──────────────────────────────────────────────────
-  v_max:  2.0   # velocity norm limit [m/s]
-  a_max:  3.0   # acceleration norm limit [m/s²]
-  j_max:  8.0   # jerk norm limit [m/s³] — used as cost context only
+  # ── Cost weights ────────────────────────────────────────────────────
+  w_goal:   10.0
+  w_path:    1.0
+  w_vel:     0.1
+  w_acc:     0.05
+  w_jerk:    0.05
+  w_static: 30.0
+  w_dyn:    50.0
 
-  # ── Control noise std-dev (per axis) ─────────────────────────────────────
-  sigma_ax: 1.0   # x-axis acceleration noise [m/s²]
-  sigma_ay: 1.0   # y-axis acceleration noise [m/s²]
-  sigma_az: 0.5   # z-axis acceleration noise [m/s²] (smaller: fly flatter)
+  # ── Method selection (ablation) ─────────────────────────────────────
+  #   vanilla_mppi         : baseline, ignores dynamic predictions
+  #   mean_prediction_mppi : nav layer compresses K modes -> 1 mean per obstacle
+  #   mode_aware_mppi      : full multi-modal (Cartesian product + prune)
+  method_type: "mode_aware_mppi"
 
-  # ── Cost weights ──────────────────────────────────────────────────────────
-  w_goal:   10.0   # terminal position error ||p_H - goal||²
-  w_path:    1.0   # deviation from reference path
-  w_vel:     0.1   # velocity magnitude penalty
-  w_acc:     0.05  # acceleration magnitude penalty
-  w_jerk:    0.05  # jerk penalty ||a_k - a_{k-1}||²
-  w_static: 20.0   # static obstacle proximity
-  w_dyn:    30.0   # dynamic obstacle proximity (mean trajectory, Phases 3+)
-  w_cvar:   50.0   # CVaR tail-risk penalty (Phase 4+)
+  # probability | risk_aware
+  mode_pruning_type: "risk_aware"
 
-  # ── Method selection (ablation switch) ───────────────────────────────────
-  # Supported values:
-  #   vanilla_mppi          — no predictions, baseline MPPI             (Phase 2)
-  #   mean_prediction_mppi  — compress modes to weighted-mean trajectory (Phase 3)
-  #   mode_aware_mppi       — multi-modal cost weighting                 (Phase 3)
-  #   mode_aware_mppi_cvar  — mode-aware + CVaR risk                     (Phase 4)
-  #   im2_mppi_full         — all components                             (Phase 5)
-  method_type: im2_mppi_full
+  # ── Visualization (RViz) ────────────────────────────────────────────
+  viz_num_rollouts: 60        # how many rollouts to draw as line strips
+  viz_color_by_weight: true   # true: red(low)->green(high); false: flat
 
-  # ── Mode pruning type ─────────────────────────────────────────────────────
-  # Supported values:
-  #   probability  — keep top-Kbar modes by intent probability pi_m
-  #   risk_aware   — keep top-Kbar by score = pi_m * preliminary_risk_m
-  mode_pruning_type: risk_aware
-
-  # ── Misc ──────────────────────────────────────────────────────────────────
-  random_seed:         42      # RNG seed for reproducibility
-  use_yaw_postprocess: true    # derive yaw from velocity direction
-  v_yaw_min:           0.1    # min horizontal speed [m/s] to update yaw
+  # ── Misc ────────────────────────────────────────────────────────────
+  random_seed: 42
+  use_yaw_postprocess: true
+  v_yaw_min: 0.1

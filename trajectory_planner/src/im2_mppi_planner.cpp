@@ -1,23 +1,23 @@
 /*
     FILE: im2_mppi_planner.cpp
     --------------------------------
-    Implementation of IM2MPPIPlanner.
+    IM2MPPIPlanner — Phases 1 – 3 implementation.
 
-    What is implemented here (Phases 2 – 4):
+    Implemented:
       ✓ 3-D point-mass dynamics (propagate / clamp)
       ✓ Gaussian control noise sampling
-      ✓ Parallel rollout execution (CPU, Eigen + STL)
-      ✓ Cost function: goal + path + smoothness + static obstacles
-      ✓ Numerically-stable MPPI weighted control update (with S_min subtraction)
-      ✓ Warm-start via shiftControlSequence()
-      ✓ Yaw post-processing from velocity direction
-      ✓ method_type dispatch (vanilla / mean_prediction / mode_aware / CVaR / full)
-      ✓ buildJointModes: Cartesian product of per-obstacle modes + risk-aware prune
-      ✓ computeDynamicObstacleCost: mean-trajectory dynamic obstacle cost
-      ✓ computeCVaRCost (Phase 4): per-rollout CVaR over R sampled obstacle trajs
+      ✓ Parallel rollouts (CPU)
+      ✓ Cost: goal + path + smoothness + static + dynamic-mean obstacles
+      ✓ Numerically-stable MPPI update (S_min subtraction)
+      ✓ Warm-start (shift control sequence)
+      ✓ Yaw post-processing from velocity
+      ✓ method_type dispatch:
+          - vanilla_mppi         : no dynamic obstacle awareness
+          - mean_prediction_mppi : nav layer pre-compresses K modes → 1 mean mode
+          - mode_aware_mppi      : Cartesian product of per-obstacle modes + prune
+      ✓ Visualization data caching (rollouts + weights) for RViz
 
-    Phase 5 (in progress):
-      risk-aware joint-mode pruning is wired; validate with real multi-obstacle runs.
+    Phase 4 (CVaR) intentionally NOT included.
 */
 
 #include <trajectory_planner/im2_mppi_planner.h>
@@ -25,8 +25,6 @@
 #include <cmath>
 #include <algorithm>
 #include <numeric>
-#include <cassert>
-#include <stdexcept>
 
 namespace im2mppi {
 
@@ -47,17 +45,13 @@ IM2MPPIPlanner::IM2MPPIPlanner(const ros::NodeHandle& nh)
              params_.dt);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Parameter loading
-// ─────────────────────────────────────────────────────────────────────────────
-
 void IM2MPPIPlanner::loadParams()
 {
     params_ = im2mppi::loadParams(nh_, "im2_mppi");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Public setters
+//  Setters
 // ─────────────────────────────────────────────────────────────────────────────
 
 void IM2MPPIPlanner::setCurrentState(const Eigen::Vector3d& pos,
@@ -125,7 +119,7 @@ State IM2MPPIPlanner::clampVelocity(const State& s) const
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Control sequence management
+//  Control sequence
 // ─────────────────────────────────────────────────────────────────────────────
 
 void IM2MPPIPlanner::initializeControlSequence()
@@ -139,11 +133,11 @@ void IM2MPPIPlanner::shiftControlSequence()
     for (int k = 0; k + 1 < H; ++k) {
         u_nominal_[k] = u_nominal_[k + 1];
     }
-    u_nominal_.back() = Control{};  // zero-pad the last step
+    u_nominal_.back() = Control{};
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Control noise sampling
+//  Noise sampling
 // ─────────────────────────────────────────────────────────────────────────────
 
 void IM2MPPIPlanner::sampleControlNoise(
@@ -156,9 +150,8 @@ void IM2MPPIPlanner::sampleControlNoise(
     const int N = params_.num_rollouts;
     const int H = params_.horizon_steps;
 
-    noise_out.resize(N);
+    noise_out.assign(N, std::vector<Control>(H));
     for (int i = 0; i < N; ++i) {
-        noise_out[i].resize(H);
         for (int k = 0; k < H; ++k) {
             noise_out[i][k].a = Eigen::Vector3d(ndx(rng_), ndy(rng_), ndz(rng_));
         }
@@ -170,16 +163,12 @@ void IM2MPPIPlanner::sampleControlNoise(
 // ─────────────────────────────────────────────────────────────────────────────
 
 std::vector<RolloutResult> IM2MPPIPlanner::rolloutDynamics(
-    const std::vector<std::vector<Control>>& noise,
-    const JointMode& /*jm*/) const
+    const std::vector<std::vector<Control>>& noise) const
 {
-    // NOTE: dynamics do not depend on jm — the same trajectories are reused
-    // across all joint modes; only the cost differs (see computeTrajectoryCost).
     const int N = params_.num_rollouts;
     const int H = params_.horizon_steps;
 
     std::vector<RolloutResult> results(N);
-
     for (int i = 0; i < N; ++i) {
         RolloutResult& r = results[i];
         r.states.resize(H + 1);
@@ -187,13 +176,11 @@ std::vector<RolloutResult> IM2MPPIPlanner::rolloutDynamics(
         r.states[0] = current_state_;
 
         for (int k = 0; k < H; ++k) {
-            // Perturbed control: clamp after adding noise to stay within a_max
             Control u;
             u.a = u_nominal_[k].a + noise[i][k].a;
-            u = clampControl(u);
-            r.controls[k] = u;
-
-            r.states[k + 1] = clampVelocity(propagate(r.states[k], u));
+            u   = clampControl(u);
+            r.controls[k]    = u;
+            r.states[k + 1]  = clampVelocity(propagate(r.states[k], u));
         }
     }
     return results;
@@ -205,7 +192,6 @@ std::vector<RolloutResult> IM2MPPIPlanner::rolloutDynamics(
 
 Eigen::Vector3d IM2MPPIPlanner::getReferenceAtStep(int k) const
 {
-    // Straight-line from current position to goal when no path is supplied.
     if (ref_path_.empty()) {
         double alpha = static_cast<double>(k + 1) /
                        static_cast<double>(params_.horizon_steps);
@@ -213,9 +199,8 @@ Eigen::Vector3d IM2MPPIPlanner::getReferenceAtStep(int k) const
         return current_state_.p + alpha * (goal_ - current_state_.p);
     }
 
-    // Arc-length interpolation along the provided path.
     double total_len = 0.0;
-    for (int i = 1; i < static_cast<int>(ref_path_.size()); ++i) {
+    for (size_t i = 1; i < ref_path_.size(); ++i) {
         total_len += (ref_path_[i] - ref_path_[i - 1]).norm();
     }
     if (total_len < 1e-9) return ref_path_.back();
@@ -225,8 +210,8 @@ Eigen::Vector3d IM2MPPIPlanner::getReferenceAtStep(int k) const
     target_dist = std::min(target_dist, total_len);
 
     double walked = 0.0;
-    for (int i = 1; i < static_cast<int>(ref_path_.size()); ++i) {
-        double seg = (ref_path_[i] - ref_path_[i - 1]).norm();
+    for (size_t i = 1; i < ref_path_.size(); ++i) {
+        const double seg = (ref_path_[i] - ref_path_[i - 1]).norm();
         if (walked + seg >= target_dist - 1e-9) {
             double t = (seg > 1e-9) ? (target_dist - walked) / seg : 0.0;
             t = std::max(0.0, std::min(t, 1.0));
@@ -243,7 +228,6 @@ Eigen::Vector3d IM2MPPIPlanner::getReferenceAtStep(int k) const
 
 double IM2MPPIPlanner::computeGoalCost(const RolloutResult& r) const
 {
-    // Terminal position error
     return params_.w_goal * (r.states.back().p - goal_).squaredNorm();
 }
 
@@ -259,35 +243,30 @@ double IM2MPPIPlanner::computePathCost(const RolloutResult& r) const
 
 double IM2MPPIPlanner::computeSmoothnessCost(const RolloutResult& r) const
 {
-    double vel_cost  = 0.0;
-    double acc_cost  = 0.0;
-    double jerk_cost = 0.0;
-
+    double vel_c = 0.0, acc_c = 0.0, jerk_c = 0.0;
     for (int k = 0; k < params_.horizon_steps; ++k) {
-        vel_cost += r.states[k + 1].v.squaredNorm();
-        acc_cost += r.controls[k].a.squaredNorm();
+        vel_c += r.states[k + 1].v.squaredNorm();
+        acc_c += r.controls[k].a.squaredNorm();
         if (k > 0) {
             Eigen::Vector3d da = r.controls[k].a - r.controls[k - 1].a;
-            jerk_cost += da.squaredNorm();
+            jerk_c += da.squaredNorm();
         }
     }
-    return params_.w_vel  * vel_cost
-         + params_.w_acc  * acc_cost
-         + params_.w_jerk * jerk_cost;
+    return params_.w_vel  * vel_c
+         + params_.w_acc  * acc_c
+         + params_.w_jerk * jerk_c;
 }
 
 double IM2MPPIPlanner::computeStaticObstacleCost(const RolloutResult& r) const
 {
     if (static_obstacles_.empty()) return 0.0;
-
     double cost = 0.0;
     for (int k = 1; k <= params_.horizon_steps; ++k) {
         const Eigen::Vector3d& p = r.states[k].p;
         for (const auto& obs : static_obstacles_) {
-            // signed clearance (negative = inside obstacle)
-            double clearance = (p - obs.center).norm() - obs.radius;
+            const double clearance = (p - obs.center).norm() - obs.radius;
             if (clearance < params_.d_safe) {
-                double pen = params_.d_safe - clearance;
+                const double pen = params_.d_safe - clearance;
                 cost += pen * pen;
             }
         }
@@ -298,8 +277,6 @@ double IM2MPPIPlanner::computeStaticObstacleCost(const RolloutResult& r) const
 double IM2MPPIPlanner::computeDynamicObstacleCost(const RolloutResult& r,
                                                    const JointMode&   jm) const
 {
-    // Phase 2: use the mean trajectory of the chosen mode for each obstacle.
-    // Returns 0 when no predictions are available (vanilla_mppi case).
     if (dyn_predictions_.empty() || jm.obstacle_mode_indices.empty()) {
         return 0.0;
     }
@@ -307,24 +284,23 @@ double IM2MPPIPlanner::computeDynamicObstacleCost(const RolloutResult& r,
     double cost = 0.0;
     const int H = params_.horizon_steps;
 
-    for (int j = 0; j < static_cast<int>(dyn_predictions_.size()); ++j) {
-        const auto& pred = dyn_predictions_[j];
-        if (j >= static_cast<int>(jm.obstacle_mode_indices.size())) continue;
+    for (size_t j = 0; j < dyn_predictions_.size(); ++j) {
+        if (j >= jm.obstacle_mode_indices.size()) continue;
 
-        const int mode_idx = jm.obstacle_mode_indices[j];
-        if (mode_idx >= static_cast<int>(pred.modes.size())) continue;
+        const auto& pred = dyn_predictions_[j];
+        const int   mode_idx = jm.obstacle_mode_indices[j];
+        if (mode_idx < 0 || mode_idx >= static_cast<int>(pred.modes.size())) continue;
 
         const ObstacleMode& mode = pred.modes[mode_idx];
         const int pred_H = static_cast<int>(mode.mu_seq.size());
         if (pred_H == 0) continue;
 
         for (int k = 1; k <= H; ++k) {
-            // Clamp prediction index to available horizon
             const int pk = std::min(k - 1, pred_H - 1);
             const double clearance =
                 (r.states[k].p - mode.mu_seq[pk]).norm() - pred.radius;
             if (clearance < params_.d_safe) {
-                double pen = params_.d_safe - clearance;
+                const double pen = params_.d_safe - clearance;
                 cost += pen * pen;
             }
         }
@@ -332,102 +308,16 @@ double IM2MPPIPlanner::computeDynamicObstacleCost(const RolloutResult& r,
     return params_.w_dyn * cost;
 }
 
-double IM2MPPIPlanner::computeCVaRCost(const RolloutResult& r,
-                                        const JointMode&    jm) const
-{
-    // ── Phase 4: per-rollout CVaR dynamic risk ────────────────────────────────
-    //
-    // Only active for the two CVaR-enabled method types.
-    // For vanilla / mean_prediction / mode_aware — return 0 so ablation is clean.
-    const std::string& mt = params_.method_type;
-    if (mt != "mode_aware_mppi_cvar" && mt != "im2_mppi_full") {
-        return 0.0;
-    }
-
-    if (dyn_predictions_.empty() || jm.obstacle_mode_indices.empty()) {
-        return 0.0;
-    }
-
-    const int H = params_.horizon_steps;
-    const int R = params_.num_obstacle_samples_for_cvar;
-
-    // ── Sample R obstacle trajectory realisations ─────────────────────────────
-    // Local RNG: seeded deterministically so CVaR is reproducible across calls.
-    // A fixed seed is fine — the expectation is taken over the *rollouts*, not
-    // over the obstacle samples.
-    std::mt19937 local_rng(static_cast<unsigned>(params_.random_seed));
-
-    // sample_losses[r] = Σ_j  Σ_k  max(0, d_safe - dist)²
-    //                    summed over all obstacles for one sample realisation.
-    std::vector<double> sample_losses(R, 0.0);
-
-    for (int j = 0; j < static_cast<int>(dyn_predictions_.size()); ++j) {
-        const auto& pred = dyn_predictions_[j];
-        if (j >= static_cast<int>(jm.obstacle_mode_indices.size())) continue;
-
-        const int mode_idx = jm.obstacle_mode_indices[j];
-        if (mode_idx >= static_cast<int>(pred.modes.size())) continue;
-
-        const ObstacleMode& mode = pred.modes[mode_idx];
-        const int pred_H = static_cast<int>(mode.mu_seq.size());
-        if (pred_H == 0) continue;
-        // sigma_diag_seq must be available; skip obstacle if missing.
-        if (static_cast<int>(mode.sigma_diag_seq.size()) != pred_H) continue;
-
-        for (int s = 0; s < R; ++s) {
-            double loss_s = 0.0;
-            for (int k = 1; k <= H; ++k) {
-                const int pk = std::min(k - 1, pred_H - 1);
-                const Eigen::Vector3d& mu    = mode.mu_seq[pk];
-                const Eigen::Vector3d& sigma = mode.sigma_diag_seq[pk];
-
-                // o(k) ~ N(mu, diag(sigma²))
-                std::normal_distribution<double> dx(mu.x(), std::max(sigma.x(), 1e-6));
-                std::normal_distribution<double> dy(mu.y(), std::max(sigma.y(), 1e-6));
-                std::normal_distribution<double> dz(mu.z(), std::max(sigma.z(), 1e-6));
-                const Eigen::Vector3d o(dx(local_rng), dy(local_rng), dz(local_rng));
-
-                const double clearance = (r.states[k].p - o).norm() - pred.radius;
-                if (clearance < params_.d_safe) {
-                    const double pen = params_.d_safe - clearance;
-                    loss_s += pen * pen;
-                }
-            }
-            sample_losses[s] += loss_s;  // accumulate across obstacles
-        }
-    }
-
-    // ── CVaR_alpha = mean of worst (1 - alpha) fraction ───────────────────────
-    // Sort descending and take the top tail_count samples.
-    std::sort(sample_losses.begin(), sample_losses.end(),
-              std::greater<double>());
-
-    const int tail_count = std::max(1,
-        static_cast<int>(std::ceil(
-            (1.0 - params_.alpha_cvar) * static_cast<double>(R))));
-
-    double cvar = 0.0;
-    for (int s = 0; s < tail_count; ++s) {
-        cvar += sample_losses[s];
-    }
-    cvar /= static_cast<double>(tail_count);
-
-    return params_.w_cvar * cvar;
-}
-
 double IM2MPPIPlanner::computeTrajectoryCost(const RolloutResult& r,
                                               const JointMode&    jm) const
 {
-    // computeCVaRCost returns 0 unless method_type ∈ {mode_aware_mppi_cvar,
-    // im2_mppi_full}, so adding it here is always safe.
-    double cost = 0.0;
-    cost += computeGoalCost(r);
-    cost += computePathCost(r);
-    cost += computeSmoothnessCost(r);
-    cost += computeStaticObstacleCost(r);
-    cost += computeDynamicObstacleCost(r, jm);
-    cost += computeCVaRCost(r, jm);   // Phase 4: live for cvar/full methods
-    return cost;
+    double c = 0.0;
+    c += computeGoalCost(r);
+    c += computePathCost(r);
+    c += computeSmoothnessCost(r);
+    c += computeStaticObstacleCost(r);
+    c += computeDynamicObstacleCost(r, jm);
+    return c;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -436,28 +326,22 @@ double IM2MPPIPlanner::computeTrajectoryCost(const RolloutResult& r,
 
 double IM2MPPIPlanner::computePreliminaryRisk(const JointMode& jm) const
 {
-    // Evaluate risk on the *current nominal trajectory* (cheap, no rollout).
-    // preliminary_risk = exp(-max(0, d_min) / sigma_risk)
-    if (dyn_predictions_.empty() || jm.obstacle_mode_indices.empty()) {
-        return 0.0;
-    }
+    if (dyn_predictions_.empty() || jm.obstacle_mode_indices.empty()) return 0.0;
 
     double min_clearance = std::numeric_limits<double>::infinity();
-    State s = current_state_;
+    State  s = current_state_;
 
     for (int k = 0; k < params_.horizon_steps; ++k) {
         s = clampVelocity(propagate(s, u_nominal_[k]));
 
-        for (int j = 0; j < static_cast<int>(dyn_predictions_.size()); ++j) {
-            if (j >= static_cast<int>(jm.obstacle_mode_indices.size())) continue;
+        for (size_t j = 0; j < dyn_predictions_.size(); ++j) {
+            if (j >= jm.obstacle_mode_indices.size()) continue;
             const int mode_idx = jm.obstacle_mode_indices[j];
             const auto& pred = dyn_predictions_[j];
-            if (mode_idx >= static_cast<int>(pred.modes.size())) continue;
-
+            if (mode_idx < 0 || mode_idx >= static_cast<int>(pred.modes.size())) continue;
             const auto& mode = pred.modes[mode_idx];
             const int pk = std::min(k, static_cast<int>(mode.mu_seq.size()) - 1);
             if (pk < 0) continue;
-
             const double clearance =
                 (s.p - mode.mu_seq[pk]).norm() - pred.radius;
             min_clearance = std::min(min_clearance, clearance);
@@ -474,21 +358,11 @@ void IM2MPPIPlanner::pruneJointModes(std::vector<JointMode>& modes) const
     if (static_cast<int>(modes.size()) <= keep) return;
 
     if (params_.mode_pruning_type == "risk_aware") {
-        // Descending by score = pi * preliminary_risk
-        std::partial_sort(modes.begin(),
-                          modes.begin() + keep,
-                          modes.end(),
-                          [](const JointMode& a, const JointMode& b) {
-                              return a.score > b.score;
-                          });
+        std::partial_sort(modes.begin(), modes.begin() + keep, modes.end(),
+            [](const JointMode& a, const JointMode& b) { return a.score > b.score; });
     } else {
-        // probability only
-        std::partial_sort(modes.begin(),
-                          modes.begin() + keep,
-                          modes.end(),
-                          [](const JointMode& a, const JointMode& b) {
-                              return a.probability > b.probability;
-                          });
+        std::partial_sort(modes.begin(), modes.begin() + keep, modes.end(),
+            [](const JointMode& a, const JointMode& b) { return a.probability > b.probability; });
     }
     modes.resize(keep);
 }
@@ -497,43 +371,27 @@ void IM2MPPIPlanner::buildJointModes()
 {
     joint_modes_.clear();
 
-    // ── vanilla_mppi: single trivial mode, no dynamic obstacle accounting ──
+    // vanilla_mppi OR no predictions → trivial single mode with no dyn cost
     if (params_.method_type == "vanilla_mppi" || dyn_predictions_.empty()) {
         JointMode jm;
         jm.probability      = 1.0;
         jm.preliminary_risk = 0.0;
         jm.score            = 1.0;
-        // obstacle_mode_indices is intentionally empty
         joint_modes_.push_back(jm);
         return;
     }
 
-    // ── mean_prediction_mppi ─────────────────────────────────────────────────
-    // The navigation layer (im2MppiNavigation) pre-processes multi-modal
-    // predictions into a single probability-weighted mean mode per obstacle
-    // before calling setDynamicObstaclePredictions().  By the time we reach
-    // here, each DynamicObstaclePrediction already has exactly one mode
-    // (pi=1.0, mu_seq = Σ pi_m * mu_m_seq).
-    //
-    // The Cartesian product below will therefore produce exactly one
-    // JointMode with obstacle_mode_indices[j]=0 for all j — which is
-    // the correct single-world-hypothesis behaviour for mean_prediction_mppi.
-    //
-    // No special branch needed here; fall through to Cartesian product.
-
-    // ── mode_aware_mppi / mode_aware_mppi_cvar / im2_mppi_full ──────────────
-    // Enumerate Cartesian product of per-obstacle mode indices, then prune.
-    const int M = static_cast<int>(dyn_predictions_.size());
+    // mean_prediction_mppi: nav layer compressed K modes → 1 mean per obstacle
+    // mode_aware_mppi:      full K modes per obstacle, Cartesian product + prune
 
     std::vector<JointMode> all_modes;
-    {   // Seed with one empty mode
+    {
         JointMode seed;
         seed.probability = 1.0;
         all_modes.push_back(seed);
     }
 
-    for (int j = 0; j < M; ++j) {
-        const auto& pred = dyn_predictions_[j];
+    for (const auto& pred : dyn_predictions_) {
         const int K = static_cast<int>(pred.modes.size());
         if (K == 0) continue;
 
@@ -550,10 +408,9 @@ void IM2MPPIPlanner::buildJointModes()
         all_modes = std::move(expanded);
     }
 
-    // Annotate with preliminary risk, then prune to top-Kbar
     for (auto& jm : all_modes) {
         jm.preliminary_risk = computePreliminaryRisk(jm);
-        jm.score = jm.probability * jm.preliminary_risk;
+        jm.score            = jm.probability * jm.preliminary_risk;
     }
 
     pruneJointModes(all_modes);
@@ -561,22 +418,16 @@ void IM2MPPIPlanner::buildJointModes()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  MPPI control sequence update
+//  MPPI update
 // ─────────────────────────────────────────────────────────────────────────────
 
 void IM2MPPIPlanner::updateControlSequence(
     const std::vector<JointMode>&                  modes,
     const std::vector<std::vector<RolloutResult>>& all_results)
 {
-    // w_mi = pi_m * exp(-(S_mi - S_min) / lambda)
-    // u_new_k = Σ_{m,i} w_mi * u_{m,i,k} / Σ_{m,i} w_mi
-    //
-    // Numerically: subtract S_min before exponentiation to prevent underflow.
-
-    const int K = params_.horizon_steps;
+    const int H = params_.horizon_steps;
     const int N = params_.num_rollouts;
 
-    // ── Global S_min ─────────────────────────────────────────────────────────
     double S_min = std::numeric_limits<double>::infinity();
     for (const auto& mode_results : all_results) {
         for (const auto& r : mode_results) {
@@ -584,12 +435,11 @@ void IM2MPPIPlanner::updateControlSequence(
         }
     }
     if (!std::isfinite(S_min)) {
-        ROS_WARN("[IM2-MPPI] All rollout costs are non-finite — skipping update.");
+        ROS_WARN("[IM2-MPPI] All rollout costs non-finite — skipping update.");
         return;
     }
 
-    // ── Accumulate weighted controls ─────────────────────────────────────────
-    std::vector<Eigen::Vector3d> weighted_a(K, Eigen::Vector3d::Zero());
+    std::vector<Eigen::Vector3d> weighted_a(H, Eigen::Vector3d::Zero());
     double total_weight = 0.0;
 
     for (size_t mi = 0; mi < modes.size(); ++mi) {
@@ -598,37 +448,34 @@ void IM2MPPIPlanner::updateControlSequence(
             const double w =
                 pi_m * std::exp(-(all_results[mi][i].cost - S_min) / params_.lambda);
             if (!std::isfinite(w)) continue;
-
             total_weight += w;
-            for (int k = 0; k < K; ++k) {
+            for (int k = 0; k < H; ++k) {
                 weighted_a[k] += w * all_results[mi][i].controls[k].a;
             }
         }
     }
 
     if (total_weight < 1e-12) {
-        ROS_WARN("[IM2-MPPI] Total MPPI weight near zero — keeping previous nominal.");
+        ROS_WARN("[IM2-MPPI] Total MPPI weight ~0 — keeping previous nominal.");
         return;
     }
 
-    for (int k = 0; k < K; ++k) {
+    for (int k = 0; k < H; ++k) {
         Control u;
-        u.a = weighted_a[k] / total_weight;
+        u.a           = weighted_a[k] / total_weight;
         u_nominal_[k] = clampControl(u);
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Yaw reference generation
+//  Yaw
 // ─────────────────────────────────────────────────────────────────────────────
 
 void IM2MPPIPlanner::generateYawReference(std::vector<TrajectoryPoint>& traj) const
 {
     if (!params_.use_yaw_postprocess || traj.empty()) return;
 
-    // Initialise from current velocity direction
     double prev_yaw = std::atan2(current_state_.v.y(), current_state_.v.x());
-
     for (auto& pt : traj) {
         const double vxy = std::hypot(pt.v.x(), pt.v.y());
         if (vxy >= params_.v_yaw_min) {
@@ -639,70 +486,114 @@ void IM2MPPIPlanner::generateYawReference(std::vector<TrajectoryPoint>& traj) co
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  Visualization data cache
+// ─────────────────────────────────────────────────────────────────────────────
+
+void IM2MPPIPlanner::cacheVisualizationData(
+    const std::vector<RolloutResult>&              base_rollouts,
+    const std::vector<std::vector<RolloutResult>>& all_results)
+{
+    const int N = static_cast<int>(base_rollouts.size());
+    const int H = params_.horizon_steps;
+    const int target = std::min(params_.viz_num_rollouts, N);
+
+    viz_rollout_positions_.assign(target, {});
+    viz_rollout_weights_.assign(target, 0.0);
+
+    if (target == 0 || all_results.empty()) return;
+
+    // Aggregate per-rollout cost = min cost across joint modes (most-favourable
+    // hypothesis), giving a visually meaningful weight for the rollout.
+    std::vector<double> rollout_min_cost(N, std::numeric_limits<double>::infinity());
+    for (const auto& mode_results : all_results) {
+        for (int i = 0; i < N; ++i) {
+            rollout_min_cost[i] = std::min(rollout_min_cost[i], mode_results[i].cost);
+        }
+    }
+
+    // Stride-based subsampling so we cover the rollout space evenly.
+    const int stride = std::max(1, N / target);
+
+    double S_min = *std::min_element(rollout_min_cost.begin(), rollout_min_cost.end());
+    double w_max = 0.0;
+
+    int slot = 0;
+    for (int i = 0; i < N && slot < target; i += stride, ++slot) {
+        const auto& r = base_rollouts[i];
+        auto& pos = viz_rollout_positions_[slot];
+        pos.resize(H + 1);
+        for (int k = 0; k <= H; ++k) pos[k] = r.states[k].p;
+
+        const double w = std::exp(-(rollout_min_cost[i] - S_min) / params_.lambda);
+        viz_rollout_weights_[slot] = w;
+        if (w > w_max) w_max = w;
+    }
+
+    // Normalize weights to [0, 1] for color mapping.
+    if (w_max > 1e-12) {
+        for (auto& w : viz_rollout_weights_) w /= w_max;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  Main planning entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
 bool IM2MPPIPlanner::plan()
 {
     if (!state_set_) {
-        ROS_WARN_THROTTLE(1.0, "[IM2-MPPI] plan() called before setCurrentState().");
+        ROS_WARN_THROTTLE(1.0, "[IM2-MPPI] plan() before setCurrentState().");
         return false;
     }
     if (!goal_set_) {
-        ROS_WARN_THROTTLE(1.0, "[IM2-MPPI] plan() called before setGoal().");
+        ROS_WARN_THROTTLE(1.0, "[IM2-MPPI] plan() before setGoal().");
         return false;
     }
 
-    // 1. Warm-start: shift nominal control left by one step
+    // 1. Warm-start
     shiftControlSequence();
 
-    // 2. Build joint modes for this iteration
+    // 2. Joint modes (depends on method_type + current dyn_predictions_)
     buildJointModes();
+    if (joint_modes_.empty()) {
+        ROS_WARN_THROTTLE(1.0, "[IM2-MPPI] No joint modes — skipping plan().");
+        return false;
+    }
 
-    // 3. Sample control noise once — shared across all joint modes.
-    //    This is correct because dynamics only depend on (u_nominal + noise),
-    //    not on the mode.  The mode only affects the *cost* of each trajectory.
+    // 3. Sample noise (shared across modes; dynamics don't depend on mode)
     std::vector<std::vector<Control>> noise;
     sampleControlNoise(noise);
 
-    // 4. Roll out all N trajectories (one rollout set shared across modes)
-    //    Pass joint_modes_[0] for signature compatibility; dynamics ignore jm.
-    std::vector<RolloutResult> base_rollouts =
-        rolloutDynamics(noise, joint_modes_[0]);
+    // 4. Roll out dynamics ONCE
+    std::vector<RolloutResult> base_rollouts = rolloutDynamics(noise);
 
-    // 5. For each joint mode, compute per-rollout costs
-    //    (states/controls are identical; only cost weights differ)
+    // 5. Per-mode cost evaluation
     std::vector<std::vector<RolloutResult>> all_results;
     all_results.reserve(joint_modes_.size());
-
     for (const auto& jm : joint_modes_) {
-        std::vector<RolloutResult> mode_results = base_rollouts;  // copy states
-        for (auto& r : mode_results) {
-            r.cost = computeTrajectoryCost(r, jm);
-        }
+        std::vector<RolloutResult> mode_results = base_rollouts;
+        for (auto& r : mode_results) r.cost = computeTrajectoryCost(r, jm);
         all_results.push_back(std::move(mode_results));
     }
 
     // 6. MPPI update
     updateControlSequence(joint_modes_, all_results);
 
-    // 7. Build output trajectory from the updated nominal control sequence
-    planned_traj_.resize(params_.horizon_steps + 1);
+    // 7. Output trajectory from updated nominal controls
+    planned_traj_.assign(params_.horizon_steps + 1, TrajectoryPoint{});
     State s = current_state_;
     planned_traj_[0].p = s.p;
     planned_traj_[0].v = s.v;
-    planned_traj_[0].a = Eigen::Vector3d::Zero();
-
     for (int k = 0; k < params_.horizon_steps; ++k) {
-        planned_traj_[k].a = u_nominal_[k].a;
+        planned_traj_[k].a   = u_nominal_[k].a;
         s = clampVelocity(propagate(s, u_nominal_[k]));
         planned_traj_[k + 1].p = s.p;
         planned_traj_[k + 1].v = s.v;
     }
-    planned_traj_.back().a = Eigen::Vector3d::Zero();
-
-    // 8. Yaw post-processing
     generateYawReference(planned_traj_);
+
+    // 8. Cache visualization data
+    cacheVisualizationData(base_rollouts, all_results);
 
     return true;
 }
@@ -741,6 +632,27 @@ Eigen::Vector3d IM2MPPIPlanner::getAcc(double t) const
         std::min(static_cast<int>(t / params_.dt),
                  static_cast<int>(planned_traj_.size()) - 1));
     return planned_traj_[k].a;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Visualization getters
+// ─────────────────────────────────────────────────────────────────────────────
+
+const std::vector<std::vector<Eigen::Vector3d>>&
+IM2MPPIPlanner::getRolloutPositions() const
+{
+    return viz_rollout_positions_;
+}
+
+const std::vector<double>& IM2MPPIPlanner::getRolloutWeights() const
+{
+    return viz_rollout_weights_;
+}
+
+const std::vector<DynamicObstaclePrediction>&
+IM2MPPIPlanner::getDynamicObstaclePredictions() const
+{
+    return dyn_predictions_;
 }
 
 } // namespace im2mppi
