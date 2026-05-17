@@ -104,6 +104,11 @@ private:
     std::mutex                                      predMutex_;
     std::vector<im2mppi::DynamicObstaclePrediction> cachedDynPreds_;
 
+    // Protects all access to mppi_ (read or write) across the
+    // AsyncSpinner threads. predCB does NOT take this lock — it only
+    // touches cachedDynPreds_ under predMutex_.
+    mutable std::mutex planMutex_;
+
     // ── Callbacks ──────────────────────────────────────────────────────────
     void mppiCB    (const ros::TimerEvent&);
     void trajExeCB (const ros::TimerEvent&);

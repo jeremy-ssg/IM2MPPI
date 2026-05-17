@@ -144,6 +144,9 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
     if (!this->goalReceived_ && !this->usePredefinedGoal_) return;
     if (!this->odomReceived_) return;
 
+    // Lock planner for the whole iteration — trajExeCB/visCB will wait.
+    std::lock_guard<std::mutex> lk(this->planMutex_);
+
     // 1. Current state
     this->mppi_->setCurrentState(this->currPos_, this->currVel_);
 
@@ -205,6 +208,9 @@ void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
 {
     if (!this->mppiReady_) return;
 
+    // Brief lock to read planner state safely (typical < 0.1 ms).
+    std::lock_guard<std::mutex> lk(this->planMutex_);
+
     const auto&  params  = this->mppi_->getParams();
     const double endTime = static_cast<double>(params.horizon_steps) * params.dt;
     const double realTime = (ros::Time::now() - this->trajStartTime_).toSec();
@@ -264,12 +270,14 @@ void im2MppiNavigation::predCB(const ros::TimerEvent&)
     std::vector<dynamicPredictor::obstacle> predOb;
     this->predictor_->getPrediction(predOb);   // may take 100–200 ms; OK here
 
-    std::vector<im2mppi::DynamicObstaclePrediction> dynPreds;
-    if (!predOb.empty()) {
-        dynPreds = this->convertPredictions(predOb);
-        if (method == "mean_prediction_mppi") {
-            dynPreds = this->compressToMeanPrediction(dynPreds);
-        }
+    // If predictor returns empty (detector momentarily lost tracks), keep the
+    // previous cache so visualization & MPPI don't lose all obstacle info.
+    if (predOb.empty()) return;
+
+    std::vector<im2mppi::DynamicObstaclePrediction> dynPreds =
+        this->convertPredictions(predOb);
+    if (method == "mean_prediction_mppi") {
+        dynPreds = this->compressToMeanPrediction(dynPreds);
     }
 
     {
@@ -284,9 +292,11 @@ void im2MppiNavigation::predCB(const ros::TimerEvent&)
 
 void im2MppiNavigation::visCB(const ros::TimerEvent&)
 {
-    this->publishGoal();
+    this->publishGoal();              // does not touch mppi_
     if (!this->mppiReady_) return;
 
+    // Lock for planner reads; publishers iterate over planner-owned vectors.
+    std::lock_guard<std::mutex> lk(this->planMutex_);
     this->publishBestTrajectory();
     this->publishSampledRollouts();
     this->publishReferencePath();
@@ -539,7 +549,7 @@ void im2MppiNavigation::publishSampledRollouts() const
         m.action          = visualization_msgs::Marker::ADD;
         m.pose.orientation.w = 1.0;
         m.scale.x         = 0.015;   // line width [m]
-        m.lifetime        = ros::Duration(0.2);
+        m.lifetime        = ros::Duration(0.5);
 
         // Color: gradient red(0) → green(1) by normalized weight
         if (params.viz_color_by_weight && i < weights.size()) {
@@ -641,7 +651,7 @@ void im2MppiNavigation::publishDynamicObstaclePred() const
             line.action          = visualization_msgs::Marker::ADD;
             line.pose.orientation.w = 1.0;
             line.scale.x         = 0.04;
-            line.lifetime        = ros::Duration(0.2);
+            line.lifetime        = ros::Duration(0.5);
             line.color.r = c[0];
             line.color.g = c[1];
             line.color.b = c[2];
@@ -669,7 +679,7 @@ void im2MppiNavigation::publishDynamicObstaclePred() const
             sphere.color.g = c[1];
             sphere.color.b = c[2];
             sphere.color.a = 0.25f;
-            sphere.lifetime = ros::Duration(0.2);
+            sphere.lifetime = ros::Duration(0.5);
             arr.markers.push_back(sphere);
 
             // Sphere at horizon end

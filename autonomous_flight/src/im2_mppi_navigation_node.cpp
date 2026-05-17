@@ -1,8 +1,10 @@
 /*
     FILE: im2_mppi_navigation_node.cpp
     ------------------------------------
-    ROS node entry point for the IM2-MPPI navigation stack.
-    Pattern mirrors mpc_navigation_node.cpp exactly.
+    ROS node entry for the IM2-MPPI navigation stack.
+
+    Uses ros::AsyncSpinner(2) so that the slow predictor callback (predCB)
+    does NOT block the planning/execution/visualization callbacks.
 
     Usage:
         roslaunch autonomous_flight im2_mppi_demo.launch
@@ -19,6 +21,12 @@ int main(int argc, char** argv)
     AutoFlight::im2MppiNavigation navigator(nh);
     navigator.run();   // takeoff() + registerCallback()
 
-    ros::spin();
+    // Two threads:
+    //   - one handles the slow predCB (~200 ms inference)
+    //   - the other handles mppiCB / trajExeCB / visCB
+    //   Concurrent access to the planner is protected by planMutex_.
+    ros::AsyncSpinner spinner(2);
+    spinner.start();
+    ros::waitForShutdown();
     return 0;
 }
