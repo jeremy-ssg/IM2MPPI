@@ -15,6 +15,10 @@
   <build_depend>map_manager</build_depend>
   <build_depend>dynamic_predictor</build_depend>
   <build_depend>octomap_ros</build_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>tracking_controller</exec_depend>
   <build_export_depend>roscpp</build_export_depend>
   <build_export_depend>rospy</build_export_depend>
   <build_export_depend>std_msgs</build_export_depend>

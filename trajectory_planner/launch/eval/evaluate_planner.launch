@@ -1,0 +1,27 @@
+<launch>
+  <!-- Run this alongside either intent_mpc_demo.launch or im2_mppi_demo.launch. -->
+  <arg name="algorithm" default="im2_mppi"/>
+  <arg name="duration" default="120.0"/>
+  <arg name="output_dir" default="$(env HOME)/.ros/mppi_eval"/>
+
+  <!-- Defaults are selected from algorithm when path_topic is left empty by caller. -->
+  <arg name="path_topic" default=""/>
+  <arg name="odom_topic" default="/CERLAB/quadcopter/odom"/>
+  <arg name="target_topic" default="/autonomous_flight/target_state"/>
+  <arg name="goal_topic" default="/move_base_simple/goal"/>
+  <arg name="obstacle_topic" default="/onboard_detector/GT_obstacle_bbox"/>
+
+  <node pkg="trajectory_planner"
+        type="evaluate_intent_mpc_im2mppi.py"
+        name="planner_evaluator"
+        output="screen">
+    <param name="algorithm" value="$(arg algorithm)"/>
+    <param name="duration" value="$(arg duration)"/>
+    <param name="output_dir" value="$(arg output_dir)"/>
+    <param name="odom_topic" value="$(arg odom_topic)"/>
+    <param name="target_topic" value="$(arg target_topic)"/>
+    <param name="goal_topic" value="$(arg goal_topic)"/>
+    <param name="obstacle_topic" value="$(arg obstacle_topic)"/>
+    <param name="path_topic" value="$(arg path_topic)"/>
+  </node>
+</launch>

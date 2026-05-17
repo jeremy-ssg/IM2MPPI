@@ -286,6 +286,11 @@ target_link_libraries(mpc_solver_setup ${PROJECT_SOURCE_DIR}/include/${PROJECT_N
 #   scripts/my_python_script
 #   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 # )
+catkin_install_python(PROGRAMS
+  scripts/evaluate_intent_mpc_im2mppi.py
+  scripts/compare_planner_eval.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
 
 ## Mark executables for installation
 ## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_executables.html
