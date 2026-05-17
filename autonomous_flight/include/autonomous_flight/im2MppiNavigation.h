@@ -32,6 +32,8 @@
 #include <vector>
 #include <string>
 #include <cmath>
+#include <algorithm>
+#include <limits>
 
 #include <nav_msgs/Path.h>
 #include <visualization_msgs/MarkerArray.h>
@@ -59,9 +61,9 @@ public:
 
 private:
     // ── ROS timers ─────────────────────────────────────────────────────────
-    ros::Timer mppiTimer_;     // planning loop  (~20 Hz)
+    ros::Timer mppiTimer_;     // planning loop  (~10 Hz)
     ros::Timer trajExeTimer_;  // target publishing (100 Hz)
-    ros::Timer visTimer_;      // RViz visualization (~20 Hz)
+    ros::Timer visTimer_;      // RViz visualization (~5 Hz)
 
     // ── Publishers ─────────────────────────────────────────────────────────
     ros::Publisher bestTrajPub_;     // nav_msgs/Path  — current MPPI output

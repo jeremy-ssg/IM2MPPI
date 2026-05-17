@@ -23,7 +23,9 @@
 #include <string>
 #include <random>
 #include <limits>
+#include <memory>
 
+#include <map_manager/dynamicMap.h>
 #include <trajectory_planner/im2_mppi_params.h>
 
 namespace im2mppi {
@@ -108,6 +110,7 @@ public:
     void setReferencePath(const std::vector<Eigen::Vector3d>& path);
 
     // Obstacle setters
+    void setMap(const std::shared_ptr<mapManager::dynamicMap>& map);
     void setStaticObstacles(const std::vector<SphereObstacle>& obstacles);
     void setDynamicObstaclePredictions(
         const std::vector<DynamicObstaclePrediction>& preds);
@@ -156,6 +159,7 @@ private:
     double computePathCost           (const RolloutResult& r) const;
     double computeSmoothnessCost     (const RolloutResult& r) const;
     double computeStaticObstacleCost (const RolloutResult& r) const;
+    double computeMapObstacleCost    (const RolloutResult& r) const;
     double computeDynamicObstacleCost(const RolloutResult& r,
                                       const JointMode& jm) const;
 
@@ -174,6 +178,7 @@ private:
 
     // ── Reference path helpers ───────────────────────────────────────────────
     Eigen::Vector3d getReferenceAtStep(int k) const;
+    TrajectoryPoint sampleTrajectory(double t) const;
 
     // ── Visualization helpers ────────────────────────────────────────────────
     // Stash a subset of rollouts + normalized weights for the nav layer.
@@ -189,6 +194,8 @@ private:
     Eigen::Vector3d goal_     = Eigen::Vector3d::Zero();
     bool            state_set_ = false;
     bool            goal_set_  = false;
+
+    std::shared_ptr<mapManager::dynamicMap> map_;
 
     std::vector<Eigen::Vector3d> ref_path_;
     std::vector<Control>         u_nominal_;

@@ -47,7 +47,7 @@ im2_mppi:
   mode_pruning_type: "risk_aware"
 
   # ── Visualization (RViz) ────────────────────────────────────────────
-  viz_num_rollouts: 60        # how many rollouts to draw as line strips
+  viz_num_rollouts: 20        # how many rollouts to draw as line strips
   viz_color_by_weight: true   # true: red(low)->green(high); false: flat
 
   # ── Misc ────────────────────────────────────────────────────────────

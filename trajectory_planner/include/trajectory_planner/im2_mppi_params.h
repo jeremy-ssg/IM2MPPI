@@ -12,6 +12,7 @@
 
 #include <string>
 #include <ros/ros.h>
+#include <algorithm>
 
 namespace im2mppi {
 
@@ -113,6 +114,22 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
     nh.param(ns + "/random_seed",         p.random_seed,         p.random_seed);
     nh.param(ns + "/use_yaw_postprocess", p.use_yaw_postprocess, p.use_yaw_postprocess);
     nh.param(ns + "/v_yaw_min",           p.v_yaw_min,           p.v_yaw_min);
+
+    p.dt                     = std::max(1e-3, p.dt);
+    p.horizon_steps          = std::max(1, p.horizon_steps);
+    p.num_rollouts           = std::max(1, p.num_rollouts);
+    p.num_modes_per_obstacle = std::max(1, p.num_modes_per_obstacle);
+    p.num_joint_modes_keep   = std::max(1, p.num_joint_modes_keep);
+    p.lambda                 = std::max(1e-6, p.lambda);
+    p.d_safe                 = std::max(0.0, p.d_safe);
+    p.sigma_risk             = std::max(1e-6, p.sigma_risk);
+    p.v_max                  = std::max(1e-3, p.v_max);
+    p.a_max                  = std::max(1e-3, p.a_max);
+    p.sigma_ax               = std::max(0.0, p.sigma_ax);
+    p.sigma_ay               = std::max(0.0, p.sigma_ay);
+    p.sigma_az               = std::max(0.0, p.sigma_az);
+    p.viz_num_rollouts       = std::max(0, p.viz_num_rollouts);
+    p.v_yaw_min              = std::max(0.0, p.v_yaw_min);
 
     return p;
 }

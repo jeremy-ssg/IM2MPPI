@@ -73,6 +73,11 @@ void IM2MPPIPlanner::setReferencePath(const std::vector<Eigen::Vector3d>& path)
     ref_path_ = path;
 }
 
+void IM2MPPIPlanner::setMap(const std::shared_ptr<mapManager::dynamicMap>& map)
+{
+    map_ = map;
+}
+
 void IM2MPPIPlanner::setStaticObstacles(
     const std::vector<SphereObstacle>& obstacles)
 {
@@ -82,7 +87,45 @@ void IM2MPPIPlanner::setStaticObstacles(
 void IM2MPPIPlanner::setDynamicObstaclePredictions(
     const std::vector<DynamicObstaclePrediction>& preds)
 {
-    dyn_predictions_ = preds;
+    dyn_predictions_.clear();
+    dyn_predictions_.reserve(preds.size());
+
+    for (const auto& pred : preds) {
+        if (pred.modes.empty()) continue;
+
+        DynamicObstaclePrediction clean;
+        clean.id     = pred.id;
+        clean.radius = std::max(0.0, pred.radius);
+
+        std::vector<ObstacleMode> modes;
+        modes.reserve(pred.modes.size());
+        for (auto mode : pred.modes) {
+            if (mode.mu_seq.empty()) continue;
+            if (!std::isfinite(mode.pi) || mode.pi < 0.0) mode.pi = 0.0;
+            modes.push_back(std::move(mode));
+        }
+        if (modes.empty()) continue;
+
+        std::sort(modes.begin(), modes.end(),
+            [](const ObstacleMode& a, const ObstacleMode& b) {
+                return a.pi > b.pi;
+            });
+
+        const int keep = std::min(params_.num_modes_per_obstacle,
+                                  static_cast<int>(modes.size()));
+        clean.modes.assign(modes.begin(), modes.begin() + keep);
+
+        double pi_sum = 0.0;
+        for (const auto& mode : clean.modes) pi_sum += mode.pi;
+        if (pi_sum > 1e-9) {
+            for (auto& mode : clean.modes) mode.pi /= pi_sum;
+        } else {
+            const double uniform = 1.0 / static_cast<double>(clean.modes.size());
+            for (auto& mode : clean.modes) mode.pi = uniform;
+        }
+
+        dyn_predictions_.push_back(std::move(clean));
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -274,6 +317,30 @@ double IM2MPPIPlanner::computeStaticObstacleCost(const RolloutResult& r) const
     return params_.w_static * cost;
 }
 
+double IM2MPPIPlanner::computeMapObstacleCost(const RolloutResult& r) const
+{
+    if (!map_) return 0.0;
+
+    double cost = 0.0;
+    const double collision_penalty =
+        std::max(1.0, params_.d_safe * params_.d_safe * 100.0);
+
+    for (int k = 1; k <= params_.horizon_steps; ++k) {
+        const Eigen::Vector3d& p_prev = r.states[k - 1].p;
+        const Eigen::Vector3d& p      = r.states[k].p;
+
+        if (map_->isInflatedOccupied(p)) {
+            cost += collision_penalty;
+        }
+        if ((p - p_prev).squaredNorm() > 1e-10 &&
+            map_->isInflatedOccupiedLine(p_prev, p)) {
+            cost += collision_penalty;
+        }
+    }
+
+    return params_.w_static * cost;
+}
+
 double IM2MPPIPlanner::computeDynamicObstacleCost(const RolloutResult& r,
                                                    const JointMode&   jm) const
 {
@@ -316,6 +383,7 @@ double IM2MPPIPlanner::computeTrajectoryCost(const RolloutResult& r,
     c += computePathCost(r);
     c += computeSmoothnessCost(r);
     c += computeStaticObstacleCost(r);
+    c += computeMapObstacleCost(r);
     c += computeDynamicObstacleCost(r, jm);
     return c;
 }
@@ -384,37 +452,42 @@ void IM2MPPIPlanner::buildJointModes()
     // mean_prediction_mppi: nav layer compressed K modes → 1 mean per obstacle
     // mode_aware_mppi:      full K modes per obstacle, Cartesian product + prune
 
-    std::vector<JointMode> all_modes;
-    {
-        JointMode seed;
-        seed.probability = 1.0;
-        all_modes.push_back(seed);
-    }
+    std::vector<JointMode> modes;
+    JointMode seed;
+    seed.probability = 1.0;
+    modes.push_back(seed);
 
     for (const auto& pred : dyn_predictions_) {
         const int K = static_cast<int>(pred.modes.size());
         if (K == 0) continue;
 
         std::vector<JointMode> expanded;
-        expanded.reserve(all_modes.size() * K);
-        for (const auto& existing : all_modes) {
+        expanded.reserve(modes.size() * K);
+        for (const auto& existing : modes) {
             for (int m = 0; m < K; ++m) {
                 JointMode nm = existing;
                 nm.obstacle_mode_indices.push_back(m);
                 nm.probability *= pred.modes[m].pi;
+                if (!std::isfinite(nm.probability)) nm.probability = 0.0;
                 expanded.push_back(std::move(nm));
             }
         }
-        all_modes = std::move(expanded);
+
+        for (auto& jm : expanded) {
+            jm.preliminary_risk = computePreliminaryRisk(jm);
+            jm.score            = jm.probability * (1.0 + jm.preliminary_risk);
+        }
+        pruneJointModes(expanded);
+        modes = std::move(expanded);
     }
 
-    for (auto& jm : all_modes) {
+    for (auto& jm : modes) {
         jm.preliminary_risk = computePreliminaryRisk(jm);
-        jm.score            = jm.probability * jm.preliminary_risk;
+        jm.score            = jm.probability * (1.0 + jm.preliminary_risk);
     }
 
-    pruneJointModes(all_modes);
-    joint_modes_ = std::move(all_modes);
+    pruneJointModes(modes);
+    joint_modes_ = std::move(modes);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -515,6 +588,8 @@ void IM2MPPIPlanner::cacheVisualizationData(
     const int stride = std::max(1, N / target);
 
     double S_min = *std::min_element(rollout_min_cost.begin(), rollout_min_cost.end());
+    if (!std::isfinite(S_min)) return;
+
     double w_max = 0.0;
 
     int slot = 0;
@@ -524,7 +599,10 @@ void IM2MPPIPlanner::cacheVisualizationData(
         pos.resize(H + 1);
         for (int k = 0; k <= H; ++k) pos[k] = r.states[k].p;
 
-        const double w = std::exp(-(rollout_min_cost[i] - S_min) / params_.lambda);
+        double w = 0.0;
+        if (std::isfinite(rollout_min_cost[i])) {
+            w = std::exp(-(rollout_min_cost[i] - S_min) / params_.lambda);
+        }
         viz_rollout_weights_[slot] = w;
         if (w > w_max) w_max = w;
     }
@@ -607,31 +685,51 @@ std::vector<TrajectoryPoint> IM2MPPIPlanner::getPlannedTrajectory() const
     return planned_traj_;
 }
 
+TrajectoryPoint IM2MPPIPlanner::sampleTrajectory(double t) const
+{
+    TrajectoryPoint out;
+    if (planned_traj_.empty()) {
+        out.p = current_state_.p;
+        out.v = current_state_.v;
+        return out;
+    }
+    if (planned_traj_.size() == 1 || t <= 0.0) {
+        return planned_traj_.front();
+    }
+
+    const double horizon_time =
+        static_cast<double>(planned_traj_.size() - 1) * params_.dt;
+    if (t >= horizon_time) {
+        return planned_traj_.back();
+    }
+
+    const double scaled = t / params_.dt;
+    const int k = std::max(0, std::min(static_cast<int>(std::floor(scaled)),
+                                       static_cast<int>(planned_traj_.size()) - 2));
+    const double alpha = std::max(0.0, std::min(1.0, scaled - static_cast<double>(k)));
+
+    const auto& a = planned_traj_[k];
+    const auto& b = planned_traj_[k + 1];
+    out.p = a.p + alpha * (b.p - a.p);
+    out.v = a.v + alpha * (b.v - a.v);
+    out.a = a.a + alpha * (b.a - a.a);
+    out.yaw = (alpha < 0.5) ? a.yaw : b.yaw;
+    return out;
+}
+
 Eigen::Vector3d IM2MPPIPlanner::getPos(double t) const
 {
-    if (planned_traj_.empty()) return current_state_.p;
-    const int k = std::max(0,
-        std::min(static_cast<int>(t / params_.dt),
-                 static_cast<int>(planned_traj_.size()) - 1));
-    return planned_traj_[k].p;
+    return sampleTrajectory(t).p;
 }
 
 Eigen::Vector3d IM2MPPIPlanner::getVel(double t) const
 {
-    if (planned_traj_.empty()) return current_state_.v;
-    const int k = std::max(0,
-        std::min(static_cast<int>(t / params_.dt),
-                 static_cast<int>(planned_traj_.size()) - 1));
-    return planned_traj_[k].v;
+    return sampleTrajectory(t).v;
 }
 
 Eigen::Vector3d IM2MPPIPlanner::getAcc(double t) const
 {
-    if (planned_traj_.empty()) return Eigen::Vector3d::Zero();
-    const int k = std::max(0,
-        std::min(static_cast<int>(t / params_.dt),
-                 static_cast<int>(planned_traj_.size()) - 1));
-    return planned_traj_[k].a;
+    return sampleTrajectory(t).a;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

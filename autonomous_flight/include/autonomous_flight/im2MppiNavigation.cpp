@@ -88,6 +88,7 @@ void im2MppiNavigation::initModules()
     }
 
     this->mppi_.reset(new im2mppi::IM2MPPIPlanner(this->nh_));
+    this->mppi_->setMap(this->map_);
     ROS_INFO("[IM2-MPPI Nav] Planner ready. method_type = %s",
              this->mppi_->getParams().method_type.c_str());
 }
@@ -116,11 +117,11 @@ void im2MppiNavigation::registerPub()
 
 void im2MppiNavigation::registerCallback()
 {
-    this->mppiTimer_    = this->nh_.createTimer(ros::Duration(0.05),
+    this->mppiTimer_    = this->nh_.createTimer(ros::Duration(0.1),
                             &im2MppiNavigation::mppiCB, this);
     this->trajExeTimer_ = this->nh_.createTimer(ros::Duration(0.01),
                             &im2MppiNavigation::trajExeCB, this);
-    this->visTimer_     = this->nh_.createTimer(ros::Duration(0.05),
+    this->visTimer_     = this->nh_.createTimer(ros::Duration(0.2),
                             &im2MppiNavigation::visCB, this);
 }
 
@@ -143,13 +144,12 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
     this->mppi_->setCurrentState(this->currPos_, this->currVel_);
 
     // 2. Goal
-    const Eigen::Vector3d goalEigen(this->goal_.pose.position.x,
-                                    this->goal_.pose.position.y,
-                                    this->goal_.pose.position.z);
-    this->mppi_->setGoal(goalEigen);
+    const Eigen::Vector3d globalGoal(this->goal_.pose.position.x,
+                                     this->goal_.pose.position.y,
+                                     this->goal_.pose.position.z);
 
     // Update facing yaw for yaw control
-    Eigen::Vector3d gv = goalEigen - this->currPos_;
+    Eigen::Vector3d gv = globalGoal - this->currPos_;
     if (gv.head<2>().norm() > 0.1) {
         this->facingYaw_ = std::atan2(gv.y(), gv.x());
     }
@@ -157,6 +157,10 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
     // 3. Reference path
     this->lastReferencePath_ = this->buildReferencePath();
     this->mppi_->setReferencePath(this->lastReferencePath_);
+
+    const Eigen::Vector3d plannerGoal =
+        this->lastReferencePath_.empty() ? globalGoal : this->lastReferencePath_.back();
+    this->mppi_->setGoal(plannerGoal);
 
     // 4. Method-type dispatch
     const std::string& method = this->mppi_->getParams().method_type;
@@ -250,18 +254,28 @@ void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Visualization callback (~20 Hz)
+//  Visualization callback (~5 Hz)
 // ─────────────────────────────────────────────────────────────────────────────
 
 void im2MppiNavigation::visCB(const ros::TimerEvent&)
 {
-    this->publishGoal();
+    if (this->goalPub_.getNumSubscribers() > 0) {
+        this->publishGoal();
+    }
     if (!this->mppiReady_) return;
 
-    this->publishBestTrajectory();
-    this->publishSampledRollouts();
-    this->publishReferencePath();
-    this->publishDynamicObstaclePred();
+    if (this->bestTrajPub_.getNumSubscribers() > 0) {
+        this->publishBestTrajectory();
+    }
+    if (this->rolloutsPub_.getNumSubscribers() > 0) {
+        this->publishSampledRollouts();
+    }
+    if (this->refPathPub_.getNumSubscribers() > 0) {
+        this->publishReferencePath();
+    }
+    if (this->dynObsPredPub_.getNumSubscribers() > 0) {
+        this->publishDynamicObstaclePred();
+    }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -423,9 +437,53 @@ void im2MppiNavigation::getDynamicSpheres(
 std::vector<Eigen::Vector3d> im2MppiNavigation::buildReferencePath() const
 {
     if (this->usePredefinedGoal_ && !this->predefinedGoal_.poses.empty()) {
+        const auto& params = this->mppi_->getParams();
+        const double local_len =
+            std::max(0.3, this->desiredVel_) *
+            static_cast<double>(params.horizon_steps) * params.dt;
+
+        size_t closest_idx = 0;
+        double closest_dist = std::numeric_limits<double>::infinity();
+        for (size_t i = 0; i < this->predefinedGoal_.poses.size(); ++i) {
+            const auto& ps = this->predefinedGoal_.poses[i];
+            const Eigen::Vector3d p(ps.pose.position.x,
+                                    ps.pose.position.y,
+                                    ps.pose.position.z);
+            const double d = (p - this->currPos_).squaredNorm();
+            if (d < closest_dist) {
+                closest_dist = d;
+                closest_idx = i;
+            }
+        }
+
         std::vector<Eigen::Vector3d> path;
-        path.reserve(this->predefinedGoal_.poses.size());
-        for (const auto& ps : this->predefinedGoal_.poses) {
+        path.reserve(static_cast<size_t>(params.horizon_steps) + 2);
+        path.push_back(this->currPos_);
+
+        Eigen::Vector3d last = this->currPos_;
+        double walked = 0.0;
+        for (size_t i = closest_idx; i < this->predefinedGoal_.poses.size(); ++i) {
+            const auto& ps = this->predefinedGoal_.poses[i];
+            const Eigen::Vector3d p(ps.pose.position.x,
+                                    ps.pose.position.y,
+                                    ps.pose.position.z);
+            const double seg = (p - last).norm();
+            if (seg < 1e-6) continue;
+
+            if (walked + seg >= local_len) {
+                const double alpha = std::max(0.0, std::min(1.0,
+                    (local_len - walked) / seg));
+                path.push_back(last + alpha * (p - last));
+                return path;
+            }
+
+            path.push_back(p);
+            walked += seg;
+            last = p;
+        }
+
+        if (path.size() < 2) {
+            const auto& ps = this->predefinedGoal_.poses.back();
             path.emplace_back(ps.pose.position.x, ps.pose.position.y, ps.pose.position.z);
         }
         return path;
@@ -490,14 +548,6 @@ void im2MppiNavigation::publishSampledRollouts() const
 
     visualization_msgs::MarkerArray arr;
 
-    // Always issue a DELETEALL first so stale lines vanish.
-    visualization_msgs::Marker del;
-    del.action = visualization_msgs::Marker::DELETEALL;
-    del.header.frame_id = "map";
-    del.header.stamp    = ros::Time::now();
-    del.ns = "im2mppi_rollouts";
-    arr.markers.push_back(del);
-
     for (size_t i = 0; i < positions.size(); ++i) {
         if (positions[i].size() < 2) continue;
 
@@ -510,7 +560,7 @@ void im2MppiNavigation::publishSampledRollouts() const
         m.action          = visualization_msgs::Marker::ADD;
         m.pose.orientation.w = 1.0;
         m.scale.x         = 0.015;   // line width [m]
-        m.lifetime        = ros::Duration(0.2);
+        m.lifetime        = ros::Duration(0.5);
 
         // Color: gradient red(0) → green(1) by normalized weight
         if (params.viz_color_by_weight && i < weights.size()) {
@@ -576,13 +626,6 @@ void im2MppiNavigation::publishDynamicObstaclePred() const
     const auto& preds = this->mppi_->getDynamicObstaclePredictions();
 
     visualization_msgs::MarkerArray arr;
-    visualization_msgs::Marker del;
-    del.action = visualization_msgs::Marker::DELETEALL;
-    del.header.frame_id = "map";
-    del.header.stamp    = ros::Time::now();
-    del.ns = "im2mppi_dyn_pred";
-    arr.markers.push_back(del);
-
     // Mode color palette (HSV-ish, fixed)
     static const float palette[6][3] = {
         {1.0f, 0.35f, 0.35f},
@@ -612,7 +655,7 @@ void im2MppiNavigation::publishDynamicObstaclePred() const
             line.action          = visualization_msgs::Marker::ADD;
             line.pose.orientation.w = 1.0;
             line.scale.x         = 0.04;
-            line.lifetime        = ros::Duration(0.2);
+            line.lifetime        = ros::Duration(0.5);
             line.color.r = c[0];
             line.color.g = c[1];
             line.color.b = c[2];
@@ -640,7 +683,7 @@ void im2MppiNavigation::publishDynamicObstaclePred() const
             sphere.color.g = c[1];
             sphere.color.b = c[2];
             sphere.color.a = 0.25f;
-            sphere.lifetime = ros::Duration(0.2);
+            sphere.lifetime = ros::Duration(0.5);
             arr.markers.push_back(sphere);
 
             // Sphere at horizon end

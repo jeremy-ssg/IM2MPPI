@@ -143,16 +143,16 @@ namespace dynamicPredictor{
     }
 
     void predictor::registerCallback(){
-        this->predTimer_= this->nh_.createTimer(ros::Duration(0.033), &predictor::predCB, this);
-        this->visTimer_ = this->nh_.createTimer(ros::Duration(0.033), &predictor::visCB, this);
+        this->predTimer_= this->nh_.createTimer(ros::Duration(0.05), &predictor::predCB, this);
+        this->visTimer_ = this->nh_.createTimer(ros::Duration(0.1), &predictor::visCB, this);
     }
 
     void predictor::visCB(const ros::TimerEvent&){
-        this->publishHistoryTraj();
-        this->publishPredTraj();
-        this->publishIntentVis();
-        this->publishVarPoints();
-        this->publishPredBBox();
+        if (this->historyTrajPub_.getNumSubscribers() > 0) this->publishHistoryTraj();
+        if (this->predTrajPub_.getNumSubscribers() > 0) this->publishPredTraj();
+        if (this->intentVisPub_.getNumSubscribers() > 0) this->publishIntentVis();
+        if (this->varPointsPub_.getNumSubscribers() > 0) this->publishVarPoints();
+        if (this->predBBoxPub_.getNumSubscribers() > 0) this->publishPredBBox();
     }
 
     void predictor::predCB(const ros::TimerEvent&){    
@@ -583,7 +583,7 @@ namespace dynamicPredictor{
             traj.color.r = 0.0;
             traj.color.g = 0.0;
             traj.color.b = 1.0;
-            traj.lifetime = ros::Duration(0.1);    
+            traj.lifetime = ros::Duration(0.25);
             for (size_t j=0; j<this->allPredPoints_[i].size(); ++j){
                 for (size_t k=0; k<this->allPredPoints_[i][j].size(); k++){
                     for (size_t l=0; l<this->allPredPoints_[i][j][k].size();l++){
@@ -629,7 +629,7 @@ namespace dynamicPredictor{
             traj.color.r = 0.0;
             traj.color.g = 1.0;
             traj.color.b = 0.0;
-            traj.lifetime = ros::Duration(0.1);
+            traj.lifetime = ros::Duration(0.25);
             for (size_t j=0; j<this->posHist_[i].size(); ++j){
                 geometry_msgs::Point p;
                 Eigen::Vector3d pos = this->posHist_[i][j];
@@ -662,7 +662,7 @@ namespace dynamicPredictor{
                     traj.color.r = 1.0;
                     traj.color.g = 0.0;
                     traj.color.b = 0.0;
-                    traj.lifetime = ros::Duration(0.1);
+                    traj.lifetime = ros::Duration(0.25);
                     for (int k=0; k<int(this->posPred_[i][j].size()); ++k){
                         geometry_msgs::Point p;
                         Eigen::Vector3d pos = this->posPred_[i][j][k];
@@ -697,7 +697,7 @@ namespace dynamicPredictor{
             intentMarker.color.r = 1.0;
             intentMarker.color.g = 0.0;
             intentMarker.color.b = 0.0;
-            intentMarker.lifetime = ros::Duration(0.1);
+            intentMarker.lifetime = ros::Duration(0.25);
             // std::string intentText = "Front: " + std::to_string(this->intentProb_[i](0)) 
             //                         + "Left: " + std::to_string(this->intentProb_[i](1)) 
             //                         + "Right: " + std::to_string(this->intentProb_[i](2))
@@ -729,15 +729,18 @@ namespace dynamicPredictor{
         visualization_msgs::MarkerArray predBBoxMsg;
         visualization_msgs::Marker line;
         line.header.frame_id = "map";
+        line.header.stamp = ros::Time::now();
         line.type = visualization_msgs::Marker::LINE_LIST;
         line.action = visualization_msgs::Marker::ADD;
         line.ns = "box3D";  
+        line.id = 0;
+        line.pose.orientation.w = 1.0;
         line.scale.x = 0.06;
         line.color.r = 0;
         line.color.g = 1;
         line.color.b = 0;
         line.color.a = 1.0;
-        line.lifetime = ros::Duration(0.1);
+        line.lifetime = ros::Duration(0.25);
 
         visualization_msgs::Marker range;
         range.header.frame_id = "map";
@@ -746,11 +749,12 @@ namespace dynamicPredictor{
         range.id = 0;
         range.type = visualization_msgs::Marker::SPHERE;
         range.action = visualization_msgs::Marker::ADD;
+        range.pose.orientation.w = 1.0;
         range.color.a = 0.4;
         range.color.r = 0.0;
         range.color.g = 0.0;
         range.color.b = 1.0;
-        range.lifetime = ros::Duration(0.1);
+        range.lifetime = ros::Duration(0.25);
         for (int i=0; i<int(this->intentProb_.size()); ++i){
             std::vector<std::pair<double, int>> intentProb;
             for (int j=0; j<this->numIntent_; ++j){
@@ -765,6 +769,9 @@ namespace dynamicPredictor{
                 std::vector<Eigen::Vector3d> predTraj = this->posPred_[i][intentIdx];
                 std::vector<Eigen::Vector3d> predSize = this->sizePred_[i][intentIdx];
                 for (int t=10; t<int(predTraj.size()); t+=10){
+                    line.header.stamp = ros::Time::now();
+                    line.points.clear();
+
                     Eigen::Vector3d obPos = predTraj[t];
                     Eigen::Vector3d predObSize = predSize[t];
                     Eigen::Vector3d obSize = this->sizeHist_[i][0];
