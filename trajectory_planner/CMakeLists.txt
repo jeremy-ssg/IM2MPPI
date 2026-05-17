@@ -6,6 +6,25 @@ project(trajectory_planner)
 set(CMAKE_CXX_FLAGS "-std=c++14 ${CMAKE_CXX_FLAGS} -O3 -Wall")
 add_compile_options(-w)
 
+# ── Optional CUDA back-end for IM2-MPPI ──────────────────────────────────────
+# Detect CUDA. If found, compile the .cu kernels and define IM2_MPPI_USE_CUDA
+# so im2_mppi_planner.cpp links the GPU code path. If absent, the planner
+# silently falls back to CPU at runtime.
+find_package(CUDA QUIET)
+set(IM2_MPPI_HAVE_CUDA FALSE)
+if(CUDA_FOUND)
+  message(STATUS "IM2-MPPI: CUDA ${CUDA_VERSION} found at ${CUDA_TOOLKIT_ROOT_DIR}")
+  enable_language(CUDA)
+  set(CMAKE_CUDA_STANDARD 14)
+  if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    # 75=Turing (RTX 20), 86=Ampere (RTX 30 / Orin NX), 89=Ada (RTX 40)
+    set(CMAKE_CUDA_ARCHITECTURES 75 86 89)
+  endif()
+  set(IM2_MPPI_HAVE_CUDA TRUE)
+else()
+  message(STATUS "IM2-MPPI: CUDA not found — GPU path disabled at build time.")
+endif()
+
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
@@ -158,6 +177,8 @@ add_library(
   # IM2-MPPI planner (point-mass MPPI; no ACADO/OSQP dependency)
   src/im2_mppi_planner.cpp
 
+  # CUDA kernels are appended conditionally below.
+
   include/${PROJECT_NAME}/mpc_solver/acado_auxiliary_functions.c
   include/${PROJECT_NAME}/mpc_solver/acado_integrator.c
   include/${PROJECT_NAME}/mpc_solver/acado_qpoases_interface.cpp
@@ -174,6 +195,17 @@ add_library(
   include/${PROJECT_NAME}/mpc_solver/qpoases/SRC/Utils.cpp
   include/${PROJECT_NAME}/mpc_solver/qpoases/SRC/EXTRAS/SolutionAnalysis.cpp
 )
+
+# ── CUDA kernels for IM2-MPPI (built only if CUDA was detected) ──────────────
+if(IM2_MPPI_HAVE_CUDA)
+  add_library(im2_mppi_cuda STATIC src/cuda/im2_mppi_kernels.cu)
+  set_target_properties(im2_mppi_cuda PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CUDA_SEPARABLE_COMPILATION OFF)
+  target_include_directories(im2_mppi_cuda PUBLIC include)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE IM2_MPPI_USE_CUDA)
+  target_link_libraries(${PROJECT_NAME} im2_mppi_cuda)
+endif()
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries

@@ -1,0 +1,457 @@
+/*
+    FILE: im2_mppi_kernels.cu
+    --------------------------------
+    Two CUDA kernels for IM2-MPPI:
+
+      rolloutKernel : one thread per rollout i; integrates 3-D double-integrator
+                      dynamics for H steps with control noise + acc/vel clamps.
+
+      costKernel    : one thread per (rollout i, joint-mode m); evaluates
+                      goal + path + smoothness + static-box + dynamic-box AABB
+                      penalties against the rollout's state sequence.
+
+    All math in FP32. AABB collision uses the same signed-distance formula as
+    the CPU planner (aabbSDF in im2_mppi_planner.cpp) so results match within
+    floating-point tolerance.
+*/
+
+#include <trajectory_planner/im2_mppi_cuda.h>
+
+#include <cuda_runtime.h>
+#include <cstdio>
+#include <cstring>
+#include <algorithm>
+
+namespace im2mppi {
+namespace cuda {
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Device context
+// ═══════════════════════════════════════════════════════════════════════════
+
+struct DeviceContext {
+    // Capacity bounds (set at createContext)
+    int N_cap, H_cap, J_cap, K_cap, M_cap, Ns_cap, P_cap;
+
+    // Persistent device buffers (sized to the worst case)
+    float* d_x0           = nullptr;   // [6]
+    float* d_u_nominal    = nullptr;   // [H*3]
+    float* d_noise        = nullptr;   // [N*H*3]
+    float* d_states       = nullptr;   // [N*(H+1)*6]
+    float* d_controls     = nullptr;   // [N*H*3]
+    float* d_costs        = nullptr;   // [N*M]
+    float* d_goal         = nullptr;   // [3]
+    float* d_ref_targets  = nullptr;   // [H*3]
+    float* d_static_boxes = nullptr;   // [Ns*6]
+    float* d_dyn_mus      = nullptr;   // [J*K*H*3]
+    float* d_dyn_sizes    = nullptr;   // [J*3]
+    int*   d_joint_mode_idx = nullptr; // [M*J]
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Helpers
+// ═══════════════════════════════════════════════════════════════════════════
+
+#define CUDA_CHECK(call)                                                       \
+    do {                                                                        \
+        cudaError_t err = (call);                                               \
+        if (err != cudaSuccess) {                                               \
+            std::fprintf(stderr, "[IM2-MPPI/CUDA] %s:%d  %s -> %s\n",           \
+                         __FILE__, __LINE__, #call, cudaGetErrorString(err));   \
+            return false;                                                       \
+        }                                                                        \
+    } while (0)
+
+static inline bool cudaAlloc(float** ptr, size_t n_floats) {
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(ptr), n_floats * sizeof(float)));
+    return true;
+}
+
+static inline bool cudaAllocInt(int** ptr, size_t n_ints) {
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(ptr), n_ints * sizeof(int)));
+    return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Rollout kernel
+//      One thread per rollout. Integrates 3-D double-integrator dynamics:
+//          p_{k+1} = p_k + v_k dt + 0.5 a_k dt^2
+//          v_{k+1} = v_k + a_k dt
+//      with ||a|| <= a_max and ||v|| <= v_max clamps. Writes the realized
+//      (post-clamp) control back to d_controls.
+// ═══════════════════════════════════════════════════════════════════════════
+
+__global__ void rolloutKernel(
+    const float* __restrict__ x0,
+    const float* __restrict__ u_nominal,
+    const float* __restrict__ noise,
+    float*       __restrict__ states,
+    float*       __restrict__ controls,
+    int N, int H, float dt,
+    float a_max, float v_max)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N) return;
+
+    float px = x0[0], py = x0[1], pz = x0[2];
+    float vx = x0[3], vy = x0[4], vz = x0[5];
+
+    // Initial state
+    const int s_stride = (H + 1) * 6;
+    const int c_stride = H * 3;
+    int sbase = i * s_stride;
+    states[sbase + 0] = px; states[sbase + 1] = py; states[sbase + 2] = pz;
+    states[sbase + 3] = vx; states[sbase + 4] = vy; states[sbase + 5] = vz;
+
+    const float dt2 = 0.5f * dt * dt;
+
+    for (int k = 0; k < H; ++k) {
+        // u = u_nominal[k] + noise[i, k]
+        float ax = u_nominal[k * 3 + 0] + noise[i * c_stride + k * 3 + 0];
+        float ay = u_nominal[k * 3 + 1] + noise[i * c_stride + k * 3 + 1];
+        float az = u_nominal[k * 3 + 2] + noise[i * c_stride + k * 3 + 2];
+
+        // Clamp ||a|| <= a_max
+        float an = sqrtf(ax * ax + ay * ay + az * az);
+        if (an > a_max) {
+            float s = a_max / an;
+            ax *= s; ay *= s; az *= s;
+        }
+
+        // Store realized control
+        const int coff = i * c_stride + k * 3;
+        controls[coff + 0] = ax;
+        controls[coff + 1] = ay;
+        controls[coff + 2] = az;
+
+        // Propagate
+        px += vx * dt + ax * dt2;
+        py += vy * dt + ay * dt2;
+        pz += vz * dt + az * dt2;
+        vx += ax * dt;
+        vy += ay * dt;
+        vz += az * dt;
+
+        // Clamp ||v|| <= v_max
+        float vn = sqrtf(vx * vx + vy * vy + vz * vz);
+        if (vn > v_max) {
+            float s = v_max / vn;
+            vx *= s; vy *= s; vz *= s;
+        }
+
+        // Store next state
+        const int soff = i * s_stride + (k + 1) * 6;
+        states[soff + 0] = px; states[soff + 1] = py; states[soff + 2] = pz;
+        states[soff + 3] = vx; states[soff + 4] = vy; states[soff + 5] = vz;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  AABB signed-distance (device version)
+//      Identical formula to aabbSDF() in im2_mppi_planner.cpp.
+// ═══════════════════════════════════════════════════════════════════════════
+
+__device__ inline float aabbSDFDev(
+    float px, float py, float pz,
+    float cx, float cy, float cz,
+    float sx, float sy, float sz)
+{
+    const float hx = 0.5f * fmaxf(sx, 1e-6f);
+    const float hy = 0.5f * fmaxf(sy, 1e-6f);
+    const float hz = 0.5f * fmaxf(sz, 1e-6f);
+    const float qx = fabsf(px - cx) - hx;
+    const float qy = fabsf(py - cy) - hy;
+    const float qz = fabsf(pz - cz) - hz;
+    const float ox = fmaxf(qx, 0.0f);
+    const float oy = fmaxf(qy, 0.0f);
+    const float oz = fmaxf(qz, 0.0f);
+    const float outside = sqrtf(ox * ox + oy * oy + oz * oz);
+    const float inside  = fminf(fmaxf(qx, fmaxf(qy, qz)), 0.0f);
+    return outside + inside;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Cost kernel
+//      One thread per (rollout i, joint-mode m). All cost terms accumulated
+//      directly into the cost matrix entry costs[i*M + m].
+// ═══════════════════════════════════════════════════════════════════════════
+
+__global__ void costKernel(
+    const float* __restrict__ states,        // [N*(H+1)*6]
+    const float* __restrict__ controls,      // [N*H*3]
+    const float* __restrict__ goal,          // [3]
+    const float* __restrict__ ref_targets,   // [H*3]
+    const float* __restrict__ static_boxes,  // [Ns*6]
+    int Ns,
+    const float* __restrict__ dyn_mus,       // [J*K*H*3]
+    const float* __restrict__ dyn_sizes,     // [J*3]
+    int J, int K_per_obs,
+    const int*   __restrict__ joint_mode_idx,// [M*J]
+    int M,
+    float* __restrict__ costs,               // [N*M]
+    int N, int H,
+    float d_safe,
+    float w_goal, float w_path, float w_vel,
+    float w_acc,  float w_jerk, float w_static, float w_dyn)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const int total = N * M;
+    if (idx >= total) return;
+
+    const int i = idx / M;
+    const int m = idx % M;
+
+    const int s_stride = (H + 1) * 6;
+    const int c_stride = H * 3;
+
+    float c = 0.0f;
+
+    // ── Terminal goal cost ────────────────────────────────────────────────
+    {
+        const int off = i * s_stride + H * 6;
+        const float ex = states[off + 0] - goal[0];
+        const float ey = states[off + 1] - goal[1];
+        const float ez = states[off + 2] - goal[2];
+        c += w_goal * (ex * ex + ey * ey + ez * ez);
+    }
+
+    // ── Per-step running costs ────────────────────────────────────────────
+    float ax_prev = 0.0f, ay_prev = 0.0f, az_prev = 0.0f;
+
+    for (int k = 0; k < H; ++k) {
+        const int soff = i * s_stride + (k + 1) * 6;
+        const float px = states[soff + 0];
+        const float py = states[soff + 1];
+        const float pz = states[soff + 2];
+        const float vx = states[soff + 3];
+        const float vy = states[soff + 4];
+        const float vz = states[soff + 5];
+
+        const int coff = i * c_stride + k * 3;
+        const float ax = controls[coff + 0];
+        const float ay = controls[coff + 1];
+        const float az = controls[coff + 2];
+
+        // Path tracking
+        {
+            const float ex = px - ref_targets[k * 3 + 0];
+            const float ey = py - ref_targets[k * 3 + 1];
+            const float ez = pz - ref_targets[k * 3 + 2];
+            c += w_path * (ex * ex + ey * ey + ez * ez);
+        }
+
+        // Smoothness
+        c += w_vel * (vx * vx + vy * vy + vz * vz);
+        c += w_acc * (ax * ax + ay * ay + az * az);
+        if (k > 0) {
+            const float dax = ax - ax_prev;
+            const float day = ay - ay_prev;
+            const float daz = az - az_prev;
+            c += w_jerk * (dax * dax + day * day + daz * daz);
+        }
+        ax_prev = ax; ay_prev = ay; az_prev = az;
+
+        // Static AABB obstacles (soft hinge-squared)
+        for (int s = 0; s < Ns; ++s) {
+            const int boff = s * 6;
+            const float clr = aabbSDFDev(
+                px, py, pz,
+                static_boxes[boff + 0], static_boxes[boff + 1], static_boxes[boff + 2],
+                static_boxes[boff + 3], static_boxes[boff + 4], static_boxes[boff + 5]);
+            if (clr < d_safe) {
+                const float pen = d_safe - clr;
+                c += w_static * pen * pen;
+            }
+        }
+
+        // Dynamic AABB obstacles, per joint-mode m
+        if (J > 0) {
+            for (int j = 0; j < J; ++j) {
+                const int mode_idx = joint_mode_idx[m * J + j];
+                if (mode_idx < 0 || mode_idx >= K_per_obs) continue;
+
+                // dyn_mus indexed as [j, mode_idx, k, xyz]
+                const int mu_off = ((j * K_per_obs + mode_idx) * H + k) * 3;
+                const float mx = dyn_mus[mu_off + 0];
+                const float my = dyn_mus[mu_off + 1];
+                const float mz = dyn_mus[mu_off + 2];
+
+                const int sz_off = j * 3;
+                const float clr = aabbSDFDev(
+                    px, py, pz,
+                    mx, my, mz,
+                    dyn_sizes[sz_off + 0],
+                    dyn_sizes[sz_off + 1],
+                    dyn_sizes[sz_off + 2]);
+                if (clr < d_safe) {
+                    const float pen = d_safe - clr;
+                    c += w_dyn * pen * pen;
+                }
+            }
+        }
+    }
+
+    costs[idx] = c;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Public API
+// ═══════════════════════════════════════════════════════════════════════════
+
+bool isAvailable()
+{
+    int n = 0;
+    cudaError_t err = cudaGetDeviceCount(&n);
+    return (err == cudaSuccess && n >= 1);
+}
+
+DeviceContext* createContext(int N, int H,
+                             int J_max, int K_max, int M_max,
+                             int Ns_max, int P_max)
+{
+    if (!isAvailable()) {
+        std::fprintf(stderr, "[IM2-MPPI/CUDA] No CUDA device available.\n");
+        return nullptr;
+    }
+    DeviceContext* ctx = new DeviceContext();
+    ctx->N_cap  = N;
+    ctx->H_cap  = H;
+    ctx->J_cap  = J_max;
+    ctx->K_cap  = K_max;
+    ctx->M_cap  = M_max;
+    ctx->Ns_cap = Ns_max;
+    ctx->P_cap  = P_max;
+
+    auto fail = [&](const char* what) {
+        std::fprintf(stderr, "[IM2-MPPI/CUDA] Alloc failed: %s\n", what);
+        destroyContext(ctx);
+        return nullptr;
+    };
+
+    if (!cudaAlloc(&ctx->d_x0,           6))                     return fail("x0");
+    if (!cudaAlloc(&ctx->d_u_nominal,    static_cast<size_t>(H) * 3)) return fail("u_nominal");
+    if (!cudaAlloc(&ctx->d_noise,        static_cast<size_t>(N) * H * 3)) return fail("noise");
+    if (!cudaAlloc(&ctx->d_states,       static_cast<size_t>(N) * (H + 1) * 6)) return fail("states");
+    if (!cudaAlloc(&ctx->d_controls,     static_cast<size_t>(N) * H * 3)) return fail("controls");
+    if (!cudaAlloc(&ctx->d_costs,        static_cast<size_t>(N) * M_max)) return fail("costs");
+    if (!cudaAlloc(&ctx->d_goal,         3))                     return fail("goal");
+    if (!cudaAlloc(&ctx->d_ref_targets,  static_cast<size_t>(H) * 3)) return fail("ref_targets");
+    if (Ns_max > 0 &&
+        !cudaAlloc(&ctx->d_static_boxes, static_cast<size_t>(Ns_max) * 6)) return fail("static_boxes");
+    if (J_max > 0) {
+        if (!cudaAlloc(&ctx->d_dyn_mus,   static_cast<size_t>(J_max) * K_max * H * 3)) return fail("dyn_mus");
+        if (!cudaAlloc(&ctx->d_dyn_sizes, static_cast<size_t>(J_max) * 3)) return fail("dyn_sizes");
+        if (!cudaAllocInt(&ctx->d_joint_mode_idx,
+                          static_cast<size_t>(M_max) * J_max)) return fail("joint_mode_idx");
+    }
+    return ctx;
+}
+
+void destroyContext(DeviceContext* ctx)
+{
+    if (!ctx) return;
+    cudaFree(ctx->d_x0);
+    cudaFree(ctx->d_u_nominal);
+    cudaFree(ctx->d_noise);
+    cudaFree(ctx->d_states);
+    cudaFree(ctx->d_controls);
+    cudaFree(ctx->d_costs);
+    cudaFree(ctx->d_goal);
+    cudaFree(ctx->d_ref_targets);
+    cudaFree(ctx->d_static_boxes);
+    cudaFree(ctx->d_dyn_mus);
+    cudaFree(ctx->d_dyn_sizes);
+    cudaFree(ctx->d_joint_mode_idx);
+    delete ctx;
+}
+
+bool runRolloutAndCost(
+    DeviceContext* ctx,
+    const float* x0, const float* u_nominal, const float* noise,
+    int N, int H,
+    const float* goal, const float* ref_targets,
+    const float* static_boxes, int Ns,
+    const float* dyn_mus, int J, int K_per_obs,
+    const float* dyn_sizes,
+    const int*   joint_mode_idx, int M,
+    float dt, float a_max, float v_max, float d_safe,
+    float w_goal, float w_path, float w_vel,
+    float w_acc,  float w_jerk, float w_static, float w_dyn,
+    float* costs_out, float* controls_out, float* states_out_optional)
+{
+    if (!ctx) return false;
+    if (N > ctx->N_cap || H > ctx->H_cap || J > ctx->J_cap ||
+        M > ctx->M_cap || Ns > ctx->Ns_cap || K_per_obs > ctx->K_cap) {
+        std::fprintf(stderr,
+            "[IM2-MPPI/CUDA] Request exceeds context capacity: "
+            "N=%d/%d H=%d/%d J=%d/%d M=%d/%d Ns=%d/%d K=%d/%d\n",
+            N, ctx->N_cap, H, ctx->H_cap, J, ctx->J_cap,
+            M, ctx->M_cap, Ns, ctx->Ns_cap, K_per_obs, ctx->K_cap);
+        return false;
+    }
+
+    // ── H -> D copies ────────────────────────────────────────────────────
+    CUDA_CHECK(cudaMemcpy(ctx->d_x0,          x0,        6 * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(ctx->d_u_nominal,   u_nominal, H * 3 * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(ctx->d_noise,       noise,     N * H * 3 * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(ctx->d_goal,        goal,      3 * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(ctx->d_ref_targets, ref_targets, H * 3 * sizeof(float), cudaMemcpyHostToDevice));
+    if (Ns > 0) {
+        CUDA_CHECK(cudaMemcpy(ctx->d_static_boxes, static_boxes,
+                              Ns * 6 * sizeof(float), cudaMemcpyHostToDevice));
+    }
+    if (J > 0) {
+        CUDA_CHECK(cudaMemcpy(ctx->d_dyn_mus, dyn_mus,
+                              static_cast<size_t>(J) * K_per_obs * H * 3 * sizeof(float),
+                              cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(ctx->d_dyn_sizes, dyn_sizes,
+                              J * 3 * sizeof(float), cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(ctx->d_joint_mode_idx, joint_mode_idx,
+                              M * J * sizeof(int), cudaMemcpyHostToDevice));
+    }
+
+    // ── Launch rollout kernel ────────────────────────────────────────────
+    {
+        const int threads = 128;
+        const int blocks  = (N + threads - 1) / threads;
+        rolloutKernel<<<blocks, threads>>>(
+            ctx->d_x0, ctx->d_u_nominal, ctx->d_noise,
+            ctx->d_states, ctx->d_controls,
+            N, H, dt, a_max, v_max);
+        CUDA_CHECK(cudaGetLastError());
+    }
+
+    // ── Launch cost kernel ───────────────────────────────────────────────
+    {
+        const int total = N * M;
+        const int threads = 128;
+        const int blocks  = (total + threads - 1) / threads;
+        costKernel<<<blocks, threads>>>(
+            ctx->d_states, ctx->d_controls,
+            ctx->d_goal, ctx->d_ref_targets,
+            ctx->d_static_boxes, Ns,
+            ctx->d_dyn_mus, ctx->d_dyn_sizes,
+            J, K_per_obs,
+            ctx->d_joint_mode_idx, M,
+            ctx->d_costs,
+            N, H,
+            d_safe,
+            w_goal, w_path, w_vel, w_acc, w_jerk, w_static, w_dyn);
+        CUDA_CHECK(cudaGetLastError());
+    }
+
+    // ── D -> H copies ────────────────────────────────────────────────────
+    CUDA_CHECK(cudaMemcpy(costs_out,    ctx->d_costs,
+                          N * M * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(controls_out, ctx->d_controls,
+                          N * H * 3 * sizeof(float), cudaMemcpyDeviceToHost));
+    if (states_out_optional) {
+        CUDA_CHECK(cudaMemcpy(states_out_optional, ctx->d_states,
+                              N * (H + 1) * 6 * sizeof(float), cudaMemcpyDeviceToHost));
+    }
+
+    return true;
+}
+
+} // namespace cuda
+} // namespace im2mppi

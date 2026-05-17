@@ -27,6 +27,10 @@
 #include <algorithm>
 #include <numeric>
 
+#ifdef IM2_MPPI_USE_CUDA
+#include <trajectory_planner/im2_mppi_cuda.h>
+#endif
+
 namespace im2mppi {
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,9 +70,57 @@ IM2MPPIPlanner::IM2MPPIPlanner(const ros::NodeHandle& nh)
              params_.dt);
 }
 
+IM2MPPIPlanner::~IM2MPPIPlanner()
+{
+#ifdef IM2_MPPI_USE_CUDA
+    if (cuda_ctx_) cuda::destroyContext(cuda_ctx_);
+    cuda_ctx_ = nullptr;
+#endif
+}
+
 void IM2MPPIPlanner::loadParams()
 {
     params_ = im2mppi::loadParams(nh_, "im2_mppi");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CUDA initialization (lazy on first plan() if use_gpu enabled)
+// ─────────────────────────────────────────────────────────────────────────────
+
+bool IM2MPPIPlanner::tryInitCuda()
+{
+    if (cuda_init_attempted_) return cuda_ctx_ != nullptr;
+    cuda_init_attempted_ = true;
+
+#ifdef IM2_MPPI_USE_CUDA
+    if (!cuda::isAvailable()) {
+        ROS_WARN("[IM2-MPPI] use_gpu=true but no CUDA device available; falling back to CPU.");
+        return false;
+    }
+    // Allocate device buffers with generous capacity bounds (capped so we
+    // don't have to re-allocate on every plan() call).
+    const int N      = params_.num_rollouts;
+    const int H      = params_.horizon_steps;
+    const int K_max  = std::max(1, params_.num_modes_per_obstacle);
+    const int M_max  = std::max(1, params_.num_joint_modes_keep);
+    const int J_max  = 16;     // up to 16 dynamic obstacles
+    const int Ns_max = 64;     // up to 64 static boxes
+    const int P_max  = 256;    // ref path points
+
+    cuda_ctx_ = cuda::createContext(N, H, J_max, K_max, M_max, Ns_max, P_max);
+    if (!cuda_ctx_) {
+        ROS_WARN("[IM2-MPPI] CUDA context creation failed; falling back to CPU.");
+        return false;
+    }
+    ROS_INFO("[IM2-MPPI] CUDA back-end initialized "
+             "(N=%d H=%d J_max=%d K_max=%d M_max=%d).",
+             N, H, J_max, K_max, M_max);
+    return true;
+#else
+    ROS_WARN_ONCE("[IM2-MPPI] use_gpu=true but binary was built without "
+                  "IM2_MPPI_USE_CUDA; falling back to CPU.");
+    return false;
+#endif
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -771,6 +823,16 @@ bool IM2MPPIPlanner::plan()
         return false;
     }
 
+    // Dispatch to GPU if enabled + available; otherwise CPU.
+    if (params_.use_gpu) {
+        if (tryInitCuda()) return planGPU();
+    }
+    return planCPU();
+}
+
+bool IM2MPPIPlanner::planCPU()
+{
+
     // 1. Warm-start
     shiftControlSequence();
 
@@ -817,6 +879,303 @@ bool IM2MPPIPlanner::plan()
     cacheVisualizationData(base_rollouts, all_results);
 
     return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  GPU planning path (CUDA)
+//      Mirrors planCPU() but pushes rollout + cost evaluation onto the GPU.
+//      The weighted-update step + viz cache stay on the CPU (small reductions).
+//      Compiled out entirely when IM2_MPPI_USE_CUDA is not defined.
+// ─────────────────────────────────────────────────────────────────────────────
+
+bool IM2MPPIPlanner::planGPU()
+{
+#ifndef IM2_MPPI_USE_CUDA
+    // Should never get here — tryInitCuda() would have returned false.
+    return planCPU();
+#else
+    // 1. Warm-start
+    shiftControlSequence();
+
+    // 2. Joint modes (depends on method_type + current dyn_predictions_)
+    buildJointModes();
+    if (joint_modes_.empty()) {
+        ROS_WARN_THROTTLE(1.0, "[IM2-MPPI/GPU] No joint modes — skipping plan().");
+        return false;
+    }
+
+    const int N = params_.num_rollouts;
+    const int H = params_.horizon_steps;
+    const int M = static_cast<int>(joint_modes_.size());
+    const int J = static_cast<int>(dyn_predictions_.size());
+    const int K = std::max(1, params_.num_modes_per_obstacle);
+    const int Ns = static_cast<int>(static_obstacles_.size());
+
+    // 3. Flatten host-side inputs to FP32 row-major buffers expected by the
+    //    CUDA kernels. All temporaries live on the stack-allocated std::vector
+    //    so they're freed at the end of this scope.
+    std::vector<float> h_x0(6);
+    h_x0[0] = static_cast<float>(current_state_.p.x());
+    h_x0[1] = static_cast<float>(current_state_.p.y());
+    h_x0[2] = static_cast<float>(current_state_.p.z());
+    h_x0[3] = static_cast<float>(current_state_.v.x());
+    h_x0[4] = static_cast<float>(current_state_.v.y());
+    h_x0[5] = static_cast<float>(current_state_.v.z());
+
+    std::vector<float> h_u_nominal(H * 3);
+    for (int k = 0; k < H; ++k) {
+        h_u_nominal[k * 3 + 0] = static_cast<float>(u_nominal_[k].a.x());
+        h_u_nominal[k * 3 + 1] = static_cast<float>(u_nominal_[k].a.y());
+        h_u_nominal[k * 3 + 2] = static_cast<float>(u_nominal_[k].a.z());
+    }
+
+    // Noise still sampled on CPU (cheap relative to rollout). curand could
+    // replace this if we ever need to push it onto the GPU too.
+    std::vector<float> h_noise(static_cast<size_t>(N) * H * 3);
+    {
+        std::normal_distribution<float> ndx(0.0f, static_cast<float>(params_.sigma_ax));
+        std::normal_distribution<float> ndy(0.0f, static_cast<float>(params_.sigma_ay));
+        std::normal_distribution<float> ndz(0.0f, static_cast<float>(params_.sigma_az));
+        for (int i = 0; i < N; ++i) {
+            for (int k = 0; k < H; ++k) {
+                const int o = i * H * 3 + k * 3;
+                h_noise[o + 0] = ndx(rng_);
+                h_noise[o + 1] = ndy(rng_);
+                h_noise[o + 2] = ndz(rng_);
+            }
+        }
+    }
+
+    std::vector<float> h_goal(3);
+    h_goal[0] = static_cast<float>(goal_.x());
+    h_goal[1] = static_cast<float>(goal_.y());
+    h_goal[2] = static_cast<float>(goal_.z());
+
+    // Precompute reference path target per step (matches getReferenceAtStep).
+    std::vector<float> h_ref_targets(H * 3);
+    for (int k = 0; k < H; ++k) {
+        const Eigen::Vector3d r = getReferenceAtStep(k);
+        h_ref_targets[k * 3 + 0] = static_cast<float>(r.x());
+        h_ref_targets[k * 3 + 1] = static_cast<float>(r.y());
+        h_ref_targets[k * 3 + 2] = static_cast<float>(r.z());
+    }
+
+    // Static AABBs flattened as (cx,cy,cz, sx,sy,sz).
+    std::vector<float> h_static_boxes(static_cast<size_t>(Ns) * 6);
+    for (int s = 0; s < Ns; ++s) {
+        h_static_boxes[s * 6 + 0] = static_cast<float>(static_obstacles_[s].center.x());
+        h_static_boxes[s * 6 + 1] = static_cast<float>(static_obstacles_[s].center.y());
+        h_static_boxes[s * 6 + 2] = static_cast<float>(static_obstacles_[s].center.z());
+        h_static_boxes[s * 6 + 3] = static_cast<float>(static_obstacles_[s].size.x());
+        h_static_boxes[s * 6 + 4] = static_cast<float>(static_obstacles_[s].size.y());
+        h_static_boxes[s * 6 + 5] = static_cast<float>(static_obstacles_[s].size.z());
+    }
+
+    // Dynamic predictions flattened as [j, k, step, xyz]. Pad missing modes
+    // with zeros (the joint_mode_idx will still point to valid slots since
+    // buildJointModes limits indices to existing modes per obstacle).
+    std::vector<float> h_dyn_mus(static_cast<size_t>(J) * K * H * 3, 0.0f);
+    std::vector<float> h_dyn_sizes(static_cast<size_t>(J) * 3, 0.0f);
+    for (int j = 0; j < J; ++j) {
+        const auto& pred = dyn_predictions_[j];
+        h_dyn_sizes[j * 3 + 0] = static_cast<float>(pred.size.x());
+        h_dyn_sizes[j * 3 + 1] = static_cast<float>(pred.size.y());
+        h_dyn_sizes[j * 3 + 2] = static_cast<float>(pred.size.z());
+        const int Km = std::min(K, static_cast<int>(pred.modes.size()));
+        for (int m = 0; m < Km; ++m) {
+            const auto& mode = pred.modes[m];
+            const int Hm = std::min(H, static_cast<int>(mode.mu_seq.size()));
+            for (int k = 0; k < Hm; ++k) {
+                const int o = ((j * K + m) * H + k) * 3;
+                h_dyn_mus[o + 0] = static_cast<float>(mode.mu_seq[k].x());
+                h_dyn_mus[o + 1] = static_cast<float>(mode.mu_seq[k].y());
+                h_dyn_mus[o + 2] = static_cast<float>(mode.mu_seq[k].z());
+            }
+        }
+    }
+
+    // Joint mode index table: M × J ints, telling each joint mode which
+    // intent mode each obstacle takes.
+    std::vector<int> h_joint_mode_idx(static_cast<size_t>(M) * std::max(1, J), 0);
+    for (int m = 0; m < M; ++m) {
+        const auto& jm = joint_modes_[m];
+        for (int j = 0; j < J; ++j) {
+            h_joint_mode_idx[m * J + j] =
+                (j < static_cast<int>(jm.obstacle_mode_indices.size()))
+                    ? jm.obstacle_mode_indices[j] : 0;
+        }
+    }
+
+    // 4. GPU call
+    std::vector<float> h_costs(static_cast<size_t>(N) * M);
+    std::vector<float> h_controls(static_cast<size_t>(N) * H * 3);
+    const bool ok = cuda::runRolloutAndCost(
+        cuda_ctx_,
+        h_x0.data(), h_u_nominal.data(), h_noise.data(),
+        N, H,
+        h_goal.data(), h_ref_targets.data(),
+        h_static_boxes.data(), Ns,
+        h_dyn_mus.data(), J, K,
+        h_dyn_sizes.data(),
+        h_joint_mode_idx.data(), M,
+        static_cast<float>(params_.dt),
+        static_cast<float>(params_.a_max),
+        static_cast<float>(params_.v_max),
+        static_cast<float>(params_.d_safe),
+        static_cast<float>(params_.w_goal),  static_cast<float>(params_.w_path),
+        static_cast<float>(params_.w_vel),   static_cast<float>(params_.w_acc),
+        static_cast<float>(params_.w_jerk),  static_cast<float>(params_.w_static),
+        static_cast<float>(params_.w_dyn),
+        h_costs.data(), h_controls.data(), nullptr);
+
+    if (!ok) {
+        ROS_ERROR_THROTTLE(1.0, "[IM2-MPPI/GPU] kernel launch failed — falling back to CPU once.");
+        return planCPU();
+    }
+
+    // 5. Weighted control update (CPU, small reduction).
+    //    Mirrors updateControlSequence() but reads from h_costs / h_controls.
+    const bool cvar_mode = (params_.method_type == "cvar_mppi");
+
+    // Find S_min
+    auto cost_at = [&](int i, int m) { return h_costs[i * M + m]; };
+
+    double S_min = std::numeric_limits<double>::infinity();
+    if (cvar_mode) {
+        // Per-rollout CVaR across joint modes
+        std::vector<double> cvar(N, std::numeric_limits<double>::infinity());
+        std::vector<double> costs_m(M);
+        std::vector<double> probs_m(M);
+        for (int m = 0; m < M; ++m) probs_m[m] = joint_modes_[m].probability;
+        for (int i = 0; i < N; ++i) {
+            for (int m = 0; m < M; ++m) costs_m[m] = cost_at(i, m);
+            cvar[i] = computeCVaR(costs_m, probs_m, params_.cvar_alpha);
+            if (std::isfinite(cvar[i])) S_min = std::min(S_min, cvar[i]);
+        }
+        if (!std::isfinite(S_min)) {
+            ROS_WARN("[IM2-MPPI/GPU/CVaR] All CVaRs non-finite.");
+            return false;
+        }
+        // Weighted update
+        std::vector<Eigen::Vector3d> wa(H, Eigen::Vector3d::Zero());
+        double tw = 0.0;
+        for (int i = 0; i < N; ++i) {
+            if (!std::isfinite(cvar[i])) continue;
+            const double w = std::exp(-(cvar[i] - S_min) / params_.lambda);
+            if (!std::isfinite(w)) continue;
+            tw += w;
+            for (int k = 0; k < H; ++k) {
+                const int o = i * H * 3 + k * 3;
+                wa[k].x() += w * h_controls[o + 0];
+                wa[k].y() += w * h_controls[o + 1];
+                wa[k].z() += w * h_controls[o + 2];
+            }
+        }
+        if (tw < 1e-12) {
+            ROS_WARN("[IM2-MPPI/GPU] Total weight ~0 — keeping previous nominal.");
+        } else {
+            for (int k = 0; k < H; ++k) {
+                Control u;
+                u.a = wa[k] / tw;
+                u_nominal_[k] = clampControl(u);
+            }
+        }
+    } else {
+        // Standard mode-weighted update
+        for (int i = 0; i < N; ++i)
+            for (int m = 0; m < M; ++m)
+                if (std::isfinite(cost_at(i, m)))
+                    S_min = std::min(S_min, static_cast<double>(cost_at(i, m)));
+        if (!std::isfinite(S_min)) {
+            ROS_WARN("[IM2-MPPI/GPU] All costs non-finite.");
+            return false;
+        }
+        std::vector<Eigen::Vector3d> wa(H, Eigen::Vector3d::Zero());
+        double tw = 0.0;
+        for (int m = 0; m < M; ++m) {
+            const double pi_m = joint_modes_[m].probability;
+            for (int i = 0; i < N; ++i) {
+                const double w = pi_m *
+                    std::exp(-(static_cast<double>(cost_at(i, m)) - S_min) / params_.lambda);
+                if (!std::isfinite(w)) continue;
+                tw += w;
+                for (int k = 0; k < H; ++k) {
+                    const int o = i * H * 3 + k * 3;
+                    wa[k].x() += w * h_controls[o + 0];
+                    wa[k].y() += w * h_controls[o + 1];
+                    wa[k].z() += w * h_controls[o + 2];
+                }
+            }
+        }
+        if (tw < 1e-12) {
+            ROS_WARN("[IM2-MPPI/GPU] Total weight ~0 — keeping previous nominal.");
+        } else {
+            for (int k = 0; k < H; ++k) {
+                Control u;
+                u.a = wa[k] / tw;
+                u_nominal_[k] = clampControl(u);
+            }
+        }
+    }
+
+    // 6. Build planned trajectory from updated nominal controls (CPU rollout
+    //    of one trajectory — negligible cost).
+    planned_traj_.assign(H + 1, TrajectoryPoint{});
+    State s = current_state_;
+    planned_traj_[0].p = s.p;
+    planned_traj_[0].v = s.v;
+    for (int k = 0; k < H; ++k) {
+        planned_traj_[k].a   = u_nominal_[k].a;
+        s = clampVelocity(propagate(s, u_nominal_[k]));
+        planned_traj_[k + 1].p = s.p;
+        planned_traj_[k + 1].v = s.v;
+    }
+    generateYawReference(planned_traj_);
+
+    // 7. Visualization cache — subsample N rollouts and assign uniform weights.
+    //    For accurate CVaR/mode-weighted viz we'd need to download states_out
+    //    too; keep it cheap for now.
+    const int target = std::min(params_.viz_num_rollouts, N);
+    viz_rollout_positions_.assign(target, {});
+    viz_rollout_weights_.assign(target, 0.0);
+    if (target > 0) {
+        const int stride = std::max(1, N / target);
+        // Re-derive a per-rollout cost: min across modes (cheap approximation).
+        std::vector<double> roll_cost(N, std::numeric_limits<double>::infinity());
+        for (int i = 0; i < N; ++i) {
+            double best = std::numeric_limits<double>::infinity();
+            for (int m = 0; m < M; ++m)
+                best = std::min(best, static_cast<double>(cost_at(i, m)));
+            roll_cost[i] = best;
+        }
+        double rcmin = *std::min_element(roll_cost.begin(), roll_cost.end());
+        double w_max = 0.0;
+        int slot = 0;
+        for (int i = 0; i < N && slot < target; i += stride, ++slot) {
+            // Re-rollout this single trajectory to fill viz positions (cheap).
+            auto& pos = viz_rollout_positions_[slot];
+            pos.resize(H + 1);
+            State ss = current_state_;
+            pos[0] = ss.p;
+            for (int k = 0; k < H; ++k) {
+                Control u;
+                u.a.x() = h_controls[i * H * 3 + k * 3 + 0];
+                u.a.y() = h_controls[i * H * 3 + k * 3 + 1];
+                u.a.z() = h_controls[i * H * 3 + k * 3 + 2];
+                ss = clampVelocity(propagate(ss, u));
+                pos[k + 1] = ss.p;
+            }
+            const double w = std::isfinite(roll_cost[i])
+                ? std::exp(-(roll_cost[i] - rcmin) / params_.lambda) : 0.0;
+            viz_rollout_weights_[slot] = w;
+            if (w > w_max) w_max = w;
+        }
+        if (w_max > 1e-12)
+            for (auto& w : viz_rollout_weights_) w /= w_max;
+    }
+
+    return true;
+#endif // IM2_MPPI_USE_CUDA
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

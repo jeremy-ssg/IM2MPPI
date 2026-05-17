@@ -28,6 +28,10 @@
 #include <map_manager/dynamicMap.h>
 #include <trajectory_planner/im2_mppi_params.h>
 
+// Forward declarations for the optional CUDA back-end (PIMPL so the public
+// header never depends on the CUDA toolkit).
+namespace im2mppi { namespace cuda { struct DeviceContext; } }
+
 namespace im2mppi {
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -106,6 +110,7 @@ struct RolloutResult {
 class IM2MPPIPlanner {
 public:
     explicit IM2MPPIPlanner(const ros::NodeHandle& nh);
+    ~IM2MPPIPlanner();
 
     // Configuration
     void loadParams();
@@ -232,6 +237,16 @@ private:
     std::vector<double>                       viz_rollout_weights_;
 
     std::mt19937 rng_;
+
+    // ── Optional GPU path (CUDA) ─────────────────────────────────────────────
+    // Allocated lazily on first plan() call if params_.use_gpu == true and a
+    // CUDA device is available. nullptr means CPU path is in use.
+    cuda::DeviceContext* cuda_ctx_ = nullptr;
+    bool                 cuda_init_attempted_ = false;
+
+    bool tryInitCuda();                 // returns true if GPU is usable
+    bool planGPU();                     // GPU implementation of plan()
+    bool planCPU();                     // existing CPU implementation
 };
 
 } // namespace im2mppi

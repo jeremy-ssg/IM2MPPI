@@ -58,6 +58,13 @@ im2_mppi:
   viz_num_rollouts: 20        # how many rollouts to draw as line strips
   viz_color_by_weight: true   # true: red(low)->green(high); false: flat
 
+  # ── GPU acceleration ────────────────────────────────────────────────
+  # use_gpu: true requires the binary to be built with IM2_MPPI_USE_CUDA.
+  # Falls back to CPU automatically if no CUDA device is present.
+  # Map-voxel collision cost is skipped on GPU; use static obstacles instead.
+  use_gpu: false
+  cuda_device: 0
+
   # ── Misc ────────────────────────────────────────────────────────────
   random_seed: 42
   use_yaw_postprocess: true

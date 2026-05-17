@@ -75,6 +75,14 @@ struct IM2MPPIParams {
     int  viz_num_rollouts     = 60;    // how many rollouts to draw in RViz
     bool viz_color_by_weight  = true;  // true: gradient red→green; false: flat
 
+    // ── GPU acceleration (CUDA) ──────────────────────────────────────────────
+    // When true and the binary is built with IM2_MPPI_USE_CUDA, plan() runs
+    // rollout + cost on the GPU. Falls back to CPU automatically if no CUDA
+    // device is present at runtime. Map-voxel collision cost is NOT evaluated
+    // in the GPU path — use static_obstacles_ for box-based avoidance.
+    bool   use_gpu      = false;
+    int    cuda_device  = 0;       // which GPU id to use (cudaSetDevice)
+
     // ── Misc ──────────────────────────────────────────────────────────────────
     int    random_seed         = 42;
     bool   use_yaw_postprocess = true;
@@ -121,6 +129,9 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
 
     nh.param(ns + "/viz_num_rollouts",    p.viz_num_rollouts,    p.viz_num_rollouts);
     nh.param(ns + "/viz_color_by_weight", p.viz_color_by_weight, p.viz_color_by_weight);
+
+    nh.param(ns + "/use_gpu",             p.use_gpu,             p.use_gpu);
+    nh.param(ns + "/cuda_device",         p.cuda_device,         p.cuda_device);
 
     nh.param(ns + "/random_seed",         p.random_seed,         p.random_seed);
     nh.param(ns + "/use_yaw_postprocess", p.use_yaw_postprocess, p.use_yaw_postprocess);
