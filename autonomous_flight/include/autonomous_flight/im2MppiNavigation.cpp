@@ -61,15 +61,11 @@ void im2MppiNavigation::initParam()
         this->nh_.param("autonomous_flight/execute_path_times", this->repeatPathNum_, 1);
         this->predefinedGoal_ = this->loadRefTraj(this->refTrajPath_);
         if (!this->predefinedGoal_.poses.empty()) {
-            // Sliding-waypoint mode: start from the first waypoint, not the last.
-            this->goalIdx_ = 0;
-            this->goal_    = this->predefinedGoal_.poses.front();
+            // Global goal is the FINAL waypoint; used for yaw facing.
+            // MPPI's per-step goal is the end of the local horizon (computed in mppiCB).
+            this->goal_ = this->predefinedGoal_.poses.back();
         }
     }
-
-    // Waypoint-switch distance (used in mppiCB to advance goalIdx_).
-    this->nh_.param("im2_mppi/waypoint_switch_dist", this->waypointSwitchDist_, 1.0);
-    ROS_INFO("[IM2-MPPI Nav] waypoint_switch_dist = %.2f m", this->waypointSwitchDist_);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,22 +101,24 @@ void im2MppiNavigation::initModules()
 
 void im2MppiNavigation::registerPub()
 {
-    this->bestTrajPub_  = this->nh_.advertise<nav_msgs::Path>(
+    this->bestTrajPub_   = this->nh_.advertise<nav_msgs::Path>(
         "im2mppi/best_trajectory", 10);
-    this->rolloutsPub_  = this->nh_.advertise<visualization_msgs::MarkerArray>(
+    this->rolloutsPub_   = this->nh_.advertise<visualization_msgs::MarkerArray>(
         "im2mppi/sampled_rollouts", 10);
-    this->refPathPub_   = this->nh_.advertise<nav_msgs::Path>(
+    this->refPathPub_    = this->nh_.advertise<nav_msgs::Path>(
         "im2mppi/reference_path", 10);
     this->dynObsPredPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>(
         "im2mppi/dynamic_obstacle_predictions", 10);
-    this->goalPub_      = this->nh_.advertise<visualization_msgs::MarkerArray>(
+    this->goalPub_       = this->nh_.advertise<visualization_msgs::MarkerArray>(
         "im2mppi/goal", 10);
-    this->waypointPub_  = this->nh_.advertise<visualization_msgs::MarkerArray>(
-        "im2mppi/waypoints", 10);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Timers
+//      mppiTimer_    : 10 Hz planning loop
+//      trajExeTimer_ : 100 Hz target publishing
+//      visTimer_     : 5 Hz RViz visualization
+//      predTimer_    : 5 Hz async prediction (separate spinner thread)
 // ─────────────────────────────────────────────────────────────────────────────
 
 void im2MppiNavigation::registerCallback()
@@ -131,7 +129,6 @@ void im2MppiNavigation::registerCallback()
                             &im2MppiNavigation::trajExeCB, this);
     this->visTimer_     = this->nh_.createTimer(ros::Duration(0.2),
                             &im2MppiNavigation::visCB, this);
-    // Prediction at 5 Hz — decoupled so slow inference doesn't block planning
     if (this->usePredictor_) {
         this->predTimer_ = this->nh_.createTimer(ros::Duration(0.2),
                             &im2MppiNavigation::predCB, this);
@@ -145,7 +142,9 @@ void im2MppiNavigation::run()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Planning callback (20 Hz)
+//  Planning callback (10 Hz)
+//      globalGoal  = last predefined waypoint (yaw target)
+//      plannerGoal = end of local horizon reference (MPPI terminal goal)
 // ─────────────────────────────────────────────────────────────────────────────
 
 void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
@@ -153,84 +152,51 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
     if (!this->goalReceived_ && !this->usePredefinedGoal_) return;
     if (!this->odomReceived_) return;
 
-    // Lock planner for the whole iteration — trajExeCB/visCB will wait.
+    // Lock for the whole iteration — trajExeCB/visCB will briefly wait.
     std::lock_guard<std::mutex> lk(this->planMutex_);
 
     // 1. Current state
     this->mppi_->setCurrentState(this->currPos_, this->currVel_);
 
-<<<<<<< HEAD
-    // 2. Goal
+    // 2. Global goal (used for yaw facing only)
     const Eigen::Vector3d globalGoal(this->goal_.pose.position.x,
                                      this->goal_.pose.position.y,
                                      this->goal_.pose.position.z);
-=======
-    // 2. Sliding-waypoint: advance goalIdx_ when within switch distance
-    if (this->usePredefinedGoal_ && !this->predefinedGoal_.poses.empty()) {
-        const int totalWPs = static_cast<int>(this->predefinedGoal_.poses.size());
-        // Advance as long as we are close enough AND there are more waypoints
-        while (this->goalIdx_ < totalWPs - 1) {
-            const auto& wp = this->predefinedGoal_.poses[this->goalIdx_];
-            const Eigen::Vector3d wpPos(wp.pose.position.x,
-                                        wp.pose.position.y,
-                                        wp.pose.position.z);
-            if ((this->currPos_ - wpPos).norm() < this->waypointSwitchDist_) {
-                this->goalIdx_++;
-                ROS_INFO("[IM2-MPPI Nav] → waypoint %d / %d",
-                         this->goalIdx_, totalWPs - 1);
-            } else {
-                break;
-            }
-        }
-        // Always sync goal_ to current sliding target
-        this->goal_ = this->predefinedGoal_.poses[this->goalIdx_];
-    }
 
-    const Eigen::Vector3d goalEigen(this->goal_.pose.position.x,
-                                    this->goal_.pose.position.y,
-                                    this->goal_.pose.position.z);
-    this->mppi_->setGoal(goalEigen);
->>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
-
-    // Update facing yaw for yaw control
     Eigen::Vector3d gv = globalGoal - this->currPos_;
     if (gv.head<2>().norm() > 0.1) {
         this->facingYaw_ = std::atan2(gv.y(), gv.x());
     }
 
-    // 3. Reference path
+    // 3. Local horizon reference path (sliced from predefined waypoints)
     this->lastReferencePath_ = this->buildReferencePath();
     this->mppi_->setReferencePath(this->lastReferencePath_);
 
-<<<<<<< HEAD
+    // 4. MPPI terminal goal = end of local horizon
+    //    Falls back to globalGoal if the reference is empty.
     const Eigen::Vector3d plannerGoal =
         this->lastReferencePath_.empty() ? globalGoal : this->lastReferencePath_.back();
     this->mppi_->setGoal(plannerGoal);
 
-    // 4. Method-type dispatch
-=======
-    // 4. Method-type dispatch — predictions come from async cache (predCB)
->>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
+    // 5. Method-type dispatch — predictions come from async cache (predCB)
     const std::string& method = this->mppi_->getParams().method_type;
 
     if (this->usePredictor_ && method != "vanilla_mppi") {
-        // Read from cache (filled by predCB at 5 Hz); never blocks planning
         std::vector<im2mppi::DynamicObstaclePrediction> dynPreds;
         {
-            std::lock_guard<std::mutex> lk(this->predMutex_);
+            std::lock_guard<std::mutex> pk(this->predMutex_);
             dynPreds = this->cachedDynPreds_;
         }
         this->mppi_->setDynamicObstaclePredictions(dynPreds);
         this->mppi_->setStaticObstacles({});
     } else {
-        // vanilla_mppi or predictor disabled: treat current obstacles as static
         std::vector<im2mppi::SphereObstacle> spheres;
         this->getDynamicSpheres(spheres);
         this->mppi_->setStaticObstacles(spheres);
         this->mppi_->setDynamicObstaclePredictions({});
     }
 
-    // 5. Plan
+    // 6. Plan
     const ros::Time planStart = ros::Time::now();
     const bool success = this->mppi_->plan();
 
@@ -252,7 +218,6 @@ void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
 {
     if (!this->mppiReady_) return;
 
-    // Brief lock to read planner state safely (typical < 0.1 ms).
     std::lock_guard<std::mutex> lk(this->planMutex_);
 
     const auto&  params  = this->mppi_->getParams();
@@ -299,9 +264,6 @@ void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-<<<<<<< HEAD
-//  Visualization callback (~5 Hz)
-=======
 //  Prediction callback (~5 Hz) — runs inference asynchronously
 //  Result is cached in cachedDynPreds_ behind predMutex_.
 //  mppiCB reads the cache without blocking.
@@ -317,7 +279,7 @@ void im2MppiNavigation::predCB(const ros::TimerEvent&)
     if (method == "vanilla_mppi") return;
 
     std::vector<dynamicPredictor::obstacle> predOb;
-    this->predictor_->getPrediction(predOb);   // may take 100–200 ms; lock released above
+    this->predictor_->getPrediction(predOb);   // may take 100–200 ms
 
     // If predictor returns empty (detector momentarily lost tracks), keep the
     // previous cache so visualization & MPPI don't lose all obstacle info.
@@ -336,17 +298,21 @@ void im2MppiNavigation::predCB(const ros::TimerEvent&)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Visualization callback (~20 Hz)
->>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
+//  Visualization callback (~5 Hz)
+//  Only publishes to topics that have at least one subscriber.
 // ─────────────────────────────────────────────────────────────────────────────
 
 void im2MppiNavigation::visCB(const ros::TimerEvent&)
 {
-<<<<<<< HEAD
+    // publishGoal reads goal_ only (plain struct, benign torn read).
     if (this->goalPub_.getNumSubscribers() > 0) {
         this->publishGoal();
     }
+
     if (!this->mppiReady_) return;
+
+    // Lock only for mppi_ internal vector reads.
+    std::lock_guard<std::mutex> lk(this->planMutex_);
 
     if (this->bestTrajPub_.getNumSubscribers() > 0) {
         this->publishBestTrajectory();
@@ -360,22 +326,6 @@ void im2MppiNavigation::visCB(const ros::TimerEvent&)
     if (this->dynObsPredPub_.getNumSubscribers() > 0) {
         this->publishDynamicObstaclePred();
     }
-=======
-    // publishGoal / publishWaypoints only read goal_ and predefinedGoal_ —
-    // these are plain structs; a torn read at worst shows a one-frame glitch,
-    // far safer than holding planMutex_ across a ROS publish() call.
-    this->publishGoal();
-    this->publishWaypoints();
-
-    if (!this->mppiReady_) return;
-
-    // Lock only for mppi_ internal vector reads (getRolloutPositions etc.)
-    std::lock_guard<std::mutex> lk(this->planMutex_);
-    this->publishBestTrajectory();
-    this->publishSampledRollouts();
-    this->publishReferencePath();
-    this->publishDynamicObstaclePred();
->>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -534,72 +484,71 @@ void im2MppiNavigation::getDynamicSpheres(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Local horizon reference path
+//      1. Find waypoint closest to current position.
+//      2. Walk forward along the predefined path until accumulated arc-length
+//         equals `desired_velocity × horizon_steps × dt`.
+//      3. Output sequence (currPos, wp[closest], …, end_at_horizon).
+// ─────────────────────────────────────────────────────────────────────────────
+
 std::vector<Eigen::Vector3d> im2MppiNavigation::buildReferencePath() const
 {
-    if (this->usePredefinedGoal_ && !this->predefinedGoal_.poses.empty()) {
-<<<<<<< HEAD
-        const auto& params = this->mppi_->getParams();
-        const double local_len =
-            std::max(0.3, this->desiredVel_) *
-            static_cast<double>(params.horizon_steps) * params.dt;
+    if (!this->usePredefinedGoal_ || this->predefinedGoal_.poses.empty()) return {};
 
-        size_t closest_idx = 0;
-        double closest_dist = std::numeric_limits<double>::infinity();
-        for (size_t i = 0; i < this->predefinedGoal_.poses.size(); ++i) {
-            const auto& ps = this->predefinedGoal_.poses[i];
-            const Eigen::Vector3d p(ps.pose.position.x,
-                                    ps.pose.position.y,
-                                    ps.pose.position.z);
-            const double d = (p - this->currPos_).squaredNorm();
-            if (d < closest_dist) {
-                closest_dist = d;
-                closest_idx = i;
-            }
+    const auto& params = this->mppi_->getParams();
+    const double local_len =
+        std::max(0.3, this->desiredVel_) *
+        static_cast<double>(params.horizon_steps) * params.dt;
+
+    // 1. Closest predefined waypoint to current position
+    size_t closest_idx = 0;
+    double closest_dist = std::numeric_limits<double>::infinity();
+    for (size_t i = 0; i < this->predefinedGoal_.poses.size(); ++i) {
+        const auto& ps = this->predefinedGoal_.poses[i];
+        const Eigen::Vector3d p(ps.pose.position.x,
+                                ps.pose.position.y,
+                                ps.pose.position.z);
+        const double d = (p - this->currPos_).squaredNorm();
+        if (d < closest_dist) {
+            closest_dist = d;
+            closest_idx  = i;
         }
-
-        std::vector<Eigen::Vector3d> path;
-        path.reserve(static_cast<size_t>(params.horizon_steps) + 2);
-        path.push_back(this->currPos_);
-
-        Eigen::Vector3d last = this->currPos_;
-        double walked = 0.0;
-        for (size_t i = closest_idx; i < this->predefinedGoal_.poses.size(); ++i) {
-            const auto& ps = this->predefinedGoal_.poses[i];
-            const Eigen::Vector3d p(ps.pose.position.x,
-                                    ps.pose.position.y,
-                                    ps.pose.position.z);
-            const double seg = (p - last).norm();
-            if (seg < 1e-6) continue;
-
-            if (walked + seg >= local_len) {
-                const double alpha = std::max(0.0, std::min(1.0,
-                    (local_len - walked) / seg));
-                path.push_back(last + alpha * (p - last));
-                return path;
-            }
-
-            path.push_back(p);
-            walked += seg;
-            last = p;
-        }
-
-        if (path.size() < 2) {
-            const auto& ps = this->predefinedGoal_.poses.back();
-=======
-        // Only return the sub-path from the current waypoint onward.
-        // This keeps the reference path local so w_path pulls forward, not sideways.
-        const int N = static_cast<int>(this->predefinedGoal_.poses.size());
-        const int start = std::min(this->goalIdx_, N - 1);
-        std::vector<Eigen::Vector3d> path;
-        path.reserve(N - start);
-        for (int i = start; i < N; ++i) {
-            const auto& ps = this->predefinedGoal_.poses[i];
->>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
-            path.emplace_back(ps.pose.position.x, ps.pose.position.y, ps.pose.position.z);
-        }
-        return path;
     }
-    return {};
+
+    // 2. Walk forward, accumulating arc-length until local_len
+    std::vector<Eigen::Vector3d> path;
+    path.reserve(static_cast<size_t>(params.horizon_steps) + 2);
+    path.push_back(this->currPos_);
+
+    Eigen::Vector3d last = this->currPos_;
+    double walked = 0.0;
+    for (size_t i = closest_idx; i < this->predefinedGoal_.poses.size(); ++i) {
+        const auto& ps = this->predefinedGoal_.poses[i];
+        const Eigen::Vector3d p(ps.pose.position.x,
+                                ps.pose.position.y,
+                                ps.pose.position.z);
+        const double seg = (p - last).norm();
+        if (seg < 1e-6) continue;
+
+        if (walked + seg >= local_len) {
+            const double alpha = std::max(0.0, std::min(1.0,
+                (local_len - walked) / seg));
+            path.push_back(last + alpha * (p - last));
+            return path;
+        }
+
+        path.push_back(p);
+        walked += seg;
+        last    = p;
+    }
+
+    // 3. Fallback: if we didn't walk far enough, append final waypoint
+    if (path.size() < 2) {
+        const auto& ps = this->predefinedGoal_.poses.back();
+        path.emplace_back(ps.pose.position.x, ps.pose.position.y, ps.pose.position.z);
+    }
+    return path;
 }
 
 nav_msgs::Path im2MppiNavigation::loadRefTraj(const std::string& path) const
@@ -641,10 +590,10 @@ void im2MppiNavigation::publishBestTrajectory() const
     msg.header.stamp    = ros::Time::now();
     for (const auto& pt : this->mppi_->getPlannedTrajectory()) {
         geometry_msgs::PoseStamped ps;
-        ps.header           = msg.header;
-        ps.pose.position.x  = pt.p.x();
-        ps.pose.position.y  = pt.p.y();
-        ps.pose.position.z  = pt.p.z();
+        ps.header             = msg.header;
+        ps.pose.position.x    = pt.p.x();
+        ps.pose.position.y    = pt.p.y();
+        ps.pose.position.z    = pt.p.z();
         ps.pose.orientation.w = 1.0;
         msg.poses.push_back(ps);
     }
@@ -663,23 +612,22 @@ void im2MppiNavigation::publishSampledRollouts() const
         if (positions[i].size() < 2) continue;
 
         visualization_msgs::Marker m;
-        m.header.frame_id = "map";
-        m.header.stamp    = ros::Time::now();
-        m.ns              = "im2mppi_rollouts";
-        m.id              = static_cast<int>(i);
-        m.type            = visualization_msgs::Marker::LINE_STRIP;
-        m.action          = visualization_msgs::Marker::ADD;
+        m.header.frame_id    = "map";
+        m.header.stamp       = ros::Time::now();
+        m.ns                 = "im2mppi_rollouts";
+        m.id                 = static_cast<int>(i);
+        m.type               = visualization_msgs::Marker::LINE_STRIP;
+        m.action             = visualization_msgs::Marker::ADD;
         m.pose.orientation.w = 1.0;
-        m.scale.x         = 0.015;   // line width [m]
-        m.lifetime        = ros::Duration(0.5);
+        m.scale.x            = 0.015;
+        m.lifetime           = ros::Duration(0.5);
 
-        // Color: gradient red(0) → green(1) by normalized weight
         if (params.viz_color_by_weight && i < weights.size()) {
             const float w = static_cast<float>(weights[i]);
             m.color.r = 1.0f - w;
             m.color.g = w;
             m.color.b = 0.1f;
-            m.color.a = 0.25f + 0.55f * w;   // best rollouts more opaque
+            m.color.a = 0.25f + 0.55f * w;
         } else {
             m.color.r = 0.4f;
             m.color.g = 0.4f;
@@ -709,22 +657,21 @@ void im2MppiNavigation::publishReferencePath() const
     if (!this->lastReferencePath_.empty()) {
         for (const auto& p : this->lastReferencePath_) {
             geometry_msgs::PoseStamped ps;
-            ps.header           = msg.header;
-            ps.pose.position.x  = p.x();
-            ps.pose.position.y  = p.y();
-            ps.pose.position.z  = p.z();
+            ps.header             = msg.header;
+            ps.pose.position.x    = p.x();
+            ps.pose.position.y    = p.y();
+            ps.pose.position.z    = p.z();
             ps.pose.orientation.w = 1.0;
             msg.poses.push_back(ps);
         }
     } else {
-        // Straight-line from current pos to goal
         geometry_msgs::PoseStamped a, b;
         a.header = b.header = msg.header;
         a.pose.position.x = this->currPos_.x();
         a.pose.position.y = this->currPos_.y();
         a.pose.position.z = this->currPos_.z();
         a.pose.orientation.w = 1.0;
-        b.pose.position   = this->goal_.pose.position;
+        b.pose.position      = this->goal_.pose.position;
         b.pose.orientation.w = 1.0;
         msg.poses.push_back(a);
         msg.poses.push_back(b);
@@ -737,14 +684,14 @@ void im2MppiNavigation::publishDynamicObstaclePred() const
     const auto& preds = this->mppi_->getDynamicObstaclePredictions();
 
     visualization_msgs::MarkerArray arr;
-    // Mode color palette (HSV-ish, fixed)
+
     static const float palette[6][3] = {
-        {1.0f, 0.35f, 0.35f},
-        {0.35f, 0.7f,  1.0f},
-        {1.0f,  0.8f,  0.2f},
-        {0.65f, 0.3f,  0.9f},
-        {0.2f,  0.9f,  0.5f},
-        {1.0f,  0.5f,  0.9f},
+        {1.0f,  0.35f, 0.35f},
+        {0.35f, 0.7f,  1.0f },
+        {1.0f,  0.8f,  0.2f },
+        {0.65f, 0.3f,  0.9f },
+        {0.2f,  0.9f,  0.5f },
+        {1.0f,  0.5f,  0.9f },
     };
 
     int id = 0;
@@ -756,20 +703,18 @@ void im2MppiNavigation::publishDynamicObstaclePred() const
 
             const float* c = palette[m % 6];
 
-            // Line strip through predicted means
+            // Line through predicted means
             visualization_msgs::Marker line;
-            line.header.frame_id = "map";
-            line.header.stamp    = ros::Time::now();
-            line.ns              = "im2mppi_dyn_pred";
-            line.id              = id++;
-            line.type            = visualization_msgs::Marker::LINE_STRIP;
-            line.action          = visualization_msgs::Marker::ADD;
+            line.header.frame_id    = "map";
+            line.header.stamp       = ros::Time::now();
+            line.ns                 = "im2mppi_dyn_pred";
+            line.id                 = id++;
+            line.type               = visualization_msgs::Marker::LINE_STRIP;
+            line.action             = visualization_msgs::Marker::ADD;
             line.pose.orientation.w = 1.0;
-            line.scale.x         = 0.04;
-            line.lifetime        = ros::Duration(0.5);
-            line.color.r = c[0];
-            line.color.g = c[1];
-            line.color.b = c[2];
+            line.scale.x            = 0.04;
+            line.lifetime           = ros::Duration(0.5);
+            line.color.r = c[0]; line.color.g = c[1]; line.color.b = c[2];
             line.color.a = 0.4f + 0.5f * static_cast<float>(mode.pi);
             for (const auto& p : mode.mu_seq) {
                 geometry_msgs::Point pt;
@@ -778,21 +723,19 @@ void im2MppiNavigation::publishDynamicObstaclePred() const
             }
             arr.markers.push_back(line);
 
-            // Sphere at the first prediction step (=now) showing radius
+            // Sphere at first step
             visualization_msgs::Marker sphere;
-            sphere.header   = line.header;
-            sphere.ns       = "im2mppi_dyn_pred";
-            sphere.id       = id++;
-            sphere.type     = visualization_msgs::Marker::SPHERE;
-            sphere.action   = visualization_msgs::Marker::ADD;
-            sphere.pose.position.x = mode.mu_seq.front().x();
-            sphere.pose.position.y = mode.mu_seq.front().y();
-            sphere.pose.position.z = mode.mu_seq.front().z();
+            sphere.header           = line.header;
+            sphere.ns               = "im2mppi_dyn_pred";
+            sphere.id               = id++;
+            sphere.type             = visualization_msgs::Marker::SPHERE;
+            sphere.action           = visualization_msgs::Marker::ADD;
+            sphere.pose.position.x  = mode.mu_seq.front().x();
+            sphere.pose.position.y  = mode.mu_seq.front().y();
+            sphere.pose.position.z  = mode.mu_seq.front().z();
             sphere.pose.orientation.w = 1.0;
             sphere.scale.x = sphere.scale.y = sphere.scale.z = 2.0 * pred.radius;
-            sphere.color.r = c[0];
-            sphere.color.g = c[1];
-            sphere.color.b = c[2];
+            sphere.color.r = c[0]; sphere.color.g = c[1]; sphere.color.b = c[2];
             sphere.color.a = 0.25f;
             sphere.lifetime = ros::Duration(0.5);
             arr.markers.push_back(sphere);
@@ -800,11 +743,11 @@ void im2MppiNavigation::publishDynamicObstaclePred() const
             // Sphere at horizon end
             if (mode.mu_seq.size() > 1) {
                 visualization_msgs::Marker sphere_end = sphere;
-                sphere_end.id  = id++;
+                sphere_end.id              = id++;
                 sphere_end.pose.position.x = mode.mu_seq.back().x();
                 sphere_end.pose.position.y = mode.mu_seq.back().y();
                 sphere_end.pose.position.z = mode.mu_seq.back().z();
-                sphere_end.color.a = 0.15f;
+                sphere_end.color.a         = 0.15f;
                 arr.markers.push_back(sphere_end);
             }
         }
@@ -817,52 +760,21 @@ void im2MppiNavigation::publishGoal() const
 {
     visualization_msgs::MarkerArray arr;
     visualization_msgs::Marker m;
-    m.header.frame_id = "map";
-    m.header.stamp    = ros::Time::now();
-    m.ns              = "im2mppi_goal";
-    m.id              = 0;
-    m.type            = visualization_msgs::Marker::SPHERE;
-    m.action          = visualization_msgs::Marker::ADD;
-    m.pose.position.x = this->goal_.pose.position.x;
-    m.pose.position.y = this->goal_.pose.position.y;
-    m.pose.position.z = this->goal_.pose.position.z;
-    m.pose.orientation.w = 1.0;
-    m.lifetime        = ros::Duration(0.5);
-    m.scale.x = m.scale.y = m.scale.z = 0.4;
-    m.color.r = 0.0f;
-    m.color.g = 0.85f;
-    m.color.b = 0.2f;
-    m.color.a = 1.0f;
-    arr.markers.push_back(m);
-    this->goalPub_.publish(arr);
-}
-
-void im2MppiNavigation::publishWaypoints() const
-{
-    if (!this->usePredefinedGoal_ || this->predefinedGoal_.poses.empty()) return;
-
-    const int cur = std::min(this->goalIdx_,
-                             static_cast<int>(this->predefinedGoal_.poses.size()) - 1);
-    const auto& ps = this->predefinedGoal_.poses[cur];
-
-    visualization_msgs::MarkerArray arr;
-
-    // Single cyan sphere at the current target waypoint
-    visualization_msgs::Marker m;
     m.header.frame_id    = "map";
     m.header.stamp       = ros::Time::now();
-    m.ns                 = "im2mppi_waypoints";
+    m.ns                 = "im2mppi_goal";
     m.id                 = 0;
     m.type               = visualization_msgs::Marker::SPHERE;
     m.action             = visualization_msgs::Marker::ADD;
-    m.pose.position      = ps.pose.position;
+    m.pose.position.x    = this->goal_.pose.position.x;
+    m.pose.position.y    = this->goal_.pose.position.y;
+    m.pose.position.z    = this->goal_.pose.position.z;
     m.pose.orientation.w = 1.0;
-    m.scale.x = m.scale.y = m.scale.z = 0.42;
-    m.color.r = 0.0f; m.color.g = 0.95f; m.color.b = 1.0f; m.color.a = 1.0f;
     m.lifetime           = ros::Duration(0.5);
+    m.scale.x = m.scale.y = m.scale.z = 0.4;
+    m.color.r = 0.0f; m.color.g = 0.85f; m.color.b = 0.2f; m.color.a = 1.0f;
     arr.markers.push_back(m);
-
-    this->waypointPub_.publish(arr);
+    this->goalPub_.publish(arr);
 }
 
 } // namespace AutoFlight

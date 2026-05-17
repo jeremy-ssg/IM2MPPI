@@ -13,12 +13,18 @@
         mean_prediction_mppi  → compress K modes → 1 weighted-mean mode per obstacle
         mode_aware_mppi       → full K modes, Cartesian product, then prune
 
+    Reference-path strategy:
+        Local horizon path — slice predefined path from nearest waypoint
+        forward by `desired_velocity × horizon_steps × dt` metres.
+        The end of this slice is fed to MPPI as the terminal goal.
+        Global goal (last predefined waypoint) is used only for yaw facing.
+
     Visualization (RViz topics, all under node namespace):
         ~im2mppi/best_trajectory          (nav_msgs/Path)         green
         ~im2mppi/sampled_rollouts         (visualization_msgs/MarkerArray)
         ~im2mppi/reference_path           (nav_msgs/Path)         yellow
         ~im2mppi/dynamic_obstacle_predictions (MarkerArray)
-        ~im2mppi/goal                     (MarkerArray)
+        ~im2mppi/goal                     (MarkerArray)           global goal
 */
 
 #ifndef IM2_MPPI_NAVIGATION_H
@@ -32,12 +38,9 @@
 #include <vector>
 #include <string>
 #include <cmath>
-<<<<<<< HEAD
+#include <mutex>
 #include <algorithm>
 #include <limits>
-=======
-#include <mutex>
->>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
 
 #include <nav_msgs/Path.h>
 #include <visualization_msgs/MarkerArray.h>
@@ -67,20 +70,15 @@ private:
     // ── ROS timers ─────────────────────────────────────────────────────────
     ros::Timer mppiTimer_;     // planning loop  (~10 Hz)
     ros::Timer trajExeTimer_;  // target publishing (100 Hz)
-<<<<<<< HEAD
     ros::Timer visTimer_;      // RViz visualization (~5 Hz)
-=======
-    ros::Timer visTimer_;      // RViz visualization (~20 Hz)
     ros::Timer predTimer_;     // prediction loop (~5 Hz, decoupled from planning)
->>>>>>> e330a8ba85960d6e898ac8dd2d6d854ab8a589c7
 
     // ── Publishers ─────────────────────────────────────────────────────────
     ros::Publisher bestTrajPub_;     // nav_msgs/Path  — current MPPI output
     ros::Publisher rolloutsPub_;     // MarkerArray    — sampled trajectory cloud
-    ros::Publisher refPathPub_;      // nav_msgs/Path  — reference / straight-line
+    ros::Publisher refPathPub_;      // nav_msgs/Path  — local horizon reference
     ros::Publisher dynObsPredPub_;   // MarkerArray    — dynamic obstacle modes
-    ros::Publisher goalPub_;         // MarkerArray    — current goal sphere
-    ros::Publisher waypointPub_;     // MarkerArray    — all waypoints (sliding mode)
+    ros::Publisher goalPub_;         // MarkerArray    — global goal sphere
 
     // ── Component modules ──────────────────────────────────────────────────
     std::shared_ptr<mapManager::dynamicMap>          map_;
@@ -93,15 +91,13 @@ private:
     bool        usePredictor_      = false;
     bool        useYawControl_     = false;
     bool        usePredefinedGoal_ = false;
-    double      desiredVel_           = 1.5;
-    double      desiredAcc_           = 1.5;
-    double      desiredAngularVel_    = 0.5;
-    double      waypointSwitchDist_   = 1.0;  // advance goalIdx_ when closer than this [m]
-    int         repeatPathNum_        = 1;
+    double      desiredVel_        = 1.5;
+    double      desiredAcc_        = 1.5;
+    double      desiredAngularVel_ = 0.5;
+    int         repeatPathNum_     = 1;
     std::string refTrajPath_;
 
     nav_msgs::Path predefinedGoal_;
-    int            goalIdx_ = 0;
 
     // ── Planning state ─────────────────────────────────────────────────────
     bool          mppiReady_  = false;
@@ -115,9 +111,9 @@ private:
     std::mutex                                      predMutex_;
     std::vector<im2mppi::DynamicObstaclePrediction> cachedDynPreds_;
 
-    // Protects all access to mppi_ (read or write) across the
-    // AsyncSpinner threads. predCB does NOT take this lock — it only
-    // touches cachedDynPreds_ under predMutex_.
+    // Protects mppi_ internal vector reads (best traj, rollouts, etc.) across
+    // AsyncSpinner threads. predCB does NOT take this lock — it only touches
+    // cachedDynPreds_ under predMutex_, and reads getParams() (immutable).
     mutable std::mutex planMutex_;
 
     // ── Callbacks ──────────────────────────────────────────────────────────
@@ -139,7 +135,7 @@ private:
     // Fallback static spheres when predictor disabled.
     void getDynamicSpheres(std::vector<im2mppi::SphereObstacle>& spheres) const;
 
-    // Build reference path (predefined waypoints or straight-line).
+    // Build local horizon reference path (sliced from predefined waypoints).
     std::vector<Eigen::Vector3d> buildReferencePath() const;
 
     nav_msgs::Path loadRefTraj(const std::string& path) const;
@@ -150,7 +146,6 @@ private:
     void publishReferencePath()        const;
     void publishDynamicObstaclePred()  const;
     void publishGoal()                 const;
-    void publishWaypoints()            const;  // all waypoints; highlights current goalIdx_
 };
 
 } // namespace AutoFlight

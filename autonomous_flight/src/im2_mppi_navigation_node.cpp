@@ -3,7 +3,7 @@
     ------------------------------------
     ROS node entry for the IM2-MPPI navigation stack.
 
-    Uses ros::AsyncSpinner(2) so that the slow predictor callback (predCB)
+    Uses ros::AsyncSpinner(3) so that the slow predictor callback (predCB)
     does NOT block the planning/execution/visualization callbacks.
 
     Usage:
