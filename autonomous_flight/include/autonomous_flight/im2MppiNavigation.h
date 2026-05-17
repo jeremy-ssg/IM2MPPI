@@ -35,7 +35,6 @@
 #include <mutex>
 
 #include <nav_msgs/Path.h>
-#include <std_msgs/ColorRGBA.h>
 #include <visualization_msgs/MarkerArray.h>
 
 #include <autonomous_flight/flightBase.h>

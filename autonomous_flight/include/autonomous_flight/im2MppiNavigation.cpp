@@ -767,79 +767,26 @@ void im2MppiNavigation::publishWaypoints() const
 {
     if (!this->usePredefinedGoal_ || this->predefinedGoal_.poses.empty()) return;
 
-    const int N   = static_cast<int>(this->predefinedGoal_.poses.size());
-    const int cur = this->goalIdx_;
-    const ros::Time now = ros::Time::now();
+    const int cur = std::min(this->goalIdx_,
+                             static_cast<int>(this->predefinedGoal_.poses.size()) - 1);
+    const auto& ps = this->predefinedGoal_.poses[cur];
 
     visualization_msgs::MarkerArray arr;
-    // Reserve: N spheres + 1 line strip + 1 DELETEALL
-    arr.markers.reserve(N + 2);
 
-    // ── DELETEALL ────────────────────────────────────────────────────────────
-    {
-        visualization_msgs::Marker del;
-        del.action          = visualization_msgs::Marker::DELETEALL;
-        del.header.frame_id = "map";
-        del.header.stamp    = now;
-        del.ns              = "im2mppi_waypoints";
-        arr.markers.push_back(del);
-    }
-
-    // ── Sphere per waypoint ──────────────────────────────────────────────────
-    for (int i = 0; i < N; ++i) {
-        const auto& ps = this->predefinedGoal_.poses[i];
-
-        visualization_msgs::Marker m;
-        m.header.frame_id    = "map";
-        m.header.stamp       = now;
-        m.ns                 = "im2mppi_waypoints";
-        m.id                 = i;
-        m.type               = visualization_msgs::Marker::SPHERE;
-        m.action             = visualization_msgs::Marker::ADD;
-        m.pose.position      = ps.pose.position;
-        m.pose.orientation.w = 1.0;
-        m.lifetime           = ros::Duration(1.0);   // longer lifetime = fewer gaps
-
-        if (i < cur) {
-            // Completed — small, dim gray
-            m.scale.x = m.scale.y = m.scale.z = 0.18;
-            m.color   = [] { std_msgs::ColorRGBA c; c.r=0.55f; c.g=0.55f; c.b=0.55f; c.a=0.4f; return c; }();
-        } else if (i == cur) {
-            // Current target — larger, bright cyan
-            m.scale.x = m.scale.y = m.scale.z = 0.42;
-            m.color   = [] { std_msgs::ColorRGBA c; c.r=0.0f;  c.g=0.95f; c.b=1.0f;  c.a=1.0f; return c; }();
-        } else {
-            // Future — medium, light blue
-            m.scale.x = m.scale.y = m.scale.z = 0.26;
-            m.color   = [] { std_msgs::ColorRGBA c; c.r=0.3f;  c.g=0.6f;  c.b=1.0f;  c.a=0.7f; return c; }();
-        }
-        arr.markers.push_back(std::move(m));
-    }
-
-    // ── LINE_STRIP connecting all waypoints ──────────────────────────────────
-    {
-        visualization_msgs::Marker line;
-        line.header.frame_id    = "map";
-        line.header.stamp       = now;
-        line.ns                 = "im2mppi_waypoints";
-        line.id                 = N;
-        line.type               = visualization_msgs::Marker::LINE_STRIP;
-        line.action             = visualization_msgs::Marker::ADD;
-        line.pose.orientation.w = 1.0;
-        line.scale.x            = 0.04;
-        line.lifetime           = ros::Duration(1.0);
-        line.color.r = 0.3f; line.color.g = 0.75f; line.color.b = 1.0f;
-        line.color.a = 0.5f;
-        line.points.reserve(static_cast<size_t>(N));
-        for (const auto& p : this->predefinedGoal_.poses) {
-            geometry_msgs::Point pt;
-            pt.x = p.pose.position.x;
-            pt.y = p.pose.position.y;
-            pt.z = p.pose.position.z;
-            line.points.push_back(pt);
-        }
-        arr.markers.push_back(std::move(line));
-    }
+    // Single cyan sphere at the current target waypoint
+    visualization_msgs::Marker m;
+    m.header.frame_id    = "map";
+    m.header.stamp       = ros::Time::now();
+    m.ns                 = "im2mppi_waypoints";
+    m.id                 = 0;
+    m.type               = visualization_msgs::Marker::SPHERE;
+    m.action             = visualization_msgs::Marker::ADD;
+    m.pose.position      = ps.pose.position;
+    m.pose.orientation.w = 1.0;
+    m.scale.x = m.scale.y = m.scale.z = 0.42;
+    m.color.r = 0.0f; m.color.g = 0.95f; m.color.b = 1.0f; m.color.a = 1.0f;
+    m.lifetime           = ros::Duration(0.5);
+    arr.markers.push_back(m);
 
     this->waypointPub_.publish(arr);
 }
