@@ -1023,9 +1023,8 @@ bool IM2MPPIPlanner::planCPU()
     // 4. Roll out dynamics ONCE
     std::vector<RolloutResult> base_rollouts = rolloutDynamics(noise);
 
-    // 5. Per-mode cost evaluation.
-    //    cvar_mppi: SKIP the deterministic dynamic-obstacle term — it will be
-    //    replaced by the per-rollout obstacle-CVaR cost computed below.
+    // 5. Per-mode cost evaluation. In cvar_mppi the deterministic dynamic
+    //    obstacle penalty remains active; CVaR is added as an extra risk term.
     const bool is_cvar = (params_.method_type == "cvar_mppi");
 
     std::vector<std::vector<RolloutResult>> all_results;
@@ -1039,9 +1038,7 @@ bool IM2MPPIPlanner::planCPU()
             c += computeSmoothnessCost(r);
             c += computeStaticObstacleCost(r);
             c += computeMapObstacleCost(r);
-            if (!is_cvar) {
-                c += computeDynamicObstacleCost(r, jm);
-            }
+            c += computeDynamicObstacleCost(r, jm);
             r.cost = c;
         }
         all_results.push_back(std::move(mode_results));
@@ -1217,9 +1214,16 @@ bool IM2MPPIPlanner::planGPU()
 
     const bool cvar_mode = (params_.method_type == "cvar_mppi");
 
-    // 4a. Main rollout + cost kernel (skip deterministic dyn term in CVaR mode).
+    // 4a. Main rollout + cost kernel. CVaR mode keeps deterministic dynamic
+    //     obstacle cost; the uncertainty CVaR term is added afterwards.
     std::vector<float> h_costs(static_cast<size_t>(N) * M);
     std::vector<float> h_controls(static_cast<size_t>(N) * H * 3);
+    std::vector<float> h_states;
+    float* h_states_out = nullptr;
+    if (map_) {
+        h_states.resize(static_cast<size_t>(N) * (H + 1) * 6);
+        h_states_out = h_states.data();
+    }
     const bool ok = cuda::runRolloutAndCost(
         cuda_ctx_,
         h_x0.data(), h_u_nominal.data(), h_noise.data(),
@@ -1237,12 +1241,51 @@ bool IM2MPPIPlanner::planGPU()
         static_cast<float>(params_.w_vel),   static_cast<float>(params_.w_acc),
         static_cast<float>(params_.w_jerk),  static_cast<float>(params_.w_static),
         static_cast<float>(params_.w_dyn),
-        cvar_mode ? 1 : 0,
-        h_costs.data(), h_controls.data(), nullptr);
+        0,
+        h_costs.data(), h_controls.data(), h_states_out);
 
     if (!ok) {
         ROS_ERROR_THROTTLE(1.0, "[IM2-MPPI/GPU] kernel launch failed — falling back to CPU once.");
         return planCPU();
+    }
+
+    // CUDA evaluates AABB costs, while the voxel occupancy map remains on CPU.
+    // Add the same map collision penalty used by planCPU() once per rollout
+    // and share it across all joint modes.
+    if (map_ && !h_states.empty()) {
+        const double collision_penalty =
+            std::max(1.0, params_.d_safe * params_.d_safe * 100.0);
+        const int s_stride = (H + 1) * 6;
+
+        for (int i = 0; i < N; ++i) {
+            double map_cost = 0.0;
+            for (int k = 1; k <= H; ++k) {
+                const int p0 = i * s_stride + (k - 1) * 6;
+                const int p1 = i * s_stride + k * 6;
+                const Eigen::Vector3d p_prev(h_states[p0 + 0],
+                                             h_states[p0 + 1],
+                                             h_states[p0 + 2]);
+                const Eigen::Vector3d p(h_states[p1 + 0],
+                                        h_states[p1 + 1],
+                                        h_states[p1 + 2]);
+
+                if (map_->isInflatedOccupied(p)) {
+                    map_cost += collision_penalty;
+                }
+                if ((p - p_prev).squaredNorm() > 1e-10 &&
+                    map_->isInflatedOccupiedLine(p_prev, p)) {
+                    map_cost += collision_penalty;
+                }
+            }
+
+            const float weighted_map_cost =
+                static_cast<float>(params_.w_static * map_cost);
+            if (weighted_map_cost != 0.0f) {
+                for (int m = 0; m < M; ++m) {
+                    h_costs[i * M + m] += weighted_map_cost;
+                }
+            }
+        }
     }
 
     // 4b. CVaR over obstacle uncertainty (Phase-4 core). Adds the risk term

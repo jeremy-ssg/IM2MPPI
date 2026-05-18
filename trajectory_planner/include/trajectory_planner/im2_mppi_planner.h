@@ -215,7 +215,7 @@ private:
     //   Compute the hinge-squared loss against the deterministic ego rollout
     //   Take the mean of the worst α fraction of those R losses → ρ[i,m,j]
     // delta_S[i,m] = λ_r · Σ_j ρ[i,m,j] — to be ADDED to the base cost
-    // (base cost must have its deterministic dynamic-obstacle term skipped).
+    // The base cost still includes the deterministic dynamic-obstacle term.
     void computeObstacleCVaRCost(
         const std::vector<RolloutResult>&              base_rollouts,
         const std::vector<JointMode>&                  modes,

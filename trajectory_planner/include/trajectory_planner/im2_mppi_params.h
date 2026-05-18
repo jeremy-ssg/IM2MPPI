@@ -71,7 +71,7 @@ struct IM2MPPIParams {
     //   Sample R obstacle trajectories from N(μ_{m,j}, diag(σ_{m,j})²).
     //   Compute hinge-squared loss against the ego rollout per sample.
     //   ρ[i,m,j] = mean of the worst α fraction of those R losses.
-    // Then S[i,m] = base_cost_without_dyn[i,m] + λ_r · Σ_j ρ[i,m,j].
+    // Then S[i,m] = base_cost_with_dyn[i,m] + λ_r · Σ_j ρ[i,m,j].
     //
     // Only used when method_type == "cvar_mppi".
     double cvar_alpha                 = 0.20;   // tail fraction (α)
@@ -100,8 +100,8 @@ struct IM2MPPIParams {
     // ── GPU acceleration (CUDA) ──────────────────────────────────────────────
     // When true and the binary is built with IM2_MPPI_USE_CUDA, plan() runs
     // rollout + cost on the GPU. Falls back to CPU automatically if no CUDA
-    // device is present at runtime. Map-voxel collision cost is NOT evaluated
-    // in the GPU path — use static_obstacles_ for box-based avoidance.
+    // device is present at runtime. The CUDA kernels evaluate AABB costs; the
+    // planner adds voxel-map collision cost on the CPU after downloading states.
     bool   use_gpu      = true;
     int    cuda_device  = 0;       // which GPU id to use (cudaSetDevice)
 

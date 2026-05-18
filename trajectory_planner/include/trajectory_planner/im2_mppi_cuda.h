@@ -14,9 +14,9 @@
     All math is FP32 on the device. Host code converts from Eigen::Vector3d
     (double) on transfer; control precision is unaffected.
 
-    NOTE: map_->isInflatedOccupied() is NOT replicated on GPU in this
-    iteration. The voxel-map collision cost is skipped when the GPU path
-    runs. Use static_obstacles_ for box-based avoidance instead.
+    NOTE: map_->isInflatedOccupied() is not replicated inside CUDA kernels.
+    The planner may download rollout states and add the voxel-map collision
+    term on the CPU after the GPU cost pass.
 */
 
 #ifndef IM2_MPPI_CUDA_H
@@ -91,7 +91,7 @@ bool runRolloutAndCost(
     float dt, float a_max, float v_max, float d_safe,
     float w_goal, float w_path, float w_vel,
     float w_acc,  float w_jerk, float w_static, float w_dyn,
-    int   skip_dyn_cost,   // 1 = omit deterministic dyn cost (cvar mode)
+    int   skip_dyn_cost,   // 1 = omit deterministic dynamic-obstacle cost
 
     float* costs_out,
     float* controls_out,

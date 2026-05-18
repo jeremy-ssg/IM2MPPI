@@ -76,7 +76,7 @@ im2_mppi:
   # ── GPU acceleration ────────────────────────────────────────────────
   # use_gpu: true requires the binary to be built with IM2_MPPI_USE_CUDA.
   # Falls back to CPU automatically if no CUDA device is present.
-  # Map-voxel collision cost is skipped on GPU; use static obstacles instead.
+  # CUDA handles rollout/AABB costs; voxel-map collision is added on CPU from downloaded states.
   use_gpu: true
   cuda_device: 0
 
