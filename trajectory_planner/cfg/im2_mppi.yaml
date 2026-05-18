@@ -83,4 +83,4 @@ im2_mppi:
   # ── Misc ────────────────────────────────────────────────────────────
   random_seed: 42
   use_yaw_postprocess: true
-  v_yaw_min: 0.1
+  v_yaw_min: 0.3

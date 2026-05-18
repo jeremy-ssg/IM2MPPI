@@ -167,25 +167,31 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
     // 1. Current state
     this->mppi_->setCurrentState(this->currPos_, this->currVel_);
 
-    // 2. Global goal (used for yaw facing only)
-    const Eigen::Vector3d globalGoal(this->goal_.pose.position.x,
-                                     this->goal_.pose.position.y,
-                                     this->goal_.pose.position.z);
-
-    Eigen::Vector3d gv = globalGoal - this->currPos_;
-    if (gv.head<2>().norm() > 0.1) {
-        this->facingYaw_ = std::atan2(gv.y(), gv.x());
-    }
-
-    // 3. Local horizon reference path (sliced from predefined waypoints)
+    // 2. Local horizon reference path (built FIRST so we can derive both the
+    //    MPPI terminal goal and the facing-yaw target from the same point).
     this->lastReferencePath_ = this->buildReferencePath();
     this->mppi_->setReferencePath(this->lastReferencePath_);
 
-    // 4. MPPI terminal goal = end of local horizon
-    //    Falls back to globalGoal if the reference is empty.
+    // 3. Goals
+    //    globalGoal  = final predefined waypoint (only used if local path empty)
+    //    plannerGoal = end of local horizon  → MPPI terminal cost target
+    //                                        → also facing-yaw target (smooth)
+    const Eigen::Vector3d globalGoal(this->goal_.pose.position.x,
+                                     this->goal_.pose.position.y,
+                                     this->goal_.pose.position.z);
     const Eigen::Vector3d plannerGoal =
         this->lastReferencePath_.empty() ? globalGoal : this->lastReferencePath_.back();
     this->mppi_->setGoal(plannerGoal);
+
+    // 4. Facing yaw — head toward the LOCAL horizon end, not the far-away
+    //    global goal. Two advantages:
+    //      (a) Yaw smoothly follows the path curve (no more lurching).
+    //      (b) Larger 0.3-m deadband (vs old 0.1 m) avoids the divide-by-tiny
+    //          atan2 jitter when the drone is near a waypoint.
+    Eigen::Vector3d gv = plannerGoal - this->currPos_;
+    if (gv.head<2>().norm() > 0.3) {
+        this->facingYaw_ = std::atan2(gv.y(), gv.x());
+    }
 
     // 5. Method-type dispatch — predictions come from async cache (predCB)
     const std::string& method = this->mppi_->getParams().method_type;
@@ -240,6 +246,8 @@ void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
 
     tracking_controller::Target target;
 
+    // ── Compute raw position / velocity / accel from the plan ────────────
+    double raw_yaw = 0.0;
     if (realTime >= endTime) {
         const Eigen::Vector3d p = this->mppi_->getPos(endTime);
         target.position.x = p.x();
@@ -247,8 +255,16 @@ void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
         target.position.z = p.z();
         target.velocity.x = target.velocity.y = target.velocity.z = 0.0;
         target.acceleration.x = target.acceleration.y = target.acceleration.z = 0.0;
-        target.yaw = AutoFlight::rpy_from_quaternion(
-            this->odom_.pose.pose.orientation);
+
+        // Hold the LAST PLANNED yaw instead of snapping to current odom yaw
+        // (which used to inject a one-shot step every time a plan expired).
+        if (this->useYawControl_ && params.use_yaw_postprocess) {
+            const auto& traj = this->mppi_->getPlannedTrajectory();
+            if (!traj.empty()) raw_yaw = traj.back().yaw;
+            else               raw_yaw = this->facingYaw_;
+        } else {
+            raw_yaw = this->facingYaw_;
+        }
     } else {
         const Eigen::Vector3d p   = this->mppi_->getPos(realTime);
         const Eigen::Vector3d v   = this->mppi_->getVel(realTime);
@@ -268,10 +284,39 @@ void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
             const auto& traj = this->mppi_->getPlannedTrajectory();
             int k = static_cast<int>(realTime / params.dt);
             k = std::max(0, std::min(k, static_cast<int>(traj.size()) - 1));
-            target.yaw = static_cast<float>(traj[k].yaw);
+            raw_yaw = traj[k].yaw;
         } else {
-            target.yaw = static_cast<float>(this->facingYaw_);
+            raw_yaw = this->facingYaw_;
         }
+    }
+
+    // ── Yaw rate limiter ─────────────────────────────────────────────────
+    //   Caps |Δyaw| at YAW_RATE_MAX × Δt so the 100-Hz setpoint stream stays
+    //   physically follow-able by the attitude controller. Initial yaw is
+    //   seeded from the actual odom orientation so the limiter doesn't drag
+    //   the drone toward 0 at start-up.
+    {
+        const ros::Time now = ros::Time::now();
+        if (!this->targetYawInit_) {
+            this->lastTargetYaw_     = AutoFlight::rpy_from_quaternion(
+                                          this->odom_.pose.pose.orientation);
+            this->lastTargetYawTime_ = now;
+            this->targetYawInit_     = true;
+        }
+        const double dt_y = std::max(0.001,
+                                     (now - this->lastTargetYawTime_).toSec());
+        constexpr double YAW_RATE_MAX = M_PI;          // 180 °/s
+        const double max_dy = YAW_RATE_MAX * dt_y;
+
+        double dy = raw_yaw - this->lastTargetYaw_;
+        while (dy >  M_PI) dy -= 2.0 * M_PI;
+        while (dy < -M_PI) dy += 2.0 * M_PI;
+        dy = std::max(-max_dy, std::min(max_dy, dy));
+
+        const double limited = this->lastTargetYaw_ + dy;
+        target.yaw                  = static_cast<float>(limited);
+        this->lastTargetYaw_        = limited;
+        this->lastTargetYawTime_    = now;
     }
 
     this->updateTargetWithState(target);

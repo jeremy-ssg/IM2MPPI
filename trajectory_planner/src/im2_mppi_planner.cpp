@@ -394,21 +394,27 @@ double IM2MPPIPlanner::computeMapObstacleCost(const RolloutResult& r) const
 {
     if (!map_) return 0.0;
 
+    // Soft penalty (matches the GPU path). The old d_safe²×100 = 25 was an
+    // NMPC-style hard-constraint penalty that dominated the cost landscape
+    // and caused drift; 1.0 keeps map cost comparable to the per-step
+    // deterministic dynamic obstacle cost.
     double cost = 0.0;
-    const double collision_penalty =
-        std::max(1.0, params_.d_safe * params_.d_safe * 100.0);
+    const double collision_penalty = 1.0;
+    const int    H                 = params_.horizon_steps;
+    const int    MAP_STRIDE        = std::max(1, H / 6);   // ~6 checks / rollout
 
-    for (int k = 1; k <= params_.horizon_steps; ++k) {
-        const Eigen::Vector3d& p_prev = r.states[k - 1].p;
+    int prev_check_k = 0;
+    for (int k = MAP_STRIDE; k <= H; k += MAP_STRIDE) {
+        const Eigen::Vector3d& p_prev = r.states[prev_check_k].p;
         const Eigen::Vector3d& p      = r.states[k].p;
 
         if (map_->isInflatedOccupied(p)) {
             cost += collision_penalty;
-        }
-        if ((p - p_prev).squaredNorm() > 1e-10 &&
-            map_->isInflatedOccupiedLine(p_prev, p)) {
+        } else if ((p - p_prev).squaredNorm() > 1e-10 &&
+                   map_->isInflatedOccupiedLine(p_prev, p)) {
             cost += collision_penalty;
         }
+        prev_check_k = k;
     }
 
     return params_.w_static * cost;
@@ -909,13 +915,30 @@ void IM2MPPIPlanner::generateYawReference(std::vector<TrajectoryPoint>& traj) co
 {
     if (!params_.use_yaw_postprocess || traj.empty()) return;
 
+    // Use the AVERAGED velocity over a short look-ahead window instead of
+    // the per-step instantaneous velocity. Per-step v is contaminated by
+    // MPPI sampling noise (σ_a up to 0.8 m/s² → vy may swing ±0.5 m/s) which
+    // produces atan2 yaw jitter up to ±18° per step. Averaging over 5 steps
+    // collapses that into a smooth heading reference.
+    const int H    = static_cast<int>(traj.size());
+    const int LOOK = std::min(5, H);
+
     double prev_yaw = std::atan2(current_state_.v.y(), current_state_.v.x());
-    for (auto& pt : traj) {
-        const double vxy = std::hypot(pt.v.x(), pt.v.y());
-        if (vxy >= params_.v_yaw_min) {
-            prev_yaw = std::atan2(pt.v.y(), pt.v.x());
+
+    for (int k = 0; k < H; ++k) {
+        Eigen::Vector3d avg_v = Eigen::Vector3d::Zero();
+        int count = 0;
+        for (int j = k; j < std::min(k + LOOK, H); ++j) {
+            avg_v += traj[j].v;
+            ++count;
         }
-        pt.yaw = prev_yaw;
+        if (count > 0) avg_v /= static_cast<double>(count);
+
+        const double vxy = std::hypot(avg_v.x(), avg_v.y());
+        if (vxy >= params_.v_yaw_min) {
+            prev_yaw = std::atan2(avg_v.y(), avg_v.x());
+        }
+        traj[k].yaw = prev_yaw;
     }
 }
 
@@ -1250,17 +1273,29 @@ bool IM2MPPIPlanner::planGPU()
     }
 
     // CUDA evaluates AABB costs, while the voxel occupancy map remains on CPU.
-    // Add the same map collision penalty used by planCPU() once per rollout
-    // and share it across all joint modes.
+    //
+    // Two fixes from the drift-debug pass:
+    //   (1) collision_penalty was d_safe² × 100 ≈ 25, which after × w_static=30
+    //       gave 750 per voxel hit — ~15× the goal cost. That dominated the
+    //       cost landscape and pushed the drone off goal whenever ANY voxel
+    //       was nearby. Soft penalty 1.0 (× w_static ≈ 30) is comparable to
+    //       the per-step deterministic dynamic-obstacle cost.
+    //   (2) Checking every single step of every rollout was ~30 720 voxel
+    //       lookups / plan() and saturated the CPU at ~460 ms / plan(),
+    //       making the GPU's 5 ms rollout pointless. Stride MAP_STRIDE
+    //       reduces this to ~6 checks / rollout — the line-collision check
+    //       between sampled steps catches anything in between.
     if (map_ && !h_states.empty()) {
-        const double collision_penalty =
-            std::max(1.0, params_.d_safe * params_.d_safe * 100.0);
-        const int s_stride = (H + 1) * 6;
+        const double collision_penalty = 1.0;
+        const int    s_stride          = (H + 1) * 6;
+        const int    MAP_STRIDE        = std::max(1, H / 6);   // ~6 checks per rollout
 
         for (int i = 0; i < N; ++i) {
-            double map_cost = 0.0;
-            for (int k = 1; k <= H; ++k) {
-                const int p0 = i * s_stride + (k - 1) * 6;
+            double map_cost      = 0.0;
+            int    prev_check_k  = 0;
+
+            for (int k = MAP_STRIDE; k <= H; k += MAP_STRIDE) {
+                const int p0 = i * s_stride + prev_check_k * 6;
                 const int p1 = i * s_stride + k * 6;
                 const Eigen::Vector3d p_prev(h_states[p0 + 0],
                                              h_states[p0 + 1],
@@ -1269,13 +1304,14 @@ bool IM2MPPIPlanner::planGPU()
                                         h_states[p1 + 1],
                                         h_states[p1 + 2]);
 
+                // Cheap endpoint check first; only raycast if endpoint is clear.
                 if (map_->isInflatedOccupied(p)) {
                     map_cost += collision_penalty;
-                }
-                if ((p - p_prev).squaredNorm() > 1e-10 &&
-                    map_->isInflatedOccupiedLine(p_prev, p)) {
+                } else if ((p - p_prev).squaredNorm() > 1e-10 &&
+                           map_->isInflatedOccupiedLine(p_prev, p)) {
                     map_cost += collision_penalty;
                 }
+                prev_check_k = k;
             }
 
             const float weighted_map_cost =

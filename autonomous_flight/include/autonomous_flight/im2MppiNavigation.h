@@ -108,6 +108,13 @@ private:
     ros::Time     trajStartTime_;
     double        facingYaw_  = 0.0;
 
+    // Output yaw rate limiter state (trajExeCB). Caps how fast target.yaw
+    // can change per 100-Hz tick so MPPI's potentially noisy yaw reference
+    // doesn't translate into physical yaw flapping.
+    double        lastTargetYaw_     = 0.0;
+    ros::Time     lastTargetYawTime_;
+    bool          targetYawInit_     = false;
+
     std::vector<Eigen::Vector3d> lastReferencePath_;
 
     // ── Prediction cache (updated by predTimer_ at ~5 Hz) ──────────────────
