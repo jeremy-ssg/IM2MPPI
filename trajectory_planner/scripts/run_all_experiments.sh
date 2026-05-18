@@ -28,6 +28,13 @@
 #    ./run_all_experiments.sh 3 90        # quick sanity sweep, ~25 min
 #    ./run_all_experiments.sh 10 120      # mid-size paper run, ~4 h
 #
+#  Resume after crash:
+#    Re-run with the SAME timestamp output dir, e.g.:
+#      OUT_DIR_OVERRIDE=results/20260519_HHMMSS \
+#          ./run_all_experiments.sh 24 90
+#    Any (config, seed) whose summary.json already exists is skipped.
+#    (round-robin order means all configs get exposed first, then deepened.)
+#
 #  Total wall clock ≈ SEEDS × 8 configs × (DURATION + 40 s overhead).
 #
 #  Per-run raw artefacts saved under results/<stamp>/:
@@ -46,8 +53,16 @@ SEEDS=${1:-24}
 DURATION=${2:-90}
 GOAL_RADIUS=${3:-0.8}
 
-STAMP="$(date +%Y%m%d_%H%M%S)"
-OUT_DIR="${HOME}/IM2MPPI/results/${STAMP}"
+# Allow resume: caller can point at an existing results dir to pick up where
+# the last crash left off (round-robin + per-run skip-if-exists handle it).
+if [[ -n "${OUT_DIR_OVERRIDE:-}" ]]; then
+    OUT_DIR="${OUT_DIR_OVERRIDE}"
+    STAMP="$(basename "${OUT_DIR}")"
+    echo "[resume] using existing OUT_DIR = ${OUT_DIR}"
+else
+    STAMP="$(date +%Y%m%d_%H%M%S)"
+    OUT_DIR="${HOME}/IM2MPPI/results/${STAMP}"
+fi
 LOG_DIR="${OUT_DIR}/logs"
 mkdir -p "${LOG_DIR}"
 
@@ -78,25 +93,40 @@ CONFIGS=(
 # ────────────────────────────────────────────────────────────────────────────
 
 cleanup_all() {
-    # Hard-kill in the order that minimizes "still attached to dead master" errors.
-    pkill -9 -f evaluate_intent_mpc_im2mppi 2>/dev/null || true
-    pkill -9 -f im2_mppi_navigation_node    2>/dev/null || true
-    pkill -9 -f mpcNavigation              2>/dev/null || true
-    pkill -9 -f tracking_controller_node   2>/dev/null || true
-    pkill -9 -f onboard_detector           2>/dev/null || true
-    pkill -9 -f dynamic_predictor          2>/dev/null || true
-    pkill -9 -f teleop_twist_keyboard      2>/dev/null || true
-    pkill -9 -f keyboard_control           2>/dev/null || true
-    pkill -9 -f key_teleop                 2>/dev/null || true
-    pkill -9 -f keyboardCtrl               2>/dev/null || true
-    pkill -9 -f gzclient                   2>/dev/null || true
-    pkill -9 -f gzserver                   2>/dev/null || true
-    pkill -9 -f gazebo                     2>/dev/null || true
-    pkill -9 -f rviz                       2>/dev/null || true
-    pkill -9 -f roslaunch                  2>/dev/null || true
-    pkill -9 -f rosmaster                  2>/dev/null || true
-    pkill -9 -f rosout                     2>/dev/null || true
-    sleep 4
+    # Three-pass shutdown:
+    #   1) TERM ROS-layer nodes first (let them flush state)
+    #   2) KILL everything that didn't exit on TERM
+    #   3) wait + reap zombies + delete ROS log dir so the next run starts
+    #      from a clean state and disk doesn't fill up overnight.
+    for SIG in 15 9; do
+        pkill -${SIG} -f evaluate_intent_mpc_im2mppi 2>/dev/null || true
+        pkill -${SIG} -f im2_mppi_navigation_node    2>/dev/null || true
+        pkill -${SIG} -f mpcNavigation              2>/dev/null || true
+        pkill -${SIG} -f tracking_controller_node   2>/dev/null || true
+        pkill -${SIG} -f onboard_detector           2>/dev/null || true
+        pkill -${SIG} -f dynamic_predictor          2>/dev/null || true
+        pkill -${SIG} -f teleop_twist_keyboard      2>/dev/null || true
+        pkill -${SIG} -f keyboard_control           2>/dev/null || true
+        pkill -${SIG} -f key_teleop                 2>/dev/null || true
+        pkill -${SIG} -f keyboardCtrl               2>/dev/null || true
+        pkill -${SIG} -f gzclient                   2>/dev/null || true
+        pkill -${SIG} -f gzserver                   2>/dev/null || true
+        pkill -${SIG} -f gazebo                     2>/dev/null || true
+        pkill -${SIG} -f rviz                       2>/dev/null || true
+        pkill -${SIG} -f roslaunch                  2>/dev/null || true
+        pkill -${SIG} -f rosmaster                  2>/dev/null || true
+        pkill -${SIG} -f rosout                     2>/dev/null || true
+        [[ "${SIG}" == "15" ]] && sleep 3
+    done
+
+    # Reap orphan ROS log dir (Gazebo / rosbag traces can OOM the disk after
+    # ~50 runs). Keep only the most recent 3 logs as a safety net.
+    if [[ -d "${HOME}/.ros/log" ]]; then
+        find "${HOME}/.ros/log" -mindepth 1 -maxdepth 1 -type d \
+            | sort | head -n -3 | xargs -r rm -rf 2>/dev/null || true
+    fi
+
+    sleep 5
 }
 
 set_yaml_str() {
@@ -138,20 +168,23 @@ run_one() {
             >/dev/null 2>&1 || true
     fi
 
-    # 4. Launch the simulator.
-    roslaunch uav_simulator start.launch \
+    # 4. Launch the simulator (hard-timeout the launch process itself).
+    timeout --kill-after=10 $((DURATION + 90)) \
+        roslaunch uav_simulator start.launch \
         > "${LOG_DIR}/${TAG}_sim.log" 2>&1 &
+    SIM_PID=$!
     sleep 10
-    # Kill any teleop / keyboard control nodes that start.launch may bring up
-    # — we're running unattended, no human at the keyboard.
+    # Kill any teleop / keyboard control nodes start.launch may bring up.
     pkill -9 -f teleop_twist_keyboard 2>/dev/null || true
     pkill -9 -f keyboard_control      2>/dev/null || true
     pkill -9 -f key_teleop            2>/dev/null || true
     pkill -9 -f keyboardCtrl          2>/dev/null || true
 
-    # 5. Launch the planner stack (Intent-MPC or IM2-MPPI).
-    roslaunch ${LAUNCH} \
+    # 5. Launch the planner stack (Intent-MPC or IM2-MPPI), hard-timed too.
+    timeout --kill-after=10 $((DURATION + 90)) \
+        roslaunch ${LAUNCH} \
         > "${LOG_DIR}/${TAG}_stack.log" 2>&1 &
+    STACK_PID=$!
     sleep 12   # wait for takeoff + planner init
 
     # 6. Choose evaluator algorithm tag.
@@ -160,14 +193,17 @@ run_one() {
         EVAL_ALGO="intent_mpc"
     fi
 
-    # 7. Launch the evaluator (blocks for DURATION seconds, then exits).
+    # 7. Launch the evaluator under a strict timeout so a stuck ROS master
+    #    never blocks the whole batch. Evaluator's own shutdown timer fires
+    #    at DURATION; +30s grace for cleanup; then the OS hard-kills.
     local TMP_OUT="${OUT_DIR}/_tmp_${TAG}"
     mkdir -p "${TMP_OUT}"
-    roslaunch trajectory_planner evaluate_planner.launch \
-        algorithm:="${EVAL_ALGO}" \
-        duration:="${DURATION}" \
-        goal_radius:="${GOAL_RADIUS}" \
-        output_dir:="${TMP_OUT}" \
+    timeout --kill-after=10 $((DURATION + 30)) \
+        roslaunch trajectory_planner evaluate_planner.launch \
+            algorithm:="${EVAL_ALGO}" \
+            duration:="${DURATION}" \
+            goal_radius:="${GOAL_RADIUS}" \
+            output_dir:="${TMP_OUT}" \
         > "${LOG_DIR}/${TAG}_eval.log" 2>&1 || true
 
     # 8. Archive results with seed-tagged names.
@@ -207,14 +243,29 @@ echo "  estimated total wall clock: ${EST_HMS}  (≈ done ${EST_END})"
 echo "  results:  ${OUT_DIR}"
 echo "================================================================"
 
-for CONFIG in "${CONFIGS[@]}"; do
-    IFS='|' read -r NAME LAUNCH METHOD FUSION CL <<< "${CONFIG}"
-    for SEED in $(seq 1 ${SEEDS}); do
+# ────────────────────────────────────────────────────────────────────────────
+#  Round-robin loop: OUTER = seed, INNER = config.
+#  Each pass adds +1 seed to EVERY config so that if the script crashes mid-
+#  way, you still have N (rather than 0) seeds for the trailing configs.
+#  Also supports resume — already-complete summaries are skipped.
+# ────────────────────────────────────────────────────────────────────────────
+for SEED in $(seq 1 ${SEEDS}); do
+    for CONFIG in "${CONFIGS[@]}"; do
+        IFS='|' read -r NAME LAUNCH METHOD FUSION CL <<< "${CONFIG}"
         COUNT=$((COUNT + 1))
+
+        # Resume support: skip if summary already exists.
+        if [[ -f "${OUT_DIR}/${NAME}_seed${SEED}_summary.json" ]]; then
+            printf "\n>>> [%d/%d] %s seed=%d  (already done, skipped)\n" \
+                "${COUNT}" "${TOTAL}" "${NAME}" "${SEED}"
+            continue
+        fi
+
         ELAPSED=$(( $(date +%s) - T_START ))
         REMAINING=$(( (TOTAL - COUNT + 1) * (DURATION + 40) ))
-        printf "\n>>> [%d/%d]  elapsed %ds  est. remaining %ds\n" \
-            "${COUNT}" "${TOTAL}" "${ELAPSED}" "${REMAINING}"
+        printf "\n>>> [%d/%d]  seed_pass=%d/%d  config=%s  elapsed=%ds  est_remaining=%ds\n" \
+            "${COUNT}" "${TOTAL}" "${SEED}" "${SEEDS}" "${NAME}" \
+            "${ELAPSED}" "${REMAINING}"
         run_one "${NAME}" "${LAUNCH}" "${METHOD}" "${FUSION}" "${CL}" "${SEED}"
     done
 done
