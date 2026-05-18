@@ -58,7 +58,7 @@ struct IM2MPPIParams {
     //   mean_prediction_mppi  — compress K modes into weighted-mean trajectory
     //   mode_aware_mppi       — multi-modal weighting (Cartesian product + prune)
     //   cvar_mppi             — multi-modal + CVaR tail aggregation (Phase 4)
-    std::string method_type = "mode_aware_mppi";
+    std::string method_type = "cvar_mppi";
 
     // Supported values: probability | risk_aware
     std::string mode_pruning_type = "risk_aware";
@@ -80,7 +80,7 @@ struct IM2MPPIParams {
     // rollout + cost on the GPU. Falls back to CPU automatically if no CUDA
     // device is present at runtime. Map-voxel collision cost is NOT evaluated
     // in the GPU path — use static_obstacles_ for box-based avoidance.
-    bool   use_gpu      = false;
+    bool   use_gpu      = true;
     int    cuda_device  = 0;       // which GPU id to use (cudaSetDevice)
 
     // ── Misc ──────────────────────────────────────────────────────────────────

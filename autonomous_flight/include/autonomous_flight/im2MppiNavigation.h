@@ -43,6 +43,7 @@
 #include <limits>
 
 #include <nav_msgs/Path.h>
+#include <std_msgs/Float64.h>
 #include <visualization_msgs/MarkerArray.h>
 
 #include <autonomous_flight/flightBase.h>
@@ -79,6 +80,7 @@ private:
     ros::Publisher refPathPub_;      // nav_msgs/Path  — local horizon reference
     ros::Publisher dynObsPredPub_;   // MarkerArray    — dynamic obstacle modes
     ros::Publisher goalPub_;         // MarkerArray    — global goal sphere
+    ros::Publisher planTimePub_;     // std_msgs/Float64 — plan() duration in ms
 
     // ── Component modules ──────────────────────────────────────────────────
     std::shared_ptr<mapManager::dynamicMap>          map_;

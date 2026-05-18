@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare two or more planner evaluation summary JSON files."""
+"""Compare two or more planner evaluation summary JSON files into a CSV."""
 
 import csv
 import json
@@ -8,22 +8,44 @@ import sys
 
 
 METRICS = [
-    ("task.success", "success"),
-    ("task.time_to_goal_s", "time_to_goal_s"),
-    ("task.final_goal_distance_m", "final_goal_distance_m"),
-    ("task.executed_path_length_m", "executed_path_length_m"),
-    ("safety.min_clearance_m", "min_clearance_m"),
-    ("safety.p05_clearance_m", "p05_clearance_m"),
-    ("safety.collision_samples", "collision_samples"),
-    ("safety.collision_time_s", "collision_time_s"),
-    ("safety.planned_min_clearance_m", "planned_min_clearance_m"),
-    ("tracking.rms_target_error_m", "rms_target_error_m"),
-    ("tracking.max_target_error_m", "max_target_error_m"),
-    ("smoothness.max_speed_mps", "max_speed_mps"),
-    ("smoothness.rms_accel_mps2", "rms_accel_mps2"),
-    ("smoothness.rms_jerk_mps3", "rms_jerk_mps3"),
-    ("planner.publish_rate_hz", "planner_publish_rate_hz"),
-    ("planner.mean_planned_path_length_m", "mean_planned_path_length_m"),
+    # Task
+    ("task.success",                          "success"),
+    ("task.time_to_goal_s",                   "time_to_goal_s"),
+    ("task.final_goal_distance_m",            "final_goal_distance_m"),
+    ("task.executed_path_length_m",           "executed_path_length_m"),
+    ("task.flight_duration_s",                "flight_duration_s"),
+    # Safety — clearance stats
+    ("safety.min_clearance_m",                "min_clearance_m"),
+    ("safety.mean_clearance_m",               "mean_clearance_m"),
+    ("safety.p05_clearance_m",                "p05_clearance_m"),
+    # Safety — tiered collision counters
+    ("safety.collision_strict_samples",       "collision_strict_samples"),
+    ("safety.collision_near_miss_samples",    "collision_near_miss_samples"),
+    ("safety.collision_tail_samples",         "collision_tail_samples"),
+    ("safety.collision_strict_rate",          "collision_strict_rate"),
+    ("safety.collision_near_miss_rate",       "collision_near_miss_rate"),
+    ("safety.collision_tail_rate",            "collision_tail_rate"),
+    ("safety.collision_strict_time_s",        "collision_strict_time_s"),
+    # Safety — empirical CVaR
+    ("safety.empirical_cvar_5pct_m",          "empirical_cvar_5pct_m"),
+    ("safety.empirical_cvar_10pct_m",         "empirical_cvar_10pct_m"),
+    ("safety.planned_min_clearance_m",        "planned_min_clearance_m"),
+    # Tracking
+    ("tracking.rms_target_error_m",           "rms_target_error_m"),
+    ("tracking.max_target_error_m",           "max_target_error_m"),
+    # Smoothness (commanded — preferred)
+    ("smoothness.mean_speed_mps",             "mean_speed_mps"),
+    ("smoothness.max_speed_mps",              "max_speed_mps"),
+    ("smoothness.cmd_rms_accel_mps2",         "cmd_rms_accel_mps2"),
+    ("smoothness.cmd_max_accel_mps2",         "cmd_max_accel_mps2"),
+    ("smoothness.cmd_rms_jerk_mps3",          "cmd_rms_jerk_mps3"),
+    ("smoothness.cmd_max_jerk_mps3",          "cmd_max_jerk_mps3"),
+    # Planner latency
+    ("planner.publish_rate_hz",               "publish_rate_hz"),
+    ("planner.plan_latency_mean_ms",          "plan_latency_mean_ms"),
+    ("planner.plan_latency_p95_ms",           "plan_latency_p95_ms"),
+    ("planner.plan_latency_max_ms",           "plan_latency_max_ms"),
+    ("planner.mean_planned_path_length_m",    "mean_planned_path_length_m"),
 ]
 
 
@@ -50,7 +72,8 @@ def load_summary(path):
 
 def main(argv):
     if len(argv) < 2:
-        print("usage: compare_planner_eval.py OUT.csv SUMMARY1.json SUMMARY2.json [...]", file=sys.stderr)
+        print("usage: compare_planner_eval.py OUT.csv SUMMARY1.json SUMMARY2.json [...]",
+              file=sys.stderr)
         return 2
 
     out_csv = argv[0]
@@ -62,7 +85,7 @@ def main(argv):
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
-    print("wrote {}".format(out_csv))
+    print("wrote {} ({} rows)".format(out_csv, len(rows)))
     return 0
 
 

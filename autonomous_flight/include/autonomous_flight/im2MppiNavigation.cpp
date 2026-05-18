@@ -111,6 +111,8 @@ void im2MppiNavigation::registerPub()
         "im2mppi/dynamic_obstacle_predictions", 10);
     this->goalPub_       = this->nh_.advertise<visualization_msgs::MarkerArray>(
         "im2mppi/goal", 10);
+    this->planTimePub_   = this->nh_.advertise<std_msgs::Float64>(
+        "im2mppi/plan_time_ms", 50);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -196,9 +198,14 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
         this->mppi_->setDynamicObstaclePredictions({});
     }
 
-    // 6. Plan
+    // 6. Plan (instrumented — publish wall-clock duration in ms)
     const ros::Time planStart = ros::Time::now();
     const bool success = this->mppi_->plan();
+    const double plan_ms = (ros::Time::now() - planStart).toSec() * 1000.0;
+
+    std_msgs::Float64 pt_msg;
+    pt_msg.data = plan_ms;
+    this->planTimePub_.publish(pt_msg);
 
     if (success) {
         this->trajStartTime_ = planStart;
