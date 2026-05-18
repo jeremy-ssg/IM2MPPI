@@ -203,6 +203,8 @@ if(IM2_MPPI_HAVE_CUDA)
     POSITION_INDEPENDENT_CODE ON
     CUDA_SEPARABLE_COMPILATION OFF)
   target_include_directories(im2_mppi_cuda PUBLIC include)
+  # cuRAND is used by the obstacle-CVaR kernel.
+  target_link_libraries(im2_mppi_cuda ${CUDA_curand_LIBRARY})
   target_compile_definitions(${PROJECT_NAME} PRIVATE IM2_MPPI_USE_CUDA)
   target_link_libraries(${PROJECT_NAME} im2_mppi_cuda)
 endif()

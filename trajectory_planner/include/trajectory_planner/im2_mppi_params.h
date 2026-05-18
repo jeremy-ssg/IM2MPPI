@@ -64,12 +64,19 @@ struct IM2MPPIParams {
     std::string mode_pruning_type = "risk_aware";
 
     // ── CVaR (Phase 4) ───────────────────────────────────────────────────────
-    // Tail probability for CVaR aggregation. Only used when
-    // method_type == "cvar_mppi". Range (0, 1]:
-    //   1.0  → CVaR = expected cost (equivalent to mode_aware_mppi)
-    //   0.2  → worst 20 % of modes (recommended, risk-averse)
-    //   →0   → worst-case planning (very conservative)
-    double cvar_alpha = 0.2;
+    // Per-rollout CVaR aggregation over OBSTACLE prediction uncertainty
+    // (NOT over joint modes — that would be cancelled by MPPI normalization).
+    //
+    // For each (ego rollout i, joint mode m, obstacle j):
+    //   Sample R obstacle trajectories from N(μ_{m,j}, diag(σ_{m,j})²).
+    //   Compute hinge-squared loss against the ego rollout per sample.
+    //   ρ[i,m,j] = mean of the worst α fraction of those R losses.
+    // Then S[i,m] = base_cost_without_dyn[i,m] + λ_r · Σ_j ρ[i,m,j].
+    //
+    // Only used when method_type == "cvar_mppi".
+    double cvar_alpha                 = 0.20;   // tail fraction (α)
+    int    cvar_num_obstacle_samples  = 16;     // R (≤ 32 recommended; GPU-bound at higher)
+    double cvar_lambda_r              = 5.0;    // weight applied to Σ_j ρ in the cost
 
     // ── Visualization ────────────────────────────────────────────────────────
     int  viz_num_rollouts     = 60;    // how many rollouts to draw in RViz
@@ -125,7 +132,9 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
 
     nh.param(ns + "/method_type",       p.method_type,       p.method_type);
     nh.param(ns + "/mode_pruning_type", p.mode_pruning_type, p.mode_pruning_type);
-    nh.param(ns + "/cvar_alpha",        p.cvar_alpha,        p.cvar_alpha);
+    nh.param(ns + "/cvar_alpha",                p.cvar_alpha,                p.cvar_alpha);
+    nh.param(ns + "/cvar_num_obstacle_samples", p.cvar_num_obstacle_samples, p.cvar_num_obstacle_samples);
+    nh.param(ns + "/cvar_lambda_r",             p.cvar_lambda_r,             p.cvar_lambda_r);
 
     nh.param(ns + "/viz_num_rollouts",    p.viz_num_rollouts,    p.viz_num_rollouts);
     nh.param(ns + "/viz_color_by_weight", p.viz_color_by_weight, p.viz_color_by_weight);
@@ -153,7 +162,9 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
     p.viz_num_rollouts       = std::max(0, p.viz_num_rollouts);
     p.v_yaw_min              = std::max(0.0, p.v_yaw_min);
     // CVaR α must be in (0, 1]; clamp to a tiny lower bound to avoid divide-by-zero.
-    p.cvar_alpha             = std::max(1e-3, std::min(1.0, p.cvar_alpha));
+    p.cvar_alpha                = std::max(1e-3, std::min(1.0, p.cvar_alpha));
+    p.cvar_num_obstacle_samples = std::max(1, std::min(64, p.cvar_num_obstacle_samples));
+    p.cvar_lambda_r             = std::max(0.0, p.cvar_lambda_r);
 
     return p;
 }

@@ -18,9 +18,11 @@
 #include <trajectory_planner/im2_mppi_cuda.h>
 
 #include <cuda_runtime.h>
+#include <curand_kernel.h>
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
+#include <cmath>
 
 namespace im2mppi {
 namespace cuda {
@@ -44,8 +46,10 @@ struct DeviceContext {
     float* d_ref_targets  = nullptr;   // [H*3]
     float* d_static_boxes = nullptr;   // [Ns*6]
     float* d_dyn_mus      = nullptr;   // [J*K*H*3]
+    float* d_dyn_sigmas   = nullptr;   // [J*K*H*3]  (Phase-4 CVaR)
     float* d_dyn_sizes    = nullptr;   // [J*3]
     int*   d_joint_mode_idx = nullptr; // [M*J]
+    float* d_delta_S      = nullptr;   // [N*M]      (Phase-4 CVaR output)
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -192,7 +196,8 @@ __global__ void costKernel(
     int N, int H,
     float d_safe,
     float w_goal, float w_path, float w_vel,
-    float w_acc,  float w_jerk, float w_static, float w_dyn)
+    float w_acc,  float w_jerk, float w_static, float w_dyn,
+    int   skip_dyn_cost)   // 1 = omit deterministic dynamic-obstacle term
 {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const int total = N * M;
@@ -265,7 +270,7 @@ __global__ void costKernel(
         }
 
         // Dynamic AABB obstacles, per joint-mode m
-        if (J > 0) {
+        if (J > 0 && !skip_dyn_cost) {
             for (int j = 0; j < J; ++j) {
                 const int mode_idx = joint_mode_idx[m * J + j];
                 if (mode_idx < 0 || mode_idx >= K_per_obs) continue;
@@ -292,6 +297,117 @@ __global__ void costKernel(
     }
 
     costs[idx] = c;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Per-rollout CVaR over OBSTACLE prediction uncertainty (Phase-4 core)
+//      One thread per (rollout i, joint mode m). Each thread iterates over
+//      J obstacles, draws R Monte-Carlo trajectory samples per obstacle from
+//      N(μ, diag(σ²)), computes the worst-step hinge-squared loss per sample,
+//      and reduces to the mean of the top ⌈α R⌉ losses (CVaR_α tail mean).
+//      The sum over j (× λ_r) is written to delta_S[i, m].
+//
+//      R is capped at 32 to fit losses[] in registers / stack.
+// ═══════════════════════════════════════════════════════════════════════════
+
+#ifndef IM2_MPPI_CVAR_MAX_R
+#define IM2_MPPI_CVAR_MAX_R 32
+#endif
+
+__global__ void obstacleCVaRKernel(
+    const float* __restrict__ states,        // [N*(H+1)*6]
+    const float* __restrict__ dyn_mus,       // [J*K*H*3]
+    const float* __restrict__ dyn_sigmas,    // [J*K*H*3]
+    const float* __restrict__ dyn_sizes,     // [J*3]
+    const int*   __restrict__ joint_mode_idx,// [M*J]
+    int N, int M, int J, int K, int H, int R,
+    float alpha, float d_safe, float lambda_r,
+    unsigned int seed_base,
+    float* __restrict__ delta_S_out)         // [N*M]
+{
+    const int idx   = blockIdx.x * blockDim.x + threadIdx.x;
+    const int total = N * M;
+    if (idx >= total) return;
+
+    const int i = idx / M;
+    const int m = idx % M;
+
+    const int s_stride = (H + 1) * 6;
+    const int k_tail   = max(1, (int)ceilf(alpha * (float)R));
+
+    float losses[IM2_MPPI_CVAR_MAX_R];
+    float sum_rho = 0.0f;
+
+    for (int j = 0; j < J; ++j) {
+        const int m_j = joint_mode_idx[m * J + j];
+        if (m_j < 0 || m_j >= K) continue;
+
+        // Per-obstacle box half-extents (Chebyshev SDF inputs)
+        const int sz_off = j * 3;
+        const float hx = 0.5f * fmaxf(dyn_sizes[sz_off + 0], 1e-6f);
+        const float hy = 0.5f * fmaxf(dyn_sizes[sz_off + 1], 1e-6f);
+        const float hz = 0.5f * fmaxf(dyn_sizes[sz_off + 2], 1e-6f);
+
+        for (int r = 0; r < R; ++r) {
+            // Deterministic per-thread RNG seed: depends on (i, m, j, r).
+            curandStatePhilox4_32_10_t st;
+            const unsigned int sub = (unsigned int)(((i * M + m) * J + j) * R + r);
+            curand_init(seed_base, sub, 0, &st);
+
+            float min_signed = INFINITY;
+
+            for (int k = 0; k < H; ++k) {
+                const int mu_off = ((j * K + m_j) * H + k) * 3;
+
+                // Sample obstacle position from N(μ, diag(σ²)).
+                // curand_normal4 returns 4 standard normals; we use 3.
+                const float4 z = curand_normal4(&st);
+                const float ox = dyn_mus[mu_off + 0] + dyn_sigmas[mu_off + 0] * z.x;
+                const float oy = dyn_mus[mu_off + 1] + dyn_sigmas[mu_off + 1] * z.y;
+                const float oz = dyn_mus[mu_off + 2] + dyn_sigmas[mu_off + 2] * z.z;
+
+                // Ego position at step k+1 (skip the initial state).
+                const int eo = i * s_stride + (k + 1) * 6;
+                const float ex = states[eo + 0];
+                const float ey = states[eo + 1];
+                const float ez = states[eo + 2];
+
+                // AABB signed clearance (matches aabbSDFDev).
+                const float qx = fabsf(ex - ox) - hx;
+                const float qy = fabsf(ey - oy) - hy;
+                const float qz = fabsf(ez - oz) - hz;
+                const float outside = sqrtf(fmaxf(qx, 0.0f) * fmaxf(qx, 0.0f)
+                                          + fmaxf(qy, 0.0f) * fmaxf(qy, 0.0f)
+                                          + fmaxf(qz, 0.0f) * fmaxf(qz, 0.0f));
+                const float inside  = fminf(fmaxf(qx, fmaxf(qy, qz)), 0.0f);
+                const float clr     = outside + inside;
+                if (clr < min_signed) min_signed = clr;
+            }
+            const float hinge = fmaxf(d_safe - min_signed, 0.0f);
+            losses[r] = hinge * hinge;
+        }
+
+        // Partial selection sort: bring the k_tail largest values to the
+        // beginning. R ≤ 32 so the O(k_tail · R) cost is negligible.
+        for (int t = 0; t < k_tail; ++t) {
+            int max_idx = t;
+            float max_val = losses[t];
+            for (int s = t + 1; s < R; ++s) {
+                if (losses[s] > max_val) { max_val = losses[s]; max_idx = s; }
+            }
+            if (max_idx != t) {
+                float tmp = losses[t];
+                losses[t] = losses[max_idx];
+                losses[max_idx] = tmp;
+            }
+        }
+
+        float tail_sum = 0.0f;
+        for (int t = 0; t < k_tail; ++t) tail_sum += losses[t];
+        sum_rho += tail_sum / (float)k_tail;
+    }
+
+    delta_S_out[idx] = lambda_r * sum_rho;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -339,11 +455,14 @@ DeviceContext* createContext(int N, int H,
     if (Ns_max > 0 &&
         !cudaAlloc(&ctx->d_static_boxes, static_cast<size_t>(Ns_max) * 6)) return fail("static_boxes");
     if (J_max > 0) {
-        if (!cudaAlloc(&ctx->d_dyn_mus,   static_cast<size_t>(J_max) * K_max * H * 3)) return fail("dyn_mus");
-        if (!cudaAlloc(&ctx->d_dyn_sizes, static_cast<size_t>(J_max) * 3)) return fail("dyn_sizes");
+        if (!cudaAlloc(&ctx->d_dyn_mus,    static_cast<size_t>(J_max) * K_max * H * 3)) return fail("dyn_mus");
+        if (!cudaAlloc(&ctx->d_dyn_sigmas, static_cast<size_t>(J_max) * K_max * H * 3)) return fail("dyn_sigmas");
+        if (!cudaAlloc(&ctx->d_dyn_sizes,  static_cast<size_t>(J_max) * 3)) return fail("dyn_sizes");
         if (!cudaAllocInt(&ctx->d_joint_mode_idx,
                           static_cast<size_t>(M_max) * J_max)) return fail("joint_mode_idx");
     }
+    // delta_S buffer for CVaR output (always sized to N × M_max).
+    if (!cudaAlloc(&ctx->d_delta_S, static_cast<size_t>(N) * M_max)) return fail("delta_S");
     return ctx;
 }
 
@@ -360,8 +479,10 @@ void destroyContext(DeviceContext* ctx)
     cudaFree(ctx->d_ref_targets);
     cudaFree(ctx->d_static_boxes);
     cudaFree(ctx->d_dyn_mus);
+    cudaFree(ctx->d_dyn_sigmas);
     cudaFree(ctx->d_dyn_sizes);
     cudaFree(ctx->d_joint_mode_idx);
+    cudaFree(ctx->d_delta_S);
     delete ctx;
 }
 
@@ -377,6 +498,7 @@ bool runRolloutAndCost(
     float dt, float a_max, float v_max, float d_safe,
     float w_goal, float w_path, float w_vel,
     float w_acc,  float w_jerk, float w_static, float w_dyn,
+    int   skip_dyn_cost,
     float* costs_out, float* controls_out, float* states_out_optional)
 {
     if (!ctx) return false;
@@ -436,7 +558,8 @@ bool runRolloutAndCost(
             ctx->d_costs,
             N, H,
             d_safe,
-            w_goal, w_path, w_vel, w_acc, w_jerk, w_static, w_dyn);
+            w_goal, w_path, w_vel, w_acc, w_jerk, w_static, w_dyn,
+            skip_dyn_cost);
         CUDA_CHECK(cudaGetLastError());
     }
 
@@ -450,6 +573,59 @@ bool runRolloutAndCost(
                               N * (H + 1) * 6 * sizeof(float), cudaMemcpyDeviceToHost));
     }
 
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Public API: per-rollout CVaR over obstacle uncertainty.
+// ─────────────────────────────────────────────────────────────────────────────
+
+bool runObstacleCVaR(
+    DeviceContext* ctx,
+    const float* dyn_sigmas,
+    int J, int K_per_obs, int M,
+    int N, int H, int R,
+    float alpha, float d_safe, float lambda_r,
+    unsigned int seed_base,
+    float* delta_S_out)
+{
+    if (!ctx)        return false;
+    if (J == 0 || M == 0 || N == 0 || R == 0) {
+        // Nothing to do — fill output with zeros so the caller can add safely.
+        if (delta_S_out) {
+            for (int i = 0; i < N * M; ++i) delta_S_out[i] = 0.0f;
+        }
+        return true;
+    }
+    if (R > 32) {
+        std::fprintf(stderr, "[IM2-MPPI/CUDA] runObstacleCVaR: R=%d > 32 not supported.\n", R);
+        return false;
+    }
+    if (N > ctx->N_cap || H > ctx->H_cap || J > ctx->J_cap ||
+        M > ctx->M_cap || K_per_obs > ctx->K_cap) {
+        std::fprintf(stderr, "[IM2-MPPI/CUDA] runObstacleCVaR: exceeds context capacity.\n");
+        return false;
+    }
+
+    // Upload sigma (mu, sizes, joint_mode_idx were uploaded by runRolloutAndCost).
+    CUDA_CHECK(cudaMemcpy(ctx->d_dyn_sigmas, dyn_sigmas,
+                          static_cast<size_t>(J) * K_per_obs * H * 3 * sizeof(float),
+                          cudaMemcpyHostToDevice));
+
+    const int total   = N * M;
+    const int threads = 128;
+    const int blocks  = (total + threads - 1) / threads;
+    obstacleCVaRKernel<<<blocks, threads>>>(
+        ctx->d_states, ctx->d_dyn_mus, ctx->d_dyn_sigmas, ctx->d_dyn_sizes,
+        ctx->d_joint_mode_idx,
+        N, M, J, K_per_obs, H, R,
+        alpha, d_safe, lambda_r,
+        seed_base,
+        ctx->d_delta_S);
+    CUDA_CHECK(cudaGetLastError());
+
+    CUDA_CHECK(cudaMemcpy(delta_S_out, ctx->d_delta_S,
+                          N * M * sizeof(float), cudaMemcpyDeviceToHost));
     return true;
 }
 

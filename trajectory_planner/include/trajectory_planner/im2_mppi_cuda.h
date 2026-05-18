@@ -91,10 +91,37 @@ bool runRolloutAndCost(
     float dt, float a_max, float v_max, float d_safe,
     float w_goal, float w_path, float w_vel,
     float w_acc,  float w_jerk, float w_static, float w_dyn,
+    int   skip_dyn_cost,   // 1 = omit deterministic dyn cost (cvar mode)
 
     float* costs_out,
     float* controls_out,
     float* states_out_optional  // [N*(H+1)*6] or nullptr to skip
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Per-rollout CVaR over OBSTACLE prediction uncertainty (Phase-4 core).
+//
+//  For each (rollout i, joint mode m, obstacle j):
+//      Sample R obstacle trajectories from N(μ_{m,j,k}, diag(σ²_{m,j,k}))
+//      using cuRAND (seed derived from seed_base + thread id).
+//      Compute hinge-squared loss per sample, take the mean of the worst
+//      α-fraction → ρ[i,m,j].
+//  delta_S[i,m] = λ_r · Σ_j ρ[i,m,j], in row-major [N,M] order.
+//
+//  Reuses the device buffers reserved by createContext (dyn_mus / dyn_sizes /
+//  joint_mode_idx already uploaded by runRolloutAndCost). Uploads d_dyn_sigmas
+//  per call. Reads ego states from the previously-stored d_states buffer.
+//
+//  Returns false on any CUDA error.
+// ─────────────────────────────────────────────────────────────────────────────
+bool runObstacleCVaR(
+    DeviceContext* ctx,
+    const float* dyn_sigmas,        // [J*K_per_obs*H*3]
+    int J, int K_per_obs, int M,
+    int N, int H, int R,
+    float alpha, float d_safe, float lambda_r,
+    unsigned int seed_base,
+    float* delta_S_out              // [N*M] — to be ADDED to costs_out
 );
 
 } // namespace cuda

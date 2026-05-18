@@ -185,19 +185,26 @@ private:
         const std::vector<std::vector<RolloutResult>>& all_results);
 
     // ── CVaR aggregation (Phase 4) ───────────────────────────────────────────
-    // Given a per-mode cost / probability list for one rollout, return the
-    // CVaR_α — the expected cost over the worst α tail of mode scenarios.
-    //   α = 1.0  → ordinary expected value
-    //   α → 0    → worst-case (max cost)
+    // computeCVaR / computeRolloutCVaR: generic empirical CVaR utilities kept
+    // for the evaluator and unit tests. NOT used by the planner update loop.
     double computeCVaR(const std::vector<double>& costs,
                        const std::vector<double>& probs,
                        double alpha) const;
-
-    // Per-rollout CVaR vector used by both updateControlSequence and the
-    // visualization cache when method_type == "cvar_mppi".
     std::vector<double> computeRolloutCVaR(
         const std::vector<JointMode>&                  modes,
         const std::vector<std::vector<RolloutResult>>& all_results) const;
+
+    // Per-rollout CVaR over OBSTACLE prediction uncertainty (Phase-4 core).
+    // For each (rollout i, joint mode m, obstacle j):
+    //   Sample R obstacle trajectories from N(μ_{m,j,k}, diag(σ²_{m,j,k}))
+    //   Compute the hinge-squared loss against the deterministic ego rollout
+    //   Take the mean of the worst α fraction of those R losses → ρ[i,m,j]
+    // delta_S[i,m] = λ_r · Σ_j ρ[i,m,j] — to be ADDED to the base cost
+    // (base cost must have its deterministic dynamic-obstacle term skipped).
+    void computeObstacleCVaRCost(
+        const std::vector<RolloutResult>&              base_rollouts,
+        const std::vector<JointMode>&                  modes,
+        std::vector<std::vector<double>>&              delta_S);   // [M][N]
 
     // ── Yaw post-processing ──────────────────────────────────────────────────
     void generateYawReference(std::vector<TrajectoryPoint>& traj) const;

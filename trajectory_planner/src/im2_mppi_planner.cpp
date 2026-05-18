@@ -582,58 +582,34 @@ void IM2MPPIPlanner::updateControlSequence(
     double total_weight = 0.0;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Phase 4 branch: CVaR aggregation
-    //    Per-rollout effective cost = CVaR_α({S_{m,i}}_m, π_m).
-    //    Weight = exp(-(CVaR_i - CVaR_min) / λ).
-    //    Controls are identical across modes (dynamics don't depend on mode),
-    //    so we read from all_results[0][i].controls.
+    //  Standard mode-weighted MPPI free-energy update (Proposition 1):
+    //      w_{m,i} = π_m · exp(-(S_{m,i} - S_min) / λ)
+    //
+    //  For cvar_mppi, the per-(i,m) cost already contains the CVaR risk term
+    //  (added in planCPU/planGPU before this call), so the update form is
+    //  unchanged. Aggregating CVaR over modes here would be cancelled by the
+    //  normalization — the per-rollout obstacle-CVaR is the right level.
     // ─────────────────────────────────────────────────────────────────────────
-    if (params_.method_type == "cvar_mppi") {
-        const std::vector<double> cvar = computeRolloutCVaR(modes, all_results);
-        double S_min = std::numeric_limits<double>::infinity();
-        for (double c : cvar) {
-            if (std::isfinite(c)) S_min = std::min(S_min, c);
+    double S_min = std::numeric_limits<double>::infinity();
+    for (const auto& mode_results : all_results) {
+        for (const auto& r : mode_results) {
+            if (std::isfinite(r.cost)) S_min = std::min(S_min, r.cost);
         }
-        if (!std::isfinite(S_min)) {
-            ROS_WARN("[IM2-MPPI/CVaR] All rollout CVaRs non-finite — skipping update.");
-            return;
-        }
+    }
+    if (!std::isfinite(S_min)) {
+        ROS_WARN("[IM2-MPPI] All rollout costs non-finite — skipping update.");
+        return;
+    }
 
+    for (size_t mi = 0; mi < modes.size(); ++mi) {
+        const double pi_m = modes[mi].probability;
         for (int i = 0; i < N; ++i) {
-            if (!std::isfinite(cvar[i])) continue;
-            const double w = std::exp(-(cvar[i] - S_min) / params_.lambda);
+            const double w =
+                pi_m * std::exp(-(all_results[mi][i].cost - S_min) / params_.lambda);
             if (!std::isfinite(w)) continue;
             total_weight += w;
             for (int k = 0; k < H; ++k) {
-                weighted_a[k] += w * all_results[0][i].controls[k].a;
-            }
-        }
-    } else {
-        // ────────────────────────────────────────────────────────────────────
-        //  Phases 1 – 3 branch: standard mode-weighted MPPI update
-        //    w_{m,i} = π_m · exp(-(S_{m,i} - S_min) / λ)
-        // ────────────────────────────────────────────────────────────────────
-        double S_min = std::numeric_limits<double>::infinity();
-        for (const auto& mode_results : all_results) {
-            for (const auto& r : mode_results) {
-                if (std::isfinite(r.cost)) S_min = std::min(S_min, r.cost);
-            }
-        }
-        if (!std::isfinite(S_min)) {
-            ROS_WARN("[IM2-MPPI] All rollout costs non-finite — skipping update.");
-            return;
-        }
-
-        for (size_t mi = 0; mi < modes.size(); ++mi) {
-            const double pi_m = modes[mi].probability;
-            for (int i = 0; i < N; ++i) {
-                const double w =
-                    pi_m * std::exp(-(all_results[mi][i].cost - S_min) / params_.lambda);
-                if (!std::isfinite(w)) continue;
-                total_weight += w;
-                for (int k = 0; k < H; ++k) {
-                    weighted_a[k] += w * all_results[mi][i].controls[k].a;
-                }
+                weighted_a[k] += w * all_results[mi][i].controls[k].a;
             }
         }
     }
@@ -726,6 +702,99 @@ std::vector<double> IM2MPPIPlanner::computeRolloutCVaR(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  Per-rollout CVaR over OBSTACLE prediction uncertainty (Phase-4 core)
+//
+//      For each (rollout i, joint mode m, obstacle j):
+//          Sample R obstacle trajectories from N(μ_{m,j,k}, diag(σ²_{m,j,k}))
+//          For each sample r, compute the minimum signed clearance over the
+//          H prediction steps against the deterministic ego rollout, then the
+//          hinge-squared loss  L_r = max(d_safe - clearance, 0)²
+//          ρ[i,m,j] = mean of the top ⌈α R⌉ losses (worst α tail)
+//      delta_S[m][i] = λ_r · Σ_j ρ[i,m,j]
+//
+//      Obstacle treated as an AABB with full extents pred.size centred on
+//      the (sampled) μ. Signed clearance uses the same SDF as the
+//      deterministic dynamic cost (aabbSDF in this file).
+//
+//      Reproducibility: this uses the planner's seeded RNG so two plan()
+//      calls with the same inputs produce the same CVaR result.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void IM2MPPIPlanner::computeObstacleCVaRCost(
+    const std::vector<RolloutResult>&  base_rollouts,
+    const std::vector<JointMode>&      modes,
+    std::vector<std::vector<double>>&  delta_S)
+{
+    const int N  = static_cast<int>(base_rollouts.size());
+    const int M  = static_cast<int>(modes.size());
+    const int J  = static_cast<int>(dyn_predictions_.size());
+    const int H  = params_.horizon_steps;
+    const int R  = params_.cvar_num_obstacle_samples;
+    const double alpha    = params_.cvar_alpha;
+    const double d_safe   = params_.d_safe;
+    const double lambda_r = params_.cvar_lambda_r;
+
+    delta_S.assign(M, std::vector<double>(N, 0.0));
+    if (J == 0 || M == 0 || N == 0 || R == 0) return;
+
+    const int k_tail = std::max(1, static_cast<int>(std::ceil(alpha * R)));
+
+    // Per-axis standard normals.
+    std::normal_distribution<double> nd(0.0, 1.0);
+
+    // Scratch buffers reused across the loop.
+    std::vector<double> losses(R, 0.0);
+
+    for (int m = 0; m < M; ++m) {
+        const auto& jm = modes[m];
+        for (int i = 0; i < N; ++i) {
+            const auto& states = base_rollouts[i].states;   // [H+1]
+            double sum_rho = 0.0;
+
+            for (int j = 0; j < J; ++j) {
+                const auto& pred = dyn_predictions_[j];
+                const int   m_j  = (j < static_cast<int>(jm.obstacle_mode_indices.size()))
+                                       ? jm.obstacle_mode_indices[j] : 0;
+                if (m_j < 0 || m_j >= static_cast<int>(pred.modes.size())) continue;
+
+                const auto& mode = pred.modes[m_j];
+                const int   Hm   = std::min(H, static_cast<int>(mode.mu_seq.size()));
+                if (Hm == 0) continue;
+
+                // Generate R Monte-Carlo obstacle trajectories and compute loss.
+                for (int r = 0; r < R; ++r) {
+                    double min_clr = std::numeric_limits<double>::infinity();
+
+                    for (int k = 0; k < Hm; ++k) {
+                        const Eigen::Vector3d& mu     = mode.mu_seq[k];
+                        const Eigen::Vector3d  sigma  = (k < static_cast<int>(mode.sigma_diag_seq.size()))
+                                                         ? mode.sigma_diag_seq[k]
+                                                         : Eigen::Vector3d(0.05, 0.05, 0.05);
+                        const Eigen::Vector3d  noise(nd(rng_), nd(rng_), nd(rng_));
+                        const Eigen::Vector3d  o_pos = mu + sigma.cwiseProduct(noise);
+
+                        // Reuse the file-static aabbSDF helper.
+                        const double clr = aabbSDF(states[k + 1].p, o_pos, pred.size);
+                        if (clr < min_clr) min_clr = clr;
+                    }
+                    const double hinge = std::max(d_safe - min_clr, 0.0);
+                    losses[r] = hinge * hinge;
+                }
+
+                // Mean of the worst α-fraction: partial_sort descending then average top k_tail.
+                std::partial_sort(losses.begin(), losses.begin() + k_tail, losses.end(),
+                                  std::greater<double>());
+                double tail_sum = 0.0;
+                for (int t = 0; t < k_tail; ++t) tail_sum += losses[t];
+                sum_rho += tail_sum / static_cast<double>(k_tail);
+            }
+
+            delta_S[m][i] = lambda_r * sum_rho;
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  Yaw
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -760,18 +829,15 @@ void IM2MPPIPlanner::cacheVisualizationData(
 
     if (target == 0 || all_results.empty()) return;
 
-    // Aggregate per-rollout cost — choice depends on method_type:
-    //   cvar_mppi : per-rollout CVaR (matches what the planner actually optimizes)
-    //   others    : min cost across joint modes (best-case visualization)
+    // Aggregate per-rollout cost across joint modes (min = best-case viz).
+    // For cvar_mppi, mode_results[i].cost ALREADY contains the CVaR risk
+    // term added in planCPU(), so min-across-modes still reflects the right
+    // objective for the colour mapping.
     std::vector<double> rollout_cost(N, std::numeric_limits<double>::infinity());
-    if (params_.method_type == "cvar_mppi") {
-        rollout_cost = computeRolloutCVaR(joint_modes_, all_results);
-    } else {
-        for (const auto& mode_results : all_results) {
-            for (int i = 0; i < N; ++i) {
-                if (std::isfinite(mode_results[i].cost)) {
-                    rollout_cost[i] = std::min(rollout_cost[i], mode_results[i].cost);
-                }
+    for (const auto& mode_results : all_results) {
+        for (int i = 0; i < N; ++i) {
+            if (std::isfinite(mode_results[i].cost)) {
+                rollout_cost[i] = std::min(rollout_cost[i], mode_results[i].cost);
             }
         }
     }
@@ -850,13 +916,41 @@ bool IM2MPPIPlanner::planCPU()
     // 4. Roll out dynamics ONCE
     std::vector<RolloutResult> base_rollouts = rolloutDynamics(noise);
 
-    // 5. Per-mode cost evaluation
+    // 5. Per-mode cost evaluation.
+    //    cvar_mppi: SKIP the deterministic dynamic-obstacle term — it will be
+    //    replaced by the per-rollout obstacle-CVaR cost computed below.
+    const bool is_cvar = (params_.method_type == "cvar_mppi");
+
     std::vector<std::vector<RolloutResult>> all_results;
     all_results.reserve(joint_modes_.size());
     for (const auto& jm : joint_modes_) {
         std::vector<RolloutResult> mode_results = base_rollouts;
-        for (auto& r : mode_results) r.cost = computeTrajectoryCost(r, jm);
+        for (auto& r : mode_results) {
+            double c = 0.0;
+            c += computeGoalCost(r);
+            c += computePathCost(r);
+            c += computeSmoothnessCost(r);
+            c += computeStaticObstacleCost(r);
+            c += computeMapObstacleCost(r);
+            if (!is_cvar) {
+                c += computeDynamicObstacleCost(r, jm);
+            }
+            r.cost = c;
+        }
         all_results.push_back(std::move(mode_results));
+    }
+
+    // 5b. Obstacle-uncertainty CVaR: enhance per-(rollout, joint-mode) cost
+    //     with λ_r · Σ_j ρ[i,m,j]. ρ is computed from R Monte-Carlo samples
+    //     of each obstacle's predicted (μ, σ).
+    if (is_cvar) {
+        std::vector<std::vector<double>> delta_S;
+        computeObstacleCVaRCost(base_rollouts, joint_modes_, delta_S);
+        for (size_t m = 0; m < all_results.size() && m < delta_S.size(); ++m) {
+            for (size_t i = 0; i < all_results[m].size() && i < delta_S[m].size(); ++i) {
+                all_results[m][i].cost += delta_S[m][i];
+            }
+        }
     }
 
     // 6. MPPI update
@@ -974,8 +1068,9 @@ bool IM2MPPIPlanner::planGPU()
     // Dynamic predictions flattened as [j, k, step, xyz]. Pad missing modes
     // with zeros (the joint_mode_idx will still point to valid slots since
     // buildJointModes limits indices to existing modes per obstacle).
-    std::vector<float> h_dyn_mus(static_cast<size_t>(J) * K * H * 3, 0.0f);
-    std::vector<float> h_dyn_sizes(static_cast<size_t>(J) * 3, 0.0f);
+    std::vector<float> h_dyn_mus   (static_cast<size_t>(J) * K * H * 3, 0.0f);
+    std::vector<float> h_dyn_sigmas(static_cast<size_t>(J) * K * H * 3, 0.05f);
+    std::vector<float> h_dyn_sizes (static_cast<size_t>(J) * 3, 0.0f);
     for (int j = 0; j < J; ++j) {
         const auto& pred = dyn_predictions_[j];
         h_dyn_sizes[j * 3 + 0] = static_cast<float>(pred.size.x());
@@ -985,11 +1080,18 @@ bool IM2MPPIPlanner::planGPU()
         for (int m = 0; m < Km; ++m) {
             const auto& mode = pred.modes[m];
             const int Hm = std::min(H, static_cast<int>(mode.mu_seq.size()));
+            const int Hs = std::min(H, static_cast<int>(mode.sigma_diag_seq.size()));
             for (int k = 0; k < Hm; ++k) {
                 const int o = ((j * K + m) * H + k) * 3;
                 h_dyn_mus[o + 0] = static_cast<float>(mode.mu_seq[k].x());
                 h_dyn_mus[o + 1] = static_cast<float>(mode.mu_seq[k].y());
                 h_dyn_mus[o + 2] = static_cast<float>(mode.mu_seq[k].z());
+            }
+            for (int k = 0; k < Hs; ++k) {
+                const int o = ((j * K + m) * H + k) * 3;
+                h_dyn_sigmas[o + 0] = static_cast<float>(mode.sigma_diag_seq[k].x());
+                h_dyn_sigmas[o + 1] = static_cast<float>(mode.sigma_diag_seq[k].y());
+                h_dyn_sigmas[o + 2] = static_cast<float>(mode.sigma_diag_seq[k].z());
             }
         }
     }
@@ -1006,7 +1108,9 @@ bool IM2MPPIPlanner::planGPU()
         }
     }
 
-    // 4. GPU call
+    const bool cvar_mode = (params_.method_type == "cvar_mppi");
+
+    // 4a. Main rollout + cost kernel (skip deterministic dyn term in CVaR mode).
     std::vector<float> h_costs(static_cast<size_t>(N) * M);
     std::vector<float> h_controls(static_cast<size_t>(N) * H * 3);
     const bool ok = cuda::runRolloutAndCost(
@@ -1026,6 +1130,7 @@ bool IM2MPPIPlanner::planGPU()
         static_cast<float>(params_.w_vel),   static_cast<float>(params_.w_acc),
         static_cast<float>(params_.w_jerk),  static_cast<float>(params_.w_static),
         static_cast<float>(params_.w_dyn),
+        cvar_mode ? 1 : 0,
         h_costs.data(), h_controls.data(), nullptr);
 
     if (!ok) {
@@ -1033,35 +1138,53 @@ bool IM2MPPIPlanner::planGPU()
         return planCPU();
     }
 
-    // 5. Weighted control update (CPU, small reduction).
-    //    Mirrors updateControlSequence() but reads from h_costs / h_controls.
-    const bool cvar_mode = (params_.method_type == "cvar_mppi");
+    // 4b. CVaR over obstacle uncertainty (Phase-4 core). Adds the risk term
+    //     λ_r · Σ_j ρ[i,m,j] to each cost matrix entry.
+    if (cvar_mode && J > 0) {
+        std::vector<float> h_delta_S(static_cast<size_t>(N) * M, 0.0f);
+        const unsigned int seed_base =
+            static_cast<unsigned int>(params_.random_seed) ^
+            static_cast<unsigned int>(ros::Time::now().toNSec() & 0xFFFFFFFFu);
 
-    // Find S_min
+        const bool cvar_ok = cuda::runObstacleCVaR(
+            cuda_ctx_, h_dyn_sigmas.data(),
+            J, K, M, N, H,
+            params_.cvar_num_obstacle_samples,
+            static_cast<float>(params_.cvar_alpha),
+            static_cast<float>(params_.d_safe),
+            static_cast<float>(params_.cvar_lambda_r),
+            seed_base,
+            h_delta_S.data());
+
+        if (cvar_ok) {
+            const int NM = N * M;
+            for (int idx = 0; idx < NM; ++idx) h_costs[idx] += h_delta_S[idx];
+        } else {
+            ROS_WARN_THROTTLE(1.0, "[IM2-MPPI/GPU/CVaR] kernel failed; using base cost only this frame.");
+        }
+    }
+
+    // 5. Standard mode-weighted MPPI update (Proposition 1). CVaR risk term
+    //    is already inside h_costs for cvar_mppi.
     auto cost_at = [&](int i, int m) { return h_costs[i * M + m]; };
 
     double S_min = std::numeric_limits<double>::infinity();
-    if (cvar_mode) {
-        // Per-rollout CVaR across joint modes
-        std::vector<double> cvar(N, std::numeric_limits<double>::infinity());
-        std::vector<double> costs_m(M);
-        std::vector<double> probs_m(M);
-        for (int m = 0; m < M; ++m) probs_m[m] = joint_modes_[m].probability;
+    for (int i = 0; i < N; ++i)
+        for (int m = 0; m < M; ++m)
+            if (std::isfinite(cost_at(i, m)))
+                S_min = std::min(S_min, static_cast<double>(cost_at(i, m)));
+    if (!std::isfinite(S_min)) {
+        ROS_WARN("[IM2-MPPI/GPU] All costs non-finite.");
+        return false;
+    }
+
+    std::vector<Eigen::Vector3d> wa(H, Eigen::Vector3d::Zero());
+    double tw = 0.0;
+    for (int m = 0; m < M; ++m) {
+        const double pi_m = joint_modes_[m].probability;
         for (int i = 0; i < N; ++i) {
-            for (int m = 0; m < M; ++m) costs_m[m] = cost_at(i, m);
-            cvar[i] = computeCVaR(costs_m, probs_m, params_.cvar_alpha);
-            if (std::isfinite(cvar[i])) S_min = std::min(S_min, cvar[i]);
-        }
-        if (!std::isfinite(S_min)) {
-            ROS_WARN("[IM2-MPPI/GPU/CVaR] All CVaRs non-finite.");
-            return false;
-        }
-        // Weighted update
-        std::vector<Eigen::Vector3d> wa(H, Eigen::Vector3d::Zero());
-        double tw = 0.0;
-        for (int i = 0; i < N; ++i) {
-            if (!std::isfinite(cvar[i])) continue;
-            const double w = std::exp(-(cvar[i] - S_min) / params_.lambda);
+            const double w = pi_m *
+                std::exp(-(static_cast<double>(cost_at(i, m)) - S_min) / params_.lambda);
             if (!std::isfinite(w)) continue;
             tw += w;
             for (int k = 0; k < H; ++k) {
@@ -1071,50 +1194,14 @@ bool IM2MPPIPlanner::planGPU()
                 wa[k].z() += w * h_controls[o + 2];
             }
         }
-        if (tw < 1e-12) {
-            ROS_WARN("[IM2-MPPI/GPU] Total weight ~0 — keeping previous nominal.");
-        } else {
-            for (int k = 0; k < H; ++k) {
-                Control u;
-                u.a = wa[k] / tw;
-                u_nominal_[k] = clampControl(u);
-            }
-        }
+    }
+    if (tw < 1e-12) {
+        ROS_WARN("[IM2-MPPI/GPU] Total weight ~0 — keeping previous nominal.");
     } else {
-        // Standard mode-weighted update
-        for (int i = 0; i < N; ++i)
-            for (int m = 0; m < M; ++m)
-                if (std::isfinite(cost_at(i, m)))
-                    S_min = std::min(S_min, static_cast<double>(cost_at(i, m)));
-        if (!std::isfinite(S_min)) {
-            ROS_WARN("[IM2-MPPI/GPU] All costs non-finite.");
-            return false;
-        }
-        std::vector<Eigen::Vector3d> wa(H, Eigen::Vector3d::Zero());
-        double tw = 0.0;
-        for (int m = 0; m < M; ++m) {
-            const double pi_m = joint_modes_[m].probability;
-            for (int i = 0; i < N; ++i) {
-                const double w = pi_m *
-                    std::exp(-(static_cast<double>(cost_at(i, m)) - S_min) / params_.lambda);
-                if (!std::isfinite(w)) continue;
-                tw += w;
-                for (int k = 0; k < H; ++k) {
-                    const int o = i * H * 3 + k * 3;
-                    wa[k].x() += w * h_controls[o + 0];
-                    wa[k].y() += w * h_controls[o + 1];
-                    wa[k].z() += w * h_controls[o + 2];
-                }
-            }
-        }
-        if (tw < 1e-12) {
-            ROS_WARN("[IM2-MPPI/GPU] Total weight ~0 — keeping previous nominal.");
-        } else {
-            for (int k = 0; k < H; ++k) {
-                Control u;
-                u.a = wa[k] / tw;
-                u_nominal_[k] = clampControl(u);
-            }
+        for (int k = 0; k < H; ++k) {
+            Control u;
+            u.a = wa[k] / tw;
+            u_nominal_[k] = clampControl(u);
         }
     }
 

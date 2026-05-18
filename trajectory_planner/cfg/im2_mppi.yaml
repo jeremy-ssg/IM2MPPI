@@ -48,11 +48,15 @@ im2_mppi:
   mode_pruning_type: "risk_aware"
 
   # ── CVaR (Phase 4) ──────────────────────────────────────────────────
-  # Tail probability for cvar_mppi. Range (0, 1]:
-  #   1.0  → CVaR = expected value (equivalent to mode_aware_mppi)
-  #   0.2  → worst 20 % of modes (recommended, risk-averse)
-  #   0.05 → worst 5 %  of modes (very conservative)
-  cvar_alpha: 0.2
+  # Per-rollout CVaR over OBSTACLE prediction uncertainty.
+  # For each (ego rollout, joint mode, obstacle):
+  #   sample R obstacle trajectories from N(mu, diag(sigma^2)),
+  #   compute hinge-squared loss per sample,
+  #   take the mean of the worst-α fraction.
+  #   This scalar enters the MPPI cost via lambda_r.
+  cvar_alpha: 0.20                # tail fraction (worst 20%)
+  cvar_num_obstacle_samples: 16   # R: obstacle Monte-Carlo samples per (i,m,j)
+  cvar_lambda_r: 5.0              # weight on Σ_j ρ in the per-rollout cost
 
   # ── Visualization (RViz) ────────────────────────────────────────────
   viz_num_rollouts: 20        # how many rollouts to draw as line strips
