@@ -25,23 +25,29 @@ import sys
 
 
 METRICS = [
-    # (dotted path in summary.json, friendly label, "lower_is_better" or "higher_is_better")
-    ("task.success",                          "success",                  "higher"),
-    ("task.time_to_goal_s",                   "time_to_goal_s",           "lower"),
-    ("task.executed_path_length_m",           "executed_path_length_m",   "lower"),
-    ("safety.min_clearance_m",                "min_clearance_m",          "higher"),
-    ("safety.mean_clearance_m",               "mean_clearance_m",         "higher"),
-    ("safety.p05_clearance_m",                "p05_clearance_m",          "higher"),
-    ("safety.empirical_cvar_5pct_m",          "empirical_cvar_5pct_m",    "higher"),
-    ("safety.empirical_cvar_10pct_m",         "empirical_cvar_10pct_m",   "higher"),
-    ("safety.collision_strict_rate",          "collision_strict_rate",    "lower"),
-    ("safety.collision_near_miss_rate",       "collision_near_miss_rate", "lower"),
-    ("safety.collision_tail_rate",            "collision_tail_rate",      "lower"),
-    ("tracking.rms_target_error_m",           "rms_target_error_m",       "lower"),
-    ("smoothness.cmd_rms_accel_mps2",         "cmd_rms_accel_mps2",       "lower"),
-    ("smoothness.cmd_rms_jerk_mps3",          "cmd_rms_jerk_mps3",        "lower"),
-    ("planner.plan_latency_mean_ms",          "plan_latency_mean_ms",     "lower"),
-    ("planner.plan_latency_p95_ms",           "plan_latency_p95_ms",      "lower"),
+    # (dotted path in summary.json, friendly label, lower|higher better)
+    ("task.executed_path_length_m",           "executed_path_length_m",       "lower"),
+    # Tiered collision EVENT counters — primary safety KPI
+    ("safety.collision_strict_events",        "collision_strict_events",      "lower"),
+    ("safety.collision_near_miss_events",     "collision_near_miss_events",   "lower"),
+    ("safety.collision_tail_events",          "collision_tail_events",        "lower"),
+    # Time-in-collision proxies (samples)
+    ("safety.collision_strict_samples",       "collision_strict_samples",     "lower"),
+    ("safety.collision_near_miss_samples",    "collision_near_miss_samples",  "lower"),
+    # Clearance distribution
+    ("safety.min_clearance_m",                "min_clearance_m",              "higher"),
+    ("safety.mean_clearance_m",               "mean_clearance_m",             "higher"),
+    ("safety.p05_clearance_m",                "p05_clearance_m",              "higher"),
+    ("safety.empirical_cvar_5pct_m",          "empirical_cvar_5pct_m",        "higher"),
+    ("safety.empirical_cvar_10pct_m",         "empirical_cvar_10pct_m",       "higher"),
+    # Tracking
+    ("tracking.rms_target_error_m",           "rms_target_error_m",           "lower"),
+    # Smoothness
+    ("smoothness.cmd_rms_accel_mps2",         "cmd_rms_accel_mps2",           "lower"),
+    ("smoothness.cmd_rms_jerk_mps3",          "cmd_rms_jerk_mps3",            "lower"),
+    # Planning latency
+    ("planner.plan_latency_mean_ms",          "plan_latency_mean_ms",         "lower"),
+    ("planner.plan_latency_p95_ms",           "plan_latency_p95_ms",          "lower"),
 ]
 
 

@@ -19,22 +19,30 @@
 #  Usage:
 #    ./run_all_experiments.sh [SEEDS] [DURATION_SEC] [GOAL_RADIUS]
 #
-#    SEEDS         — number of random seeds per config (default 3)
+#    SEEDS         — number of random seeds per config (default 24 = 3 × 8)
 #    DURATION_SEC  — evaluator window per run (default 90)
 #    GOAL_RADIUS   — success threshold in metres (default 0.8)
 #
-#  Example (small sanity run, ~25 min):
-#    ./run_all_experiments.sh 3 90
+#  Examples:
+#    ./run_all_experiments.sh             # default (24 seeds × 8 configs, ~7 h)
+#    ./run_all_experiments.sh 3 90        # quick sanity sweep, ~25 min
+#    ./run_all_experiments.sh 10 120      # mid-size paper run, ~4 h
 #
-#  Example (paper-grade run, several hours):
-#    ./run_all_experiments.sh 10 120
+#  Total wall clock ≈ SEEDS × 8 configs × (DURATION + 40 s overhead).
 #
-#  Total wall clock ≈ SEEDS × 8 configs × (DURATION + 40s overhead).
+#  Per-run raw artefacts saved under results/<stamp>/:
+#    <CFG>_seed<N>_summary.json         — aggregated metrics
+#    <CFG>_seed<N>_timeseries.csv       — odom + clearance + target_error
+#    <CFG>_seed<N>_path_metrics.csv     — per-planned-trajectory stats
+#    <CFG>_seed<N>_plan_time.csv        — per-tick planning latency in ms
+#    <CFG>_seed<N>_cmd_accel.csv        — commanded acceleration time series
+#    <CFG>_seed<N>_collision_events.csv — rising-edge collision event log
+#    logs/<CFG>_seed<N>_{sim,stack,eval,roscore}.log — stdout / stderr
 # ============================================================================
 
 set -u
 
-SEEDS=${1:-3}
+SEEDS=${1:-24}
 DURATION=${2:-90}
 GOAL_RADIUS=${3:-0.8}
 
@@ -175,11 +183,17 @@ TOTAL=$((${#CONFIGS[@]} * SEEDS))
 COUNT=0
 T_START=$(date +%s)
 
+EST_SEC=$(( TOTAL * (DURATION + 40) ))
+EST_HMS=$(printf '%02dh%02dm' $((EST_SEC/3600)) $(((EST_SEC%3600)/60)))
+EST_END=$(date -d "+${EST_SEC} seconds" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
+          date -v+${EST_SEC}S '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "?")
+
 echo
 echo "================================================================"
 echo "  IM2-MPPI batch driver"
 echo "  configs: ${#CONFIGS[@]}   seeds/config: ${SEEDS}   total runs: ${TOTAL}"
 echo "  duration/run: ${DURATION}s    goal_radius: ${GOAL_RADIUS} m"
+echo "  estimated total wall clock: ${EST_HMS}  (≈ done ${EST_END})"
 echo "  results:  ${OUT_DIR}"
 echo "================================================================"
 

@@ -174,6 +174,18 @@ class Evaluator:
         self.collision_strict_time = 0.0
         self.last_sample_time = None
 
+        # Tiered collision EVENT counters (rising-edge detection — each
+        # entry into a tier counts as one event regardless of how many
+        # samples the drone stays in that tier afterwards).
+        self.collision_strict_events    = 0
+        self.collision_near_miss_events = 0
+        self.collision_tail_events      = 0
+        self.prev_in_strict    = False
+        self.prev_in_near_miss = False
+        self.prev_in_tail      = False
+        # Per-event log (timestamp, tier, clearance_at_entry) for forensics.
+        self.collision_event_log = []
+
         # Flight phase control.
         self.flight_ended = False
         self.time_to_goal = None
@@ -359,14 +371,35 @@ class Evaluator:
             clearance = self.min_clearance_locked(pos)
             if clearance is not None:
                 self.clearances.append(clearance)
-                if clearance < self.collision_strict:
+
+                # Per-tier sample counts (time-in-collision proxy).
+                in_strict    = clearance < self.collision_strict
+                in_near_miss = clearance < self.collision_near_miss
+                in_tail      = clearance < self.collision_tail
+
+                if in_strict:
                     self.collision_strict_samples += 1
                     if self.last_sample_time is not None:
                         self.collision_strict_time += max(0.0, t - self.last_sample_time)
-                if clearance < self.collision_near_miss:
+                if in_near_miss:
                     self.collision_near_miss_samples += 1
-                if clearance < self.collision_tail:
+                if in_tail:
                     self.collision_tail_samples += 1
+
+                # Rising-edge event counters (count of DISTINCT collisions).
+                if in_strict and not self.prev_in_strict:
+                    self.collision_strict_events += 1
+                    self.collision_event_log.append((t, "strict", clearance))
+                if in_near_miss and not self.prev_in_near_miss:
+                    self.collision_near_miss_events += 1
+                    self.collision_event_log.append((t, "near_miss", clearance))
+                if in_tail and not self.prev_in_tail:
+                    self.collision_tail_events += 1
+                    self.collision_event_log.append((t, "tail", clearance))
+
+                self.prev_in_strict    = in_strict
+                self.prev_in_near_miss = in_near_miss
+                self.prev_in_tail      = in_tail
 
             goal_dist = dist3(pos, self.goal) if self.goal is not None else None
             self.odom_samples.append({
@@ -482,6 +515,10 @@ class Evaluator:
                 "collision_tail_rate":             (self.collision_tail_samples /
                                                     len(self.clearances)) if self.clearances else None,
                 "collision_strict_time_s":         self.collision_strict_time,
+                # ── EVENT counters (rising-edge, count of distinct collisions) ──
+                "collision_strict_events":         self.collision_strict_events,
+                "collision_near_miss_events":      self.collision_near_miss_events,
+                "collision_tail_events":           self.collision_tail_events,
                 # Empirical CVaR
                 "cvar_alpha":               self.cvar_alpha,
                 "empirical_cvar_5pct_m":    cvar_05,
@@ -560,13 +597,31 @@ class Evaluator:
                 for v in self.plan_time_samples_ms:
                     writer.writerow([v])
 
+            # Raw commanded acceleration (from tracking_controller::Target),
+            # the noise-free signal jerk metrics are computed from.
+            with open(prefix + "_cmd_accel.csv", "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["t", "ax", "ay", "az"])
+                for (t, a) in self.cmd_accel_samples:
+                    writer.writerow([t, a[0], a[1], a[2]])
+
+            # Per-event log of every distinct rising-edge collision entry.
+            with open(prefix + "_collision_events.csv", "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["t", "tier", "clearance_at_entry"])
+                for (t, tier, clr) in self.collision_event_log:
+                    writer.writerow([t, tier, clr])
+
             rospy.loginfo("[eval] Wrote summary to %s_summary.json", prefix)
-            rospy.loginfo("[eval] success=%s  t_goal=%s  min_clr=%.3f  cvar5=%s  p95_lat=%s ms",
-                          summary["task"]["success"],
-                          summary["task"]["time_to_goal_s"],
-                          summary["safety"]["min_clearance_m"] or float("nan"),
-                          summary["safety"]["empirical_cvar_5pct_m"],
-                          summary["planner"]["plan_latency_p95_ms"])
+            rospy.loginfo(
+                "[eval] CR_strict=%d  CR_near=%d  CR_tail=%d  "
+                "min_clr=%.3f  cvar5=%s  p95_lat=%s ms",
+                summary["safety"]["collision_strict_events"],
+                summary["safety"]["collision_near_miss_events"],
+                summary["safety"]["collision_tail_events"],
+                summary["safety"]["min_clearance_m"] or float("nan"),
+                summary["safety"]["empirical_cvar_5pct_m"],
+                summary["planner"]["plan_latency_p95_ms"])
 
 
 if __name__ == "__main__":

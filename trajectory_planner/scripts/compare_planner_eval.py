@@ -8,8 +8,8 @@ import sys
 
 
 METRICS = [
-    # Task
-    ("task.success",                          "success"),
+    # Task (kept for raw archive; SR/TTG are not the headline metrics
+    # anymore but the underlying numbers are still saved).
     ("task.time_to_goal_s",                   "time_to_goal_s"),
     ("task.final_goal_distance_m",            "final_goal_distance_m"),
     ("task.executed_path_length_m",           "executed_path_length_m"),
@@ -18,7 +18,7 @@ METRICS = [
     ("safety.min_clearance_m",                "min_clearance_m"),
     ("safety.mean_clearance_m",               "mean_clearance_m"),
     ("safety.p05_clearance_m",                "p05_clearance_m"),
-    # Safety — tiered collision counters
+    # Safety — tiered collision counters (samples == time-in-collision proxy)
     ("safety.collision_strict_samples",       "collision_strict_samples"),
     ("safety.collision_near_miss_samples",    "collision_near_miss_samples"),
     ("safety.collision_tail_samples",         "collision_tail_samples"),
@@ -26,6 +26,10 @@ METRICS = [
     ("safety.collision_near_miss_rate",       "collision_near_miss_rate"),
     ("safety.collision_tail_rate",            "collision_tail_rate"),
     ("safety.collision_strict_time_s",        "collision_strict_time_s"),
+    # Safety — tiered collision EVENT counters (rising edge — primary KPI)
+    ("safety.collision_strict_events",        "collision_strict_events"),
+    ("safety.collision_near_miss_events",     "collision_near_miss_events"),
+    ("safety.collision_tail_events",          "collision_tail_events"),
     # Safety — empirical CVaR
     ("safety.empirical_cvar_5pct_m",          "empirical_cvar_5pct_m"),
     ("safety.empirical_cvar_10pct_m",         "empirical_cvar_10pct_m"),

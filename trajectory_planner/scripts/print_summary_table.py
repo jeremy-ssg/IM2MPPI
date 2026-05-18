@@ -22,19 +22,19 @@ from collections import defaultdict
 NAME_RE = re.compile(r"(?P<cfg>.+)_seed(?P<seed>\d+)_summary\.json$")
 
 # (dotted_path, label, format_spec, lower_is_better)
+# Tight headline table — collision EVENT counts are the primary safety metric.
 METRICS = [
-    ("task.success",                       "SR",        ".0%", False),
-    ("task.time_to_goal_s",                "TTG",       ".1f", True ),
-    ("task.executed_path_length_m",        "Length",    ".1f", True ),
-    ("safety.collision_strict_rate",       "CR",        ".2%", True ),
-    ("safety.collision_near_miss_rate",    "CR@nm",     ".2%", True ),
-    ("safety.min_clearance_m",             "MinClr",    ".3f", False),
-    ("safety.empirical_cvar_5pct_m",       "CVaR@5%",   ".3f", False),
-    ("safety.empirical_cvar_10pct_m",      "CVaR@10%",  ".3f", False),
-    ("tracking.rms_target_error_m",        "TrkRMS",    ".3f", True ),
-    ("smoothness.cmd_rms_jerk_mps3",       "Jerk",      ".2f", True ),
-    ("planner.plan_latency_mean_ms",       "Lat_avg",   ".2f", True ),
-    ("planner.plan_latency_p95_ms",        "Lat_p95",   ".2f", True ),
+    ("task.executed_path_length_m",        "Length",     ".1f", True ),
+    ("safety.collision_strict_events",     "CR#",        ".1f", True ),
+    ("safety.collision_near_miss_events",  "CR_nm#",     ".1f", True ),
+    ("safety.collision_tail_events",       "CR_tail#",   ".1f", True ),
+    ("safety.min_clearance_m",             "MinClr",     ".3f", False),
+    ("safety.empirical_cvar_5pct_m",       "CVaR@5%",    ".3f", False),
+    ("safety.empirical_cvar_10pct_m",      "CVaR@10%",   ".3f", False),
+    ("tracking.rms_target_error_m",        "TrkRMS",     ".3f", True ),
+    ("smoothness.cmd_rms_jerk_mps3",       "Jerk",       ".2f", True ),
+    ("planner.plan_latency_mean_ms",       "Lat_avg",    ".2f", True ),
+    ("planner.plan_latency_p95_ms",        "Lat_p95",    ".2f", True ),
 ]
 
 
@@ -162,19 +162,18 @@ def print_table(rows, winners):
 
 
 def print_legend():
-    print("Metric legend:")
-    print("  SR       = success rate                       (higher better)")
-    print("  TTG      = time to goal (s)                   (lower  better)")
-    print("  Length   = executed path length (m)           (lower  better)")
-    print("  CR       = strict collision rate (<0.15 m)    (lower  better)")
-    print("  CR@nm    = near-miss rate (<0.30 m)           (lower  better)")
-    print("  MinClr   = min obstacle clearance (m)         (higher better)")
-    print("  CVaR@5%  = empirical CVaR, worst 5% tail (m)  (higher better)  ← core IM2-MPPI claim")
-    print("  CVaR@10% = empirical CVaR, worst 10% tail (m) (higher better)")
-    print("  TrkRMS   = tracking RMS error (m)             (lower  better)")
-    print("  Jerk     = commanded RMS jerk (m/s³)          (lower  better)")
-    print("  Lat_avg  = mean planning latency (ms)         (lower  better)")
-    print("  Lat_p95  = p95 planning latency (ms)          (lower  better)")
+    print("Metric legend (mean ± std across seeds):")
+    print("  Length    = executed path length (m)                     (lower  better)")
+    print("  CR#       = strict collision events <0.15m (count)       (lower  better)")
+    print("  CR_nm#    = near-miss events <0.30m (count)              (lower  better)")
+    print("  CR_tail#  = tail events <0.50m (count)                   (lower  better)")
+    print("  MinClr    = min obstacle clearance (m)                   (higher better)")
+    print("  CVaR@5%   = empirical CVaR, worst 5% tail clearance (m)  (higher better)  ← core IM2-MPPI claim")
+    print("  CVaR@10%  = empirical CVaR, worst 10% tail clearance (m) (higher better)")
+    print("  TrkRMS    = tracking RMS error (m)                       (lower  better)")
+    print("  Jerk      = commanded RMS jerk (m/s³)                    (lower  better)")
+    print("  Lat_avg   = mean planning latency (ms)                   (lower  better)")
+    print("  Lat_p95   = p95 planning latency (ms)                    (lower  better)")
     print()
 
 
