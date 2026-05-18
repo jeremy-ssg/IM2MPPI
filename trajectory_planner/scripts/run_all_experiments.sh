@@ -85,6 +85,10 @@ cleanup_all() {
     pkill -9 -f tracking_controller_node   2>/dev/null || true
     pkill -9 -f onboard_detector           2>/dev/null || true
     pkill -9 -f dynamic_predictor          2>/dev/null || true
+    pkill -9 -f teleop_twist_keyboard      2>/dev/null || true
+    pkill -9 -f keyboard_control           2>/dev/null || true
+    pkill -9 -f key_teleop                 2>/dev/null || true
+    pkill -9 -f keyboardCtrl               2>/dev/null || true
     pkill -9 -f gzclient                   2>/dev/null || true
     pkill -9 -f gzserver                   2>/dev/null || true
     pkill -9 -f gazebo                     2>/dev/null || true
@@ -138,6 +142,12 @@ run_one() {
     roslaunch uav_simulator start.launch \
         > "${LOG_DIR}/${TAG}_sim.log" 2>&1 &
     sleep 10
+    # Kill any teleop / keyboard control nodes that start.launch may bring up
+    # — we're running unattended, no human at the keyboard.
+    pkill -9 -f teleop_twist_keyboard 2>/dev/null || true
+    pkill -9 -f keyboard_control      2>/dev/null || true
+    pkill -9 -f key_teleop            2>/dev/null || true
+    pkill -9 -f keyboardCtrl          2>/dev/null || true
 
     # 5. Launch the planner stack (Intent-MPC or IM2-MPPI).
     roslaunch ${LAUNCH} \
