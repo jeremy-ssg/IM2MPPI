@@ -49,6 +49,13 @@ void im2MppiNavigation::initParam()
 
     this->nh_.param("autonomous_flight/use_predefined_goal", this->usePredefinedGoal_, false);
 
+    this->nh_.param("autonomous_flight/closed_loop_intent_enabled",
+                    this->closedLoopIntentEnabled_, true);
+    this->nh_.param("autonomous_flight/closed_loop_match_distance",
+                    this->closedLoopMatchDistance_, 1.0);
+    ROS_INFO("[IM2-MPPI Nav] closed_loop_intent = %d (match_dist = %.2f m)",
+             this->closedLoopIntentEnabled_, this->closedLoopMatchDistance_);
+
     if (this->usePredefinedGoal_) {
         if (!this->nh_.getParam("autonomous_flight/predefined_goal_directory",
                                 this->refTrajPath_)) {
@@ -292,6 +299,20 @@ void im2MppiNavigation::predCB(const ros::TimerEvent&)
     // previous cache so visualization & MPPI don't lose all obstacle info.
     if (predOb.empty()) return;
 
+    // ── Closed-loop intent correction (Phase 4 / innovation #5) ──────────
+    // Reweight the predictor's posterior using the per-mode Gaussian
+    // likelihood of the actual observation against the previous prediction.
+    const ros::Time now = ros::Time::now();
+    if (this->closedLoopIntentEnabled_ && !this->lastPredOb_.empty()
+        && !this->lastPredTime_.isZero()) {
+        const double dt = (now - this->lastPredTime_).toSec();
+        if (dt > 0.01 && dt < 2.0) {     // sanity window
+            this->applyClosedLoopIntentCorrection(predOb, dt);
+        }
+    }
+    this->lastPredOb_   = predOb;
+    this->lastPredTime_ = now;
+
     std::vector<im2mppi::DynamicObstaclePrediction> dynPreds =
         this->convertPredictions(predOb);
     if (method == "mean_prediction_mppi") {
@@ -467,6 +488,134 @@ im2MppiNavigation::compressToMeanPrediction(
         compressed.push_back(std::move(cp));
     }
     return compressed;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Closed-loop intent correction (Phase 4 / innovation #5)
+//
+//      π_corrected[m] ∝ π_predictor[m] · likelihood_m
+//
+//  where the likelihood is the Gaussian density of the actual observation
+//  under each mode's prediction from the previous predCB tick:
+//
+//      likelihood_m = N(o_observed; μ_m_predicted_for_now, diag(σ_m²))
+//
+//  μ_m_predicted_for_now is read at predictor-step offset = round(dt / dt_pred)
+//  from the previous tick's posPred[m]. σ_m is taken from sizePred[m] / 2
+//  (the existing convention used in convertPredictions for uncertainty proxy).
+//
+//  Modes for which the previous prediction was a good match get upweighted;
+//  modes whose prediction missed the actual trajectory get downweighted.
+//  This is independent of whether the underlying predictor is the MDP one or
+//  a learned Transformer (innovation #1).
+// ─────────────────────────────────────────────────────────────────────────────
+
+void im2MppiNavigation::applyClosedLoopIntentCorrection(
+    std::vector<dynamicPredictor::obstacle>& newPred,
+    double dt_since_last) const
+{
+    constexpr double dt_pred = 0.1;    // predictor step
+    const int offset = std::max(1, static_cast<int>(std::round(dt_since_last / dt_pred)));
+
+    int n_corrected = 0;
+
+    for (auto& obs : newPred) {
+        // 1. Observed position "now" — the new prediction's step-0 (any mode
+        //    has the same step-0, they all start at the current observation).
+        if (obs.posPred.empty() || obs.posPred[0].empty()) continue;
+        const Eigen::Vector3d observed = obs.posPred[0][0];
+
+        // 2. Match this obstacle to one in lastPredOb_ by current-position
+        //    proximity. (No persistent IDs across detector ticks, so we use
+        //    nearest-neighbour with a sanity gate.)
+        int    best_idx = -1;
+        double best_d   = std::numeric_limits<double>::infinity();
+        for (size_t j = 0; j < this->lastPredOb_.size(); ++j) {
+            const auto& last = this->lastPredOb_[j];
+            if (last.posPred.empty() || last.posPred[0].empty()) continue;
+            const Eigen::Vector3d last_now = last.posPred[0][0];
+            const double d = (observed - last_now).norm();
+            if (d < best_d) { best_d = d; best_idx = static_cast<int>(j); }
+        }
+        if (best_idx < 0 || best_d > this->closedLoopMatchDistance_) continue;
+
+        const auto& last = this->lastPredOb_[best_idx];
+
+        const int K = static_cast<int>(obs.intentProb.size());
+        if (K <= 1 || K != static_cast<int>(last.intentProb.size())) continue;
+
+        // 3. Per-mode log-likelihood under the previous prediction.
+        Eigen::VectorXd ll(K);
+        bool any_valid = false;
+        for (int m = 0; m < K; ++m) {
+            // Predicted μ_m at step `offset` (clamped to available horizon)
+            if (m >= static_cast<int>(last.posPred.size())
+                || last.posPred[m].empty()) {
+                ll(m) = -std::numeric_limits<double>::infinity();
+                continue;
+            }
+            const int off = std::min(offset,
+                static_cast<int>(last.posPred[m].size()) - 1);
+            const Eigen::Vector3d mu = last.posPred[m][off];
+
+            // σ from sizePred (full extent → half = σ proxy)
+            Eigen::Vector3d sigma(0.3, 0.3, 0.3);
+            if (m < static_cast<int>(last.sizePred.size())
+                && !last.sizePred[m].empty()) {
+                const int sz_off = std::min(off,
+                    static_cast<int>(last.sizePred[m].size()) - 1);
+                sigma = (last.sizePred[m][sz_off] * 0.5).cwiseMax(0.1);
+            }
+
+            // Log-Gaussian (drop normalization constants — they cancel in softmax)
+            const Eigen::Vector3d d = observed - mu;
+            const double log_l = -0.5 * (
+                d.x() * d.x() / (sigma.x() * sigma.x()) +
+                d.y() * d.y() / (sigma.y() * sigma.y()) +
+                d.z() * d.z() / (sigma.z() * sigma.z()));
+            ll(m) = log_l;
+            any_valid = true;
+        }
+        if (!any_valid) continue;
+
+        // 4. Convert log-likelihoods to normalized likelihoods (numerically
+        //    stable softmax with -inf entries set to 0 weight).
+        double max_ll = -std::numeric_limits<double>::infinity();
+        for (int m = 0; m < K; ++m) if (std::isfinite(ll(m)) && ll(m) > max_ll) max_ll = ll(m);
+        if (!std::isfinite(max_ll)) continue;
+
+        Eigen::VectorXd lh(K);
+        double lh_sum = 0.0;
+        for (int m = 0; m < K; ++m) {
+            lh(m) = std::isfinite(ll(m)) ? std::exp(ll(m) - max_ll) : 0.0;
+            lh_sum += lh(m);
+        }
+        if (lh_sum < 1e-12) continue;
+        lh /= lh_sum;
+
+        // 5. Bayesian update: posterior ∝ prior · likelihood, renormalized.
+        Eigen::VectorXd post(K);
+        double post_sum = 0.0;
+        for (int m = 0; m < K; ++m) {
+            const double prior_m = std::max(0.0,
+                static_cast<double>(obs.intentProb[m]));
+            post(m) = prior_m * lh(m);
+            post_sum += post(m);
+        }
+        if (post_sum < 1e-12) continue;
+
+        for (int m = 0; m < K; ++m) {
+            obs.intentProb[m] = post(m) / post_sum;
+        }
+        ++n_corrected;
+    }
+
+    if (n_corrected > 0) {
+        ROS_DEBUG_THROTTLE(1.0,
+            "[IM2-MPPI Nav/CL-Intent] corrected %d / %zu obstacles "
+            "(dt=%.3fs, offset=%d steps).",
+            n_corrected, newPred.size(), dt_since_last, offset);
+    }
 }
 
 void im2MppiNavigation::getDynamicBoxes(

@@ -89,14 +89,16 @@ private:
     std::shared_ptr<im2mppi::IM2MPPIPlanner>         mppi_;
 
     // ── Navigation parameters ──────────────────────────────────────────────
-    bool        useFakeDetector_   = false;
-    bool        usePredictor_      = false;
-    bool        useYawControl_     = false;
-    bool        usePredefinedGoal_ = false;
-    double      desiredVel_        = 1.5;
-    double      desiredAcc_        = 1.5;
-    double      desiredAngularVel_ = 0.5;
-    int         repeatPathNum_     = 1;
+    bool        useFakeDetector_         = false;
+    bool        usePredictor_            = false;
+    bool        useYawControl_           = false;
+    bool        usePredefinedGoal_       = false;
+    bool        closedLoopIntentEnabled_ = true;   // Phase-4: Bayesian π correction
+    double      closedLoopMatchDistance_ = 1.0;    // m — obstacle id matching window
+    double      desiredVel_              = 1.5;
+    double      desiredAcc_              = 1.5;
+    double      desiredAngularVel_       = 0.5;
+    int         repeatPathNum_           = 1;
     std::string refTrajPath_;
 
     nav_msgs::Path predefinedGoal_;
@@ -112,6 +114,14 @@ private:
     // Decoupled from mppiTimer_ so slow inference doesn't block planning.
     std::mutex                                      predMutex_;
     std::vector<im2mppi::DynamicObstaclePrediction> cachedDynPreds_;
+
+    // ── Closed-loop intent correction state (Phase 4 / innovation #5) ─────
+    // We compare each new predictor output against the previous tick's
+    // prediction at the time-step corresponding to "now" and reweight the
+    // intent posterior by the per-mode Gaussian likelihood of the actual
+    // observation. Held only inside predCB so no extra mutex needed.
+    std::vector<dynamicPredictor::obstacle> lastPredOb_;
+    ros::Time                               lastPredTime_;
 
     // Protects mppi_ internal vector reads (best traj, rollouts, etc.) across
     // AsyncSpinner threads. predCB does NOT take this lock — it only touches
@@ -133,6 +143,14 @@ private:
     // For mean_prediction_mppi: compress K modes → 1 weighted-mean mode.
     std::vector<im2mppi::DynamicObstaclePrediction> compressToMeanPrediction(
         const std::vector<im2mppi::DynamicObstaclePrediction>& preds) const;
+
+    // Bayesian intent posterior update: π_corrected ∝ π_prior · likelihood,
+    // where likelihood_m = N(observed_now; μ_m_predicted_for_now, σ_m).
+    // Modifies newPred in place. Falls back to the predictor's prior when
+    // no matching previous prediction is found for an obstacle.
+    void applyClosedLoopIntentCorrection(
+        std::vector<dynamicPredictor::obstacle>& newPred,
+        double dt_since_last) const;
 
     // Fallback static AABBs when predictor disabled.
     void getDynamicBoxes(std::vector<im2mppi::BoxObstacle>& boxes) const;
