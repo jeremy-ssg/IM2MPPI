@@ -58,6 +58,17 @@ im2_mppi:
   cvar_num_obstacle_samples: 16   # R: obstacle Monte-Carlo samples per (i,m,j)
   cvar_lambda_r: 5.0              # weight on Σ_j ρ in the per-rollout cost
 
+  # ── Mode fusion (Phase 4) ───────────────────────────────────────────
+  # How joint-mode posteriors π_m enter the MPPI free-energy update:
+  #   soft       : standard Proposition 1 (use π_m directly)
+  #   sharpened  : π_m^γ normalized,  γ = fusion_gamma (fixed)
+  #   adaptive   : same as sharpened, γ = 1 + κ·(log K − H(π))
+  #                — high π entropy → no sharpening; low entropy → argmax-like
+  #   argmax     : one-hot — picks argmax_m π_m·Σ_i exp(−S_{m,i}/λ)
+  fusion_mode: "adaptive"
+  fusion_gamma: 2.0               # used only when fusion_mode == sharpened
+  fusion_kappa: 2.0               # used only when fusion_mode == adaptive
+
   # ── Visualization (RViz) ────────────────────────────────────────────
   viz_num_rollouts: 20        # how many rollouts to draw as line strips
   viz_color_by_weight: true   # true: red(low)->green(high); false: flat

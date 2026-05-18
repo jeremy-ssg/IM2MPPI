@@ -78,6 +78,21 @@ struct IM2MPPIParams {
     int    cvar_num_obstacle_samples  = 16;     // R (≤ 32 recommended; GPU-bound at higher)
     double cvar_lambda_r              = 5.0;    // weight applied to Σ_j ρ in the cost
 
+    // ── Mode fusion (Phase 4) ────────────────────────────────────────────────
+    // Controls how joint-mode posteriors π_m are combined into the MPPI
+    // free-energy update. Supported values:
+    //   soft       : standard Proposition 1 (use π_m as-is)
+    //   sharpened  : π_m^γ normalized;  γ = fusion_gamma (fixed)
+    //   adaptive   : same as sharpened, but γ = 1 + κ·(log K − H(π))
+    //                — high π entropy ⇒ no sharpening; low entropy ⇒ argmax-like
+    //   argmax     : one-hot — pick argmax_m π_m·Σ_i exp(−S_{m,i}/λ)
+    //
+    // The adaptive mode is the IM2-MPPI default: it avoids dangerous
+    // mode-averaging when modes disagree without committing prematurely.
+    std::string fusion_mode  = "adaptive";
+    double      fusion_gamma = 2.0;     // sharpening exponent for "sharpened"
+    double      fusion_kappa = 2.0;     // entropy-adaptive coefficient for "adaptive"
+
     // ── Visualization ────────────────────────────────────────────────────────
     int  viz_num_rollouts     = 60;    // how many rollouts to draw in RViz
     bool viz_color_by_weight  = true;  // true: gradient red→green; false: flat
@@ -136,6 +151,10 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
     nh.param(ns + "/cvar_num_obstacle_samples", p.cvar_num_obstacle_samples, p.cvar_num_obstacle_samples);
     nh.param(ns + "/cvar_lambda_r",             p.cvar_lambda_r,             p.cvar_lambda_r);
 
+    nh.param(ns + "/fusion_mode",  p.fusion_mode,  p.fusion_mode);
+    nh.param(ns + "/fusion_gamma", p.fusion_gamma, p.fusion_gamma);
+    nh.param(ns + "/fusion_kappa", p.fusion_kappa, p.fusion_kappa);
+
     nh.param(ns + "/viz_num_rollouts",    p.viz_num_rollouts,    p.viz_num_rollouts);
     nh.param(ns + "/viz_color_by_weight", p.viz_color_by_weight, p.viz_color_by_weight);
 
@@ -165,6 +184,8 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
     p.cvar_alpha                = std::max(1e-3, std::min(1.0, p.cvar_alpha));
     p.cvar_num_obstacle_samples = std::max(1, std::min(64, p.cvar_num_obstacle_samples));
     p.cvar_lambda_r             = std::max(0.0, p.cvar_lambda_r);
+    p.fusion_gamma              = std::max(1.0, p.fusion_gamma);
+    p.fusion_kappa              = std::max(0.0, p.fusion_kappa);
 
     return p;
 }

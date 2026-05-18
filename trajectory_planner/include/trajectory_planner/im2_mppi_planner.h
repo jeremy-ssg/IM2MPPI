@@ -194,6 +194,21 @@ private:
         const std::vector<JointMode>&                  modes,
         const std::vector<std::vector<RolloutResult>>& all_results) const;
 
+    // ── Mode fusion (Phase 4) ────────────────────────────────────────────────
+    // Effective per-mode posterior π_eff[m] that goes into the MPPI weighted
+    // update. Selected by params_.fusion_mode:
+    //   soft      : π_eff = π
+    //   sharpened : π_eff_m = π_m^γ / Σ π^γ                       (γ fixed)
+    //   adaptive  : same with γ = 1 + κ·(log K − H(π))
+    //   argmax    : π_eff is one-hot at argmax_m π_m·Σ_i exp(−S_{m,i}/λ)
+    //
+    // costs_flat is row-major [M*N] (m × N + i). If size is wrong, returns
+    // uniform π_eff and warns once.
+    std::vector<double> computeFusionWeights(
+        const std::vector<JointMode>& modes,
+        const std::vector<double>&    costs_flat,
+        int N) const;
+
     // Per-rollout CVaR over OBSTACLE prediction uncertainty (Phase-4 core).
     // For each (rollout i, joint mode m, obstacle j):
     //   Sample R obstacle trajectories from N(μ_{m,j,k}, diag(σ²_{m,j,k}))

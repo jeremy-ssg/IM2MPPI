@@ -582,14 +582,23 @@ void IM2MPPIPlanner::updateControlSequence(
     double total_weight = 0.0;
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Standard mode-weighted MPPI free-energy update (Proposition 1):
-    //      w_{m,i} = π_m · exp(-(S_{m,i} - S_min) / λ)
+    //  Mode-fused MPPI free-energy update:
+    //      w_{m,i} = π_eff_m · exp(-(S_{m,i} - S_min) / λ)
+    //  where π_eff_m comes from computeFusionWeights — soft/sharpened/
+    //  adaptive/argmax determined by params_.fusion_mode.
     //
-    //  For cvar_mppi, the per-(i,m) cost already contains the CVaR risk term
-    //  (added in planCPU/planGPU before this call), so the update form is
-    //  unchanged. Aggregating CVaR over modes here would be cancelled by the
-    //  normalization — the per-rollout obstacle-CVaR is the right level.
+    //  For cvar_mppi, S_{m,i} already contains the CVaR risk term added in
+    //  planCPU/planGPU before this call.
     // ─────────────────────────────────────────────────────────────────────────
+
+    // Flatten cost matrix [M*N] for the fusion helper (argmax needs it).
+    std::vector<double> costs_flat(static_cast<size_t>(modes.size()) * N, 0.0);
+    for (size_t mi = 0; mi < modes.size(); ++mi)
+        for (int i = 0; i < N; ++i)
+            costs_flat[mi * N + i] = all_results[mi][i].cost;
+
+    const std::vector<double> pi_eff = computeFusionWeights(modes, costs_flat, N);
+
     double S_min = std::numeric_limits<double>::infinity();
     for (const auto& mode_results : all_results) {
         for (const auto& r : mode_results) {
@@ -602,7 +611,8 @@ void IM2MPPIPlanner::updateControlSequence(
     }
 
     for (size_t mi = 0; mi < modes.size(); ++mi) {
-        const double pi_m = modes[mi].probability;
+        const double pi_m = pi_eff[mi];
+        if (pi_m <= 0.0) continue;        // argmax: skip non-selected modes
         for (int i = 0; i < N; ++i) {
             const double w =
                 pi_m * std::exp(-(all_results[mi][i].cost - S_min) / params_.lambda);
@@ -699,6 +709,103 @@ std::vector<double> IM2MPPIPlanner::computeRolloutCVaR(
         cvar[i] = computeCVaR(costs, probs, params_.cvar_alpha);
     }
     return cvar;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Adaptive Soft-to-Argmax Fusion (Phase-4)
+//      Returns π_eff[m] used in the MPPI weighted update according to
+//      params_.fusion_mode:
+//        soft      → π_eff = π
+//        sharpened → π_eff_m = π_m^γ / Σ π^γ        (γ = fusion_gamma)
+//        adaptive  → γ = 1 + κ·(log K − H(π)), then sharpen
+//        argmax    → one-hot at argmax_m π_m·Σ_i exp(−(S_{m,i} − S_min)/λ)
+//
+//      For argmax we numerically stabilize with S_min subtraction. For
+//      soft/sharpened/adaptive we only need π (costs are unused).
+// ─────────────────────────────────────────────────────────────────────────────
+
+std::vector<double> IM2MPPIPlanner::computeFusionWeights(
+    const std::vector<JointMode>& modes,
+    const std::vector<double>&    costs_flat,
+    int N) const
+{
+    const int M = static_cast<int>(modes.size());
+    std::vector<double> pi_eff(M, 0.0);
+    if (M == 0) return pi_eff;
+
+    // Original posteriors, clamped to non-negative.
+    std::vector<double> pi(M, 0.0);
+    for (int m = 0; m < M; ++m) pi[m] = std::max(0.0, modes[m].probability);
+
+    const std::string& mode = params_.fusion_mode;
+
+    // ── argmax ────────────────────────────────────────────────────────────
+    if (mode == "argmax") {
+        if (static_cast<int>(costs_flat.size()) != M * N) {
+            ROS_WARN_THROTTLE(5.0,
+                "[IM2-MPPI/fusion] argmax: costs_flat size=%zu, expected %d. "
+                "Falling back to soft.", costs_flat.size(), M * N);
+        } else {
+            // S_min for numerical stability of exp(-S/λ)
+            double S_min = std::numeric_limits<double>::infinity();
+            for (double c : costs_flat)
+                if (std::isfinite(c)) S_min = std::min(S_min, c);
+            if (std::isfinite(S_min)) {
+                std::vector<double> score(M, 0.0);
+                for (int m = 0; m < M; ++m) {
+                    double s = 0.0;
+                    for (int i = 0; i < N; ++i) {
+                        double c = costs_flat[m * N + i];
+                        if (!std::isfinite(c)) continue;
+                        s += std::exp(-(c - S_min) / params_.lambda);
+                    }
+                    score[m] = pi[m] * s;
+                }
+                int best = 0;
+                for (int m = 1; m < M; ++m)
+                    if (score[m] > score[best]) best = m;
+                pi_eff[best] = 1.0;
+                return pi_eff;
+            }
+        }
+        // Fallback: most-probable mode.
+        int best = 0;
+        for (int m = 1; m < M; ++m) if (pi[m] > pi[best]) best = m;
+        pi_eff[best] = 1.0;
+        return pi_eff;
+    }
+
+    // ── soft / sharpened / adaptive ──────────────────────────────────────
+    double gamma = 1.0;
+    if (mode == "sharpened") {
+        gamma = std::max(1.0, params_.fusion_gamma);
+    } else if (mode == "adaptive") {
+        // H(π) using natural log; clamp π to (1e-12, 1] so log is finite.
+        double H = 0.0;
+        for (int m = 0; m < M; ++m) {
+            if (pi[m] > 1e-12) H -= pi[m] * std::log(pi[m]);
+        }
+        const double H_max = std::log(static_cast<double>(M));
+        const double slack = std::max(0.0, H_max - H);
+        gamma = 1.0 + params_.fusion_kappa * slack;
+    } else if (mode != "soft") {
+        ROS_WARN_THROTTLE(5.0,
+            "[IM2-MPPI/fusion] unknown fusion_mode '%s' — using soft.", mode.c_str());
+    }
+
+    double sum = 0.0;
+    for (int m = 0; m < M; ++m) {
+        pi_eff[m] = std::pow(pi[m], gamma);
+        sum += pi_eff[m];
+    }
+    if (sum < 1e-12) {
+        // Degenerate (all π near zero) → uniform fallback.
+        const double u = 1.0 / static_cast<double>(M);
+        for (int m = 0; m < M; ++m) pi_eff[m] = u;
+    } else {
+        for (int m = 0; m < M; ++m) pi_eff[m] /= sum;
+    }
+    return pi_eff;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1164,15 +1271,20 @@ bool IM2MPPIPlanner::planGPU()
         }
     }
 
-    // 5. Standard mode-weighted MPPI update (Proposition 1). CVaR risk term
-    //    is already inside h_costs for cvar_mppi.
+    // 5. Mode-fused MPPI update. fusion_mode (soft/sharpened/adaptive/argmax)
+    //    selects π_eff[m]; CVaR risk term already inside h_costs for cvar_mppi.
     auto cost_at = [&](int i, int m) { return h_costs[i * M + m]; };
 
+    // Flatten to [M*N] in the layout computeFusionWeights expects (m*N + i).
+    std::vector<double> costs_flat(static_cast<size_t>(M) * N, 0.0);
+    for (int m = 0; m < M; ++m)
+        for (int i = 0; i < N; ++i)
+            costs_flat[m * N + i] = static_cast<double>(cost_at(i, m));
+
+    const std::vector<double> pi_eff = computeFusionWeights(joint_modes_, costs_flat, N);
+
     double S_min = std::numeric_limits<double>::infinity();
-    for (int i = 0; i < N; ++i)
-        for (int m = 0; m < M; ++m)
-            if (std::isfinite(cost_at(i, m)))
-                S_min = std::min(S_min, static_cast<double>(cost_at(i, m)));
+    for (double c : costs_flat) if (std::isfinite(c)) S_min = std::min(S_min, c);
     if (!std::isfinite(S_min)) {
         ROS_WARN("[IM2-MPPI/GPU] All costs non-finite.");
         return false;
@@ -1181,7 +1293,8 @@ bool IM2MPPIPlanner::planGPU()
     std::vector<Eigen::Vector3d> wa(H, Eigen::Vector3d::Zero());
     double tw = 0.0;
     for (int m = 0; m < M; ++m) {
-        const double pi_m = joint_modes_[m].probability;
+        const double pi_m = pi_eff[m];
+        if (pi_m <= 0.0) continue;        // argmax: skip non-selected modes
         for (int i = 0; i < N; ++i) {
             const double w = pi_m *
                 std::exp(-(static_cast<double>(cost_at(i, m)) - S_min) / params_.lambda);
