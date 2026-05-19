@@ -26,7 +26,9 @@ import sys
 
 METRICS = [
     # (dotted path in summary.json, friendly label, lower|higher better)
-    ("task.executed_path_length_m",           "executed_path_length_m",       "lower"),
+    ("task.success",                          "success_rate",                 "higher"),
+    ("task.mission_time_s",                   "mission_time_s",               "lower"),
+    ("task.completed_path_length_m",          "completed_path_length_m",      "lower"),
     # Tiered collision EVENT counters — primary safety KPI
     ("safety.collision_strict_events",        "collision_strict_events",      "lower"),
     ("safety.collision_near_miss_events",     "collision_near_miss_events",   "lower"),

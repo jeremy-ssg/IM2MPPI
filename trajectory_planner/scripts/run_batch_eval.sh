@@ -5,8 +5,8 @@
 #
 # Assumptions:
 #   * The planner reads `im2_mppi/random_seed` from rosparam at startup.
-#   * Both launch files exit cleanly after `duration` seconds (via the
-#     evaluate_planner.launch shutdown_timer).
+#   * The evaluator exits when one reference lap completes, with `duration`
+#     as the timeout fallback.
 #   * roscore can be (re)started between runs.
 #
 # Usage:
@@ -72,6 +72,8 @@ for SEED in $(seq 1 "${N_SEEDS}"); do
         roslaunch trajectory_planner evaluate_planner.launch \
             algorithm:="${ALGO}" \
             duration:="${DURATION}" \
+            completion_mode:="lap" \
+            shutdown_on_success:="true" \
             output_dir:="${OUT_DIR}/_tmp_${ALGO}_${SEED}" \
             > "${OUT_DIR}/${ALGO}_seed${SEED}_eval.log" 2>&1 || true
 

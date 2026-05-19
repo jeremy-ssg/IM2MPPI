@@ -128,6 +128,7 @@ for path in sorted(glob.glob(os.path.join(out_dir, "M4_im2_full_seed*_summary.js
         summary = json.load(f)
     diag = summary.get("diagnostics", {})
     planner = summary.get("planner", {})
+    task = summary.get("task", {})
     tracking = summary.get("tracking", {})
     safety = summary.get("safety", {})
     latency = diag.get("plan_latency", {})
@@ -136,6 +137,10 @@ for path in sorted(glob.glob(os.path.join(out_dir, "M4_im2_full_seed*_summary.js
     rows.append({
         "tag": tag,
         "verdict": diag.get("verdict"),
+        "success": task.get("success"),
+        "mission_time_s": task.get("mission_time_s"),
+        "completed_path_length_m": task.get("completed_path_length_m"),
+        "lap_progress_fraction": task.get("lap_progress_fraction"),
         "lat_avg_ms": planner.get("plan_latency_mean_ms"),
         "lat_p95_ms": planner.get("plan_latency_p95_ms"),
         "lat_max_ms": planner.get("plan_latency_max_ms"),
@@ -156,6 +161,7 @@ for path in sorted(glob.glob(os.path.join(out_dir, "M4_im2_full_seed*_summary.js
 index_path = os.path.join(out_dir, "diagnostics_index.csv")
 fields = [
     "tag", "verdict",
+    "success", "mission_time_s", "completed_path_length_m", "lap_progress_fraction",
     "lat_avg_ms", "lat_p95_ms", "lat_max_ms", "lat_gt_50ms", "lat_gt_100ms",
     "target_gap_max_s", "target_jump_max_m", "target_jump_gt_1m",
     "track_rms_m", "track_max_m",
@@ -175,7 +181,7 @@ echo
 echo "================================================================"
 echo "  IM2 full debug runner"
 echo "  method: cvar_mppi  fusion: adaptive  closed_loop: true"
-echo "  seeds: ${SEEDS}  duration/run: ${DURATION}s  goal_radius: ${GOAL_RADIUS}m"
+echo "  seeds: ${SEEDS}  timeout/run: ${DURATION}s  goal_radius: ${GOAL_RADIUS}m"
 echo "  results: ${OUT_DIR}"
 echo "================================================================"
 
@@ -225,7 +231,10 @@ for SEED in $(seq 1 "${SEEDS}"); do
         roslaunch trajectory_planner evaluate_planner.launch \
             algorithm:="im2_mppi" \
             duration:="${DURATION}" \
+            completion_mode:="lap" \
+            shutdown_on_success:="true" \
             goal_radius:="${GOAL_RADIUS}" \
+            lap_completion_radius:="${GOAL_RADIUS}" \
             output_dir:="${TMP_OUT}" \
         > "${LOG_DIR}/${TAG}_eval.log" 2>&1 || true
 

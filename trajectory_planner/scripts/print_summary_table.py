@@ -24,7 +24,10 @@ NAME_RE = re.compile(r"(?P<cfg>.+)_seed(?P<seed>\d+)_summary\.json$")
 # (dotted_path, label, format_spec, lower_is_better)
 # Tight headline table — collision EVENT counts are the primary safety metric.
 METRICS = [
-    ("task.executed_path_length_m",        "Length",     ".1f", True ),
+    ("task.success",                       "SR",         ".0%", False),
+    ("task.mission_time_s",                "Time",       ".1f", True ),
+    ("task.completed_path_length_m",       "Length",     ".1f", True ),
+    ("task.lap_progress_fraction",         "Progress",   ".0%", False),
     ("safety.collision_strict_events",     "CR#",        ".1f", True ),
     ("safety.collision_near_miss_events",  "CR_nm#",     ".1f", True ),
     ("safety.collision_tail_events",       "CR_tail#",   ".1f", True ),
@@ -164,7 +167,10 @@ def print_table(rows, winners):
 
 def print_legend():
     print("Metric legend (mean ± std across seeds):")
-    print("  Length    = executed path length (m)                     (lower  better)")
+    print("  SR        = one-lap completion rate                       (higher better)")
+    print("  Time      = one-lap completion time (s)                   (lower  better)")
+    print("  Length    = executed path length after one completed lap  (lower  better)")
+    print("  Progress  = final reference-lap progress before timeout   (higher better)")
     print("  CR#       = strict collision events <0.15m (count)       (lower  better)")
     print("  CR_nm#    = near-miss events <0.30m (count)              (lower  better)")
     print("  CR_tail#  = tail events <0.50m (count)                   (lower  better)")

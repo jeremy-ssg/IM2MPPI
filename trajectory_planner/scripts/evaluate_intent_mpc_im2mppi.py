@@ -11,8 +11,8 @@ Improvements over the initial version:
   * Empirical CVaR over the worst-α clearance tail (matches the theoretical
     CVaR objective the planner optimizes).
   * Acceleration / jerk computed from the COMMANDED target (no odom noise).
-  * Stops sampling once the goal is reached so post-arrival hover doesn't
-    pollute mean speed / tracking metrics.
+  * Stops sampling once the configured task is complete. For the predefined
+    circle experiment this means one reference lap, not a fixed time window.
   * Subscribes to /im2mppi/plan_time_ms (or any configured plan-time topic)
     to record actual planning latency (mean / p95 / max).
 """
@@ -105,6 +105,45 @@ def path_length(points):
     return sum(dist3(points[i], points[i - 1]) for i in range(1, len(points)))
 
 
+def dot3(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def project_onto_polyline(points, point, min_s=None, backtrack=2.0):
+    """Project a point onto a polyline and return (arc_length_s, distance)."""
+    if len(points) < 2:
+        return None, None
+
+    candidates = []
+    accum = 0.0
+    for i in range(1, len(points)):
+        a = points[i - 1]
+        b = points[i]
+        ab = sub3(b, a)
+        seg_len = norm3(ab)
+        if seg_len < 1e-9:
+            continue
+
+        ap = sub3(point, a)
+        u = max(0.0, min(1.0, dot3(ap, ab) / (seg_len * seg_len)))
+        proj = (a[0] + u * ab[0], a[1] + u * ab[1], a[2] + u * ab[2])
+        candidates.append((accum + u * seg_len, dist3(point, proj)))
+        accum += seg_len
+
+    if not candidates:
+        return None, None
+
+    # A closed or near-closed trajectory has two physically close places near
+    # the lap boundary. Once progress is high, avoid snapping back to s=0.
+    if min_s is not None:
+        filtered = [c for c in candidates if c[0] >= min_s - backtrack]
+        if filtered:
+            candidates = filtered
+
+    best_s, best_dist = min(candidates, key=lambda x: x[1])
+    return best_s, best_dist
+
+
 def finite_diff_norms(samples):
     out = []
     for i in range(1, len(samples)):
@@ -130,6 +169,16 @@ class Evaluator:
         )
         self.goal_radius = float(rospy.get_param("~goal_radius", 0.5))
         self.sample_hz = float(rospy.get_param("~sample_hz", 20.0))
+        self.requested_completion_mode = rospy.get_param("~completion_mode", "auto")
+        self.shutdown_on_success = bool(rospy.get_param("~shutdown_on_success", True))
+
+        lap_completion_radius = float(rospy.get_param("~lap_completion_radius", -1.0))
+        self.lap_completion_radius = (
+            self.goal_radius if lap_completion_radius <= 0.0 else lap_completion_radius)
+        self.lap_finish_fraction = float(
+            rospy.get_param("~lap_finish_fraction", 0.98))
+        self.lap_progress_max_deviation = float(
+            rospy.get_param("~lap_progress_max_deviation", 3.0))
 
         # Tiered collision thresholds (m).
         self.collision_strict   = float(rospy.get_param("~collision_strict",   0.15))
@@ -149,6 +198,21 @@ class Evaluator:
             "~plan_time_topic", "/im2mppi/plan_time_ms")
         if not self.path_topic:
             self.path_topic = self.default_path_topic(self.algorithm)
+
+        ref_param = rospy.get_param("~lap_reference_path", "")
+        if not ref_param:
+            ref_param = rospy.get_param("/autonomous_flight/predefined_goal_directory", "")
+        self.lap_reference_path = self.resolve_reference_path(ref_param)
+        self.lap_reference_points = self.load_reference_points(self.lap_reference_path)
+        self.lap_reference_length = path_length(self.lap_reference_points)
+
+        if self.requested_completion_mode == "auto":
+            self.completion_mode = "lap" if self.lap_reference_length > 1e-6 else "goal"
+        else:
+            self.completion_mode = self.requested_completion_mode
+        if self.completion_mode == "lap" and self.lap_reference_length <= 1e-6:
+            rospy.logwarn("[eval] lap completion requested but reference path is unavailable; falling back to goal mode.")
+            self.completion_mode = "goal"
 
         self.lock = threading.Lock()
         self.start_time = None
@@ -191,7 +255,17 @@ class Evaluator:
         # Flight phase control.
         self.flight_ended = False
         self.time_to_goal = None
+        self.completion_time = None
+        self.completion_reason = None
         self.success = False
+        self.finish_requested = False
+        self.outputs_written = False
+        self.completed_path_length = None
+        self.lap_progress_m = 0.0
+        self.lap_progress_fraction = None
+        self.lap_nearest_distance = None
+        self.lap_started = False
+        self.lap_start_time = None
 
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -220,6 +294,48 @@ class Evaluator:
         if self.start_time is None:
             self.start_time = now
         return (now - self.start_time).to_sec()
+
+    def ros_package_path(self, package):
+        try:
+            import rospkg  # ROS dependency, available on the robot/WSL side.
+            return rospkg.RosPack().get_path(package)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def resolve_reference_path(self, raw_path):
+        if not raw_path or raw_path == "None":
+            return None
+
+        expanded = os.path.expandvars(os.path.expanduser(raw_path))
+        candidates = []
+        if os.path.isabs(expanded) and os.path.isfile(expanded):
+            return expanded
+        if not os.path.isabs(expanded):
+            candidates.append(os.path.abspath(expanded))
+
+        pkg_path = self.ros_package_path("autonomous_flight")
+        if pkg_path:
+            candidates.append(os.path.join(pkg_path, expanded.lstrip("/\\")))
+
+        for path in candidates:
+            if os.path.isfile(path):
+                return path
+        return expanded
+
+    def load_reference_points(self, path):
+        points = []
+        if not path or not os.path.isfile(path):
+            return points
+        with open(path) as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                try:
+                    points.append((float(parts[1]), float(parts[2]), float(parts[3])))
+                except ValueError:
+                    continue
+        return points
 
     # ── Callbacks ─────────────────────────────────────────────────────────
 
@@ -359,9 +475,53 @@ class Evaluator:
         return min(aabb_clearance(point, center, size)
                    for center, size in self.latest_obstacles)
 
+    def update_lap_progress_locked(self, t, pos):
+        if not self.lap_reference_points or self.lap_reference_length <= 1e-6:
+            return
+
+        backtrack = max(2.0, 0.05 * self.lap_reference_length)
+        s, nearest = project_onto_polyline(
+            self.lap_reference_points, pos,
+            min_s=self.lap_progress_m if self.lap_progress_m > 0.0 else None,
+            backtrack=backtrack)
+        if s is None or nearest is None:
+            return
+
+        self.lap_nearest_distance = nearest
+        if nearest <= self.lap_progress_max_deviation:
+            if not self.lap_started:
+                self.lap_started = True
+                self.lap_start_time = t
+            self.lap_progress_m = max(self.lap_progress_m, s)
+            self.lap_progress_fraction = min(
+                1.0, self.lap_progress_m / self.lap_reference_length)
+
+    def completion_reached_locked(self, t, pos, goal_dist):
+        if self.completion_mode == "lap":
+            self.update_lap_progress_locked(t, pos)
+            if self.lap_progress_fraction is None:
+                return False, None
+            if (self.lap_progress_fraction >= self.lap_finish_fraction and
+                    self.lap_nearest_distance is not None and
+                    self.lap_nearest_distance <= self.lap_completion_radius):
+                return True, "lap_complete"
+            return False, None
+
+        if self.completion_mode == "goal":
+            if (self.goal is not None and goal_dist is not None and
+                    goal_dist <= self.goal_radius):
+                return True, "goal_reached"
+            return False, None
+
+        return False, None
+
+    def request_finish(self):
+        rospy.Timer(rospy.Duration(0.05), self.finish_cb, oneshot=True)
+
     # ── Periodic sample ───────────────────────────────────────────────────
 
     def sample_cb(self, _event):
+        should_finish = False
         with self.lock:
             if self.flight_ended:
                 return
@@ -420,6 +580,8 @@ class Evaluator:
                 self.prev_in_tail      = in_tail
 
             goal_dist = dist3(pos, self.goal) if self.goal is not None else None
+            if self.completion_mode == "lap":
+                self.update_lap_progress_locked(t, pos)
             self.odom_samples.append({
                 "t": t,
                 "x": pos[0], "y": pos[1], "z": pos[2],
@@ -429,20 +591,33 @@ class Evaluator:
                 "target_age_s": target_age,
                 "obstacle_clearance": clearance,
                 "goal_distance": goal_dist,
+                "lap_progress_m": self.lap_progress_m,
+                "lap_progress_fraction": self.lap_progress_fraction,
+                "lap_nearest_distance": self.lap_nearest_distance,
             })
             self.last_sample_time = t
 
-            # Stop sampling at arrival so smoothness / speed metrics aren't
-            # diluted by post-arrival hover.
-            if (self.goal is not None and goal_dist is not None
-                    and goal_dist <= self.goal_radius):
+            complete, reason = self.completion_reached_locked(t, pos, goal_dist)
+            if complete:
                 self.success = True
                 self.time_to_goal = t
+                self.completion_time = t
+                self.completion_reason = reason
                 self.flight_ended = True
+                self.completed_path_length = path_length(
+                    [(s["x"], s["y"], s["z"]) for s in self.odom_samples])
+                should_finish = self.shutdown_on_success and not self.finish_requested
+                self.finish_requested = self.finish_requested or should_finish
                 rospy.loginfo(
-                    "[eval] Goal reached at t=%.2fs — freezing sampling.", t)
+                    "[eval] %s at t=%.2fs; freezing sampling.", reason, t)
+
+        if should_finish:
+            self.request_finish()
 
     def finish_cb(self, _event):
+        if self.outputs_written:
+            return
+        self.outputs_written = True
         self.write_outputs()
         rospy.signal_shutdown("evaluation finished")
 
@@ -489,6 +664,11 @@ class Evaluator:
         plan_latency_mean = mean(self.plan_time_samples_ms)
         plan_latency_p95 = percentile(self.plan_time_samples_ms, 0.95)
         plan_latency_max = max(self.plan_time_samples_ms) if self.plan_time_samples_ms else None
+        executed_path_length = path_length(positions)
+        flight_duration = self.odom_samples[-1]["t"] if self.odom_samples else None
+        completed_path_length = self.completed_path_length
+        if completed_path_length is None and self.success:
+            completed_path_length = executed_path_length
 
         summary = {
             "algorithm": self.algorithm,
@@ -510,11 +690,26 @@ class Evaluator:
             },
             "task": {
                 "success": self.success,
+                "completion_mode_requested": self.requested_completion_mode,
+                "completion_mode": self.completion_mode,
+                "completion_reason": self.completion_reason,
                 "goal_radius": self.goal_radius,
                 "time_to_goal_s": self.time_to_goal,
+                "completion_time_s": self.completion_time,
+                "mission_time_s": self.completion_time if self.success else None,
                 "final_goal_distance_m": final_goal_distance,
-                "executed_path_length_m": path_length(positions),
-                "flight_duration_s": self.odom_samples[-1]["t"] if self.odom_samples else None,
+                "completed_path_length_m": completed_path_length,
+                "executed_path_length_m": executed_path_length,
+                "flight_duration_s": flight_duration,
+                "lap_reference_path": self.lap_reference_path,
+                "lap_reference_length_m": self.lap_reference_length,
+                "lap_completion_radius_m": self.lap_completion_radius,
+                "lap_finish_fraction": self.lap_finish_fraction,
+                "lap_started": self.lap_started,
+                "lap_start_time_s": self.lap_start_time,
+                "lap_progress_m": self.lap_progress_m,
+                "lap_progress_fraction": self.lap_progress_fraction,
+                "lap_nearest_distance_m": self.lap_nearest_distance,
             },
             "safety": {
                 # Raw clearance stats
@@ -758,7 +953,9 @@ class Evaluator:
             with open(prefix + "_timeseries.csv", "w", newline="") as f:
                 fields = ["t", "x", "y", "z", "vx", "vy", "vz", "speed",
                           "target_error", "target_age_s",
-                          "obstacle_clearance", "goal_distance"]
+                          "obstacle_clearance", "goal_distance",
+                          "lap_progress_m", "lap_progress_fraction",
+                          "lap_nearest_distance"]
                 writer = csv.DictWriter(f, fieldnames=fields)
                 writer.writeheader()
                 for row in self.odom_samples:

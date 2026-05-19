@@ -3,6 +3,8 @@
   <arg name="algorithm" default="im2_mppi"/>
   <arg name="duration"  default="120.0"/>
   <arg name="output_dir" default="$(env HOME)/.ros/mppi_eval"/>
+  <arg name="completion_mode" default="auto"/>
+  <arg name="shutdown_on_success" default="true"/>
 
   <!-- Topic plumbing — defaults selected from algorithm when left empty. -->
   <arg name="path_topic"      default=""/>
@@ -14,6 +16,10 @@
 
   <!-- Task / safety thresholds. Defaults follow the IM2-MPPI paper convention. -->
   <arg name="goal_radius"          default="0.5"/>
+  <arg name="lap_reference_path"   default=""/>
+  <arg name="lap_completion_radius" default="-1.0"/>
+  <arg name="lap_finish_fraction"  default="0.98"/>
+  <arg name="lap_progress_max_deviation" default="3.0"/>
   <arg name="collision_strict"     default="0.15"/>
   <arg name="collision_near_miss"  default="0.30"/>
   <arg name="collision_tail"       default="0.50"/>
@@ -26,7 +32,13 @@
     <param name="algorithm"            value="$(arg algorithm)"/>
     <param name="duration"             value="$(arg duration)"/>
     <param name="output_dir"           value="$(arg output_dir)"/>
+    <param name="completion_mode"      value="$(arg completion_mode)"/>
+    <param name="shutdown_on_success"  value="$(arg shutdown_on_success)"/>
     <param name="goal_radius"          value="$(arg goal_radius)"/>
+    <param name="lap_reference_path"   value="$(arg lap_reference_path)"/>
+    <param name="lap_completion_radius" value="$(arg lap_completion_radius)"/>
+    <param name="lap_finish_fraction"  value="$(arg lap_finish_fraction)"/>
+    <param name="lap_progress_max_deviation" value="$(arg lap_progress_max_deviation)"/>
     <param name="collision_strict"     value="$(arg collision_strict)"/>
     <param name="collision_near_miss"  value="$(arg collision_near_miss)"/>
     <param name="collision_tail"       value="$(arg collision_tail)"/>

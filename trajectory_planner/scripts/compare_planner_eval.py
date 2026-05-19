@@ -8,12 +8,20 @@ import sys
 
 
 METRICS = [
-    # Task (kept for raw archive; SR/TTG are not the headline metrics
-    # anymore but the underlying numbers are still saved).
+    # Task completion: one predefined-lap completion is the primary boundary.
+    ("task.success",                          "success"),
+    ("task.completion_mode",                  "completion_mode"),
+    ("task.completion_reason",                "completion_reason"),
+    ("task.mission_time_s",                   "mission_time_s"),
+    ("task.completion_time_s",                "completion_time_s"),
     ("task.time_to_goal_s",                   "time_to_goal_s"),
     ("task.final_goal_distance_m",            "final_goal_distance_m"),
+    ("task.completed_path_length_m",          "completed_path_length_m"),
     ("task.executed_path_length_m",           "executed_path_length_m"),
     ("task.flight_duration_s",                "flight_duration_s"),
+    ("task.lap_reference_length_m",           "lap_reference_length_m"),
+    ("task.lap_progress_m",                   "lap_progress_m"),
+    ("task.lap_progress_fraction",            "lap_progress_fraction"),
     # Safety — clearance stats
     ("safety.min_clearance_m",                "min_clearance_m"),
     ("safety.mean_clearance_m",               "mean_clearance_m"),

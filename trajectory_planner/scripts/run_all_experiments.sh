@@ -9,7 +9,8 @@
 #    2. Brings up its own roscore + presets autonomous_flight rosparams
 #       (closed_loop_intent_enabled)
 #    3. Launches the simulator + the right planner stack
-#    4. Launches the evaluator, blocking until DURATION seconds elapse
+#    4. Launches the evaluator, blocking until one lap completes or DURATION
+#       seconds elapse as a timeout
 #    5. Archives the summary JSON tagged <CONFIG>_seed<N>_summary.json
 #    6. Aggressively tears everything down before the next run
 #
@@ -20,7 +21,7 @@
 #    ./run_all_experiments.sh [SEEDS] [DURATION_SEC] [GOAL_RADIUS]
 #
 #    SEEDS         — number of random seeds per config (default 24 = 3 × 8)
-#    DURATION_SEC  — evaluator window per run (default 90)
+#    DURATION_SEC  — max evaluator timeout per run (default 90)
 #    GOAL_RADIUS   — success threshold in metres (default 0.8)
 #
 #  Examples:
@@ -202,7 +203,10 @@ run_one() {
         roslaunch trajectory_planner evaluate_planner.launch \
             algorithm:="${EVAL_ALGO}" \
             duration:="${DURATION}" \
+            completion_mode:="lap" \
+            shutdown_on_success:="true" \
             goal_radius:="${GOAL_RADIUS}" \
+            lap_completion_radius:="${GOAL_RADIUS}" \
             output_dir:="${TMP_OUT}" \
         > "${LOG_DIR}/${TAG}_eval.log" 2>&1 || true
 
@@ -244,7 +248,7 @@ echo
 echo "================================================================"
 echo "  IM2-MPPI batch driver"
 echo "  configs: ${#CONFIGS[@]}   seeds/config: ${SEEDS}   total runs: ${TOTAL}"
-echo "  duration/run: ${DURATION}s    goal_radius: ${GOAL_RADIUS} m"
+echo "  timeout/run: ${DURATION}s    goal_radius: ${GOAL_RADIUS} m"
 echo "  estimated total wall clock: ${EST_HMS}  (≈ done ${EST_END})"
 echo "  results:  ${OUT_DIR}"
 echo "================================================================"

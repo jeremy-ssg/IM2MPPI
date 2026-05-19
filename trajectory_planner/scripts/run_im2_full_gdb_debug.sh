@@ -117,7 +117,7 @@ echo
 echo "================================================================"
 echo "  IM2 full GDB debug runner"
 echo "  method: cvar_mppi  fusion: adaptive  closed_loop: true"
-echo "  seeds: ${SEEDS}  duration/run: ${DURATION}s  goal_radius: ${GOAL_RADIUS}m"
+echo "  seeds: ${SEEDS}  timeout/run: ${DURATION}s  goal_radius: ${GOAL_RADIUS}m"
 echo "  results: ${OUT_DIR}"
 echo "================================================================"
 
@@ -167,7 +167,10 @@ for SEED in $(seq 1 "${SEEDS}"); do
         roslaunch trajectory_planner evaluate_planner.launch \
             algorithm:="im2_mppi" \
             duration:="${DURATION}" \
+            completion_mode:="lap" \
+            shutdown_on_success:="true" \
             goal_radius:="${GOAL_RADIUS}" \
+            lap_completion_radius:="${GOAL_RADIUS}" \
             output_dir:="${TMP_OUT}" \
         > "${LOG_DIR}/${TAG}_eval.log" 2>&1 || true
 
