@@ -5,12 +5,12 @@
 im2_mppi:
   # ── Dynamics / horizon ──────────────────────────────────────────────
   dt: 0.05                  # simulation timestep [s]
-  horizon_steps: 50         # planning horizon length (=> 2.5 s) — longer lookahead
+  horizon_steps: 30         # planning horizon length (=> 1.5 s)
 
   # ── Sampling ────────────────────────────────────────────────────────
   num_rollouts: 512         # N parallel trajectory samples
   num_modes_per_obstacle: 4 # K intent modes per obstacle (predictor side)
-  num_joint_modes_keep: 8   # Kbar retained joint modes after pruning
+  num_joint_modes_keep: 4   # Kbar retained joint modes after pruning
 
   # ── MPPI temperature ────────────────────────────────────────────────
   lambda: 5.0               # cost-to-weight sharpness; lower = greedier
@@ -30,12 +30,12 @@ im2_mppi:
 
   # ── Cost weights ────────────────────────────────────────────────────
   w_goal:   10.0
-  w_path:   10.0    # ↑ from 1.0 — encourage tighter reference tracking
+  w_path:    1.0
   w_vel:     0.1
   w_acc:     0.05
   w_jerk:    0.05
   w_static: 30.0
-  w_dyn:    20.0    # ↓ from 50.0 — squared-hinge × 50 created excessive detours
+  w_dyn:    50.0
 
   # ── Method selection (ablation) ─────────────────────────────────────
   #   vanilla_mppi         : baseline, ignores dynamic predictions
@@ -56,7 +56,7 @@ im2_mppi:
   #   This scalar enters the MPPI cost via lambda_r.
   cvar_alpha: 0.20                # tail fraction (worst 20%)
   cvar_num_obstacle_samples: 16   # R: obstacle Monte-Carlo samples per (i,m,j)
-  cvar_lambda_r: 1.0              # ↓ from 5.0 — w_dyn already provides the bulk penalty
+  cvar_lambda_r: 5.0              # weight on Σ_j ρ in the per-rollout cost
 
   # ── Mode fusion (Phase 4) ───────────────────────────────────────────
   # How joint-mode posteriors π_m enter the MPPI free-energy update:
@@ -65,9 +65,7 @@ im2_mppi:
   #   adaptive   : same as sharpened, γ = 1 + κ·(log K − H(π))
   #                — high π entropy → no sharpening; low entropy → argmax-like
   #   argmax     : one-hot — picks argmax_m π_m·Σ_i exp(−S_{m,i}/λ)
-  fusion_mode: "soft"             # ↓ from adaptive — adaptive sharpened modes
-                                  # WHEN π was uncertain (entropy high), forcing
-                                  # near-argmax exactly when we should average.
+  fusion_mode: "adaptive"
   fusion_gamma: 2.0               # used only when fusion_mode == sharpened
   fusion_kappa: 2.0               # used only when fusion_mode == adaptive
 
