@@ -179,6 +179,16 @@ private:
     void   pruneJointModes(std::vector<JointMode>& modes) const;
     double computePreliminaryRisk(const JointMode& jm) const;
 
+    // ── Hard safety floor ────────────────────────────────────────────────────
+    // After all costs are populated, set cost = +∞ for any rollout whose
+    // minimum signed clearance (across all horizon steps × dynamic modes ×
+    // static boxes) falls below params_.hard_floor_clearance. Equivalent to
+    // assigning the rollout zero MPPI weight, so it cannot influence the
+    // weighted update. No-op when hard_floor_clearance <= 0.
+    void applyHardFloorFilter(
+        const std::vector<JointMode>&             modes,
+        std::vector<std::vector<RolloutResult>>&  all_results) const;
+
     // ── Control update ───────────────────────────────────────────────────────
     void updateControlSequence(
         const std::vector<JointMode>&                  modes,

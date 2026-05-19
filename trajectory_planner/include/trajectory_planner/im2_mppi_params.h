@@ -31,8 +31,14 @@ struct IM2MPPIParams {
     double lambda = 1.0;  // cost-to-weight sharpness; lower → greedier
 
     // ── Safety geometry ──────────────────────────────────────────────────────
-    double d_safe     = 0.5;  // minimum clearance distance [m]
-    double sigma_risk = 1.0;  // scale for preliminary risk: exp(-d_min / sigma_risk)
+    double d_safe              = 0.5;  // soft-cost clearance threshold [m]
+    double sigma_risk          = 1.0;  // scale for preliminary risk: exp(-d_min / sigma_risk)
+    // Hard-floor filter: any rollout whose minimum clearance against ANY
+    // dynamic mode or static obstacle (over the full horizon) drops below
+    // this value gets cost = +∞ before the MPPI weighted update. Effectively
+    // imposes a hard safety floor on the policy without sacrificing MPPI's
+    // soft gradients elsewhere. Set to 0.0 to disable.
+    double hard_floor_clearance = 0.0;  // [m] 0 = disabled; recommended 0.15–0.25
 
     // ── Kinematic constraints ────────────────────────────────────────────────
     double v_max = 2.0;   // max velocity norm [m/s]
@@ -129,6 +135,7 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
     nh.param(ns + "/lambda",      p.lambda,      p.lambda);
     nh.param(ns + "/d_safe",      p.d_safe,      p.d_safe);
     nh.param(ns + "/sigma_risk",  p.sigma_risk,  p.sigma_risk);
+    nh.param(ns + "/hard_floor_clearance", p.hard_floor_clearance, p.hard_floor_clearance);
 
     nh.param(ns + "/v_max",  p.v_max,  p.v_max);
     nh.param(ns + "/a_max",  p.a_max,  p.a_max);
@@ -172,6 +179,7 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
     p.num_joint_modes_keep   = std::max(1, p.num_joint_modes_keep);
     p.lambda                 = std::max(1e-6, p.lambda);
     p.d_safe                 = std::max(0.0, p.d_safe);
+    p.hard_floor_clearance   = std::max(0.0, p.hard_floor_clearance);
     p.sigma_risk             = std::max(1e-6, p.sigma_risk);
     p.v_max                  = std::max(1e-3, p.v_max);
     p.a_max                  = std::max(1e-3, p.a_max);

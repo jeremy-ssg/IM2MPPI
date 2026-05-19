@@ -572,6 +572,77 @@ void IM2MPPIPlanner::buildJointModes()
 //  MPPI update
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Hard safety floor (CPU path)
+//      For every (joint mode m, rollout i), walk the rollout states and
+//      compute the worst signed clearance against (static box obstacles ∪
+//      dynamic obstacle modes for this joint mode). If that worst clearance
+//      falls below params_.hard_floor_clearance, set the rollout cost to +∞.
+//      The MPPI weighted update then naturally assigns zero weight.
+//
+//      This is the "soft + hard" hybrid: cost-shaped avoidance everywhere
+//      else, but a hard guarantee that the policy will never blend in a
+//      rollout that grazes an obstacle below the safety floor.
+//
+//      Early-exits inside the per-step loop keep the worst-case cost low —
+//      most rollouts won't trigger and skip remaining checks.
+//      No-op when hard_floor_clearance <= 0.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void IM2MPPIPlanner::applyHardFloorFilter(
+    const std::vector<JointMode>&             modes,
+    std::vector<std::vector<RolloutResult>>&  all_results) const
+{
+    const double hf = params_.hard_floor_clearance;
+    if (hf <= 0.0) return;
+
+    const int H = params_.horizon_steps;
+    const double inf = std::numeric_limits<double>::infinity();
+
+    for (size_t m_idx = 0; m_idx < all_results.size(); ++m_idx) {
+        const JointMode emptyJm;
+        const JointMode& jm = (m_idx < modes.size()) ? modes[m_idx] : emptyJm;
+
+        for (RolloutResult& r : all_results[m_idx]) {
+            if (!std::isfinite(r.cost)) continue;           // already filtered
+
+            double min_clr = inf;
+            bool   violated = false;
+
+            for (int k = 1; k <= H && !violated; ++k) {
+                if (k >= static_cast<int>(r.states.size())) break;
+                const Eigen::Vector3d& p = r.states[k].p;
+
+                // Static box obstacles
+                for (const auto& obs : static_obstacles_) {
+                    const double c = aabbSDF(p, obs.center, obs.size);
+                    if (c < min_clr) min_clr = c;
+                    if (min_clr < hf) { violated = true; break; }
+                }
+                if (violated) break;
+
+                // Dynamic obstacles for this joint mode
+                for (size_t j = 0; j < dyn_predictions_.size(); ++j) {
+                    if (j >= jm.obstacle_mode_indices.size()) break;
+                    const int mi = jm.obstacle_mode_indices[j];
+                    const auto& pred = dyn_predictions_[j];
+                    if (mi < 0 || mi >= static_cast<int>(pred.modes.size())) continue;
+                    const auto& mode = pred.modes[mi];
+                    if (mode.mu_seq.empty()) continue;
+                    const int pk = std::min(k - 1, static_cast<int>(mode.mu_seq.size()) - 1);
+                    const double c = aabbSDF(p, mode.mu_seq[pk], pred.size);
+                    if (c < min_clr) min_clr = c;
+                    if (min_clr < hf) { violated = true; break; }
+                }
+            }
+
+            if (violated) {
+                r.cost = inf;
+            }
+        }
+    }
+}
+
 void IM2MPPIPlanner::updateControlSequence(
     const std::vector<JointMode>&                  modes,
     const std::vector<std::vector<RolloutResult>>& all_results)
@@ -1080,6 +1151,9 @@ bool IM2MPPIPlanner::planCPU()
         }
     }
 
+    // 5c. Hard safety floor — reject rollouts that violate the minimum clearance.
+    applyHardFloorFilter(joint_modes_, all_results);
+
     // 6. MPPI update
     updateControlSequence(joint_modes_, all_results);
 
@@ -1243,7 +1317,8 @@ bool IM2MPPIPlanner::planGPU()
     std::vector<float> h_controls(static_cast<size_t>(N) * H * 3);
     std::vector<float> h_states;
     float* h_states_out = nullptr;
-    if (map_) {
+    // h_states is needed for both: (a) map collision check, (b) hard-floor filter.
+    if (map_ || params_.hard_floor_clearance > 0.0) {
         h_states.resize(static_cast<size_t>(N) * (H + 1) * 6);
         h_states_out = h_states.data();
     }
@@ -1347,6 +1422,60 @@ bool IM2MPPIPlanner::planGPU()
             for (int idx = 0; idx < NM; ++idx) h_costs[idx] += h_delta_S[idx];
         } else {
             ROS_WARN_THROTTLE(1.0, "[IM2-MPPI/GPU/CVaR] kernel failed; using base cost only this frame.");
+        }
+    }
+
+    // 4c. Hard safety floor (GPU path mirror of applyHardFloorFilter).
+    //     For each (rollout i, joint mode m), check min clearance against
+    //     dynamic obstacles + static boxes using the downloaded h_states.
+    //     If below params_.hard_floor_clearance, set cost = +∞ → MPPI weight = 0.
+    if (params_.hard_floor_clearance > 0.0 && !h_states.empty()) {
+        const float  hf       = static_cast<float>(params_.hard_floor_clearance);
+        const float  inf_f    = std::numeric_limits<float>::infinity();
+        const int    s_stride = (H + 1) * 6;
+
+        // Pre-extract static box half-extents for tight inner loop.
+        const int Ns_loc = static_cast<int>(static_obstacles_.size());
+
+        for (int i = 0; i < N; ++i) {
+            const int s_base = i * s_stride;
+            for (int m = 0; m < M; ++m) {
+                if (!std::isfinite(h_costs[i * M + m])) continue;
+                const JointMode emptyJm;
+                const JointMode& jm =
+                    (m < static_cast<int>(joint_modes_.size())) ? joint_modes_[m] : emptyJm;
+
+                bool violated = false;
+                for (int k = 1; k <= H && !violated; ++k) {
+                    const int p_off = s_base + k * 6;
+                    const Eigen::Vector3d p(h_states[p_off + 0],
+                                            h_states[p_off + 1],
+                                            h_states[p_off + 2]);
+
+                    // Static box obstacles
+                    for (int s = 0; s < Ns_loc; ++s) {
+                        const auto& obs = static_obstacles_[s];
+                        const double c = aabbSDF(p, obs.center, obs.size);
+                        if (c < hf) { violated = true; break; }
+                    }
+                    if (violated) break;
+
+                    // Dynamic obstacles for this joint mode
+                    for (size_t j = 0; j < dyn_predictions_.size(); ++j) {
+                        if (j >= jm.obstacle_mode_indices.size()) break;
+                        const int mi = jm.obstacle_mode_indices[j];
+                        const auto& pred = dyn_predictions_[j];
+                        if (mi < 0 || mi >= static_cast<int>(pred.modes.size())) continue;
+                        const auto& mode = pred.modes[mi];
+                        if (mode.mu_seq.empty()) continue;
+                        const int pk = std::min(k - 1, static_cast<int>(mode.mu_seq.size()) - 1);
+                        const double c = aabbSDF(p, mode.mu_seq[pk], pred.size);
+                        if (c < hf) { violated = true; break; }
+                    }
+                }
+
+                if (violated) h_costs[i * M + m] = inf_f;
+            }
         }
     }
 
