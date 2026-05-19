@@ -1,4 +1,7 @@
 <launch>
+  <arg name="enable_rviz" default="true"/>
+  <arg name="nav_launch_prefix" default=""/>
+
   <!-- ═══════════════════════════════════════════════════════════════════════
        IM2-MPPI demo launch file (Phases 1 – 3, no CVaR)
        Mirrors intent_mpc_demo.launch but uses im2_mppi_navigation_node and
@@ -43,13 +46,16 @@
   <node pkg="autonomous_flight"
         type="im2_mppi_navigation_node"
         name="im2_mppi_navigation_node"
+        launch-prefix="$(arg nav_launch_prefix)"
         output="screen"/>
 
   <!-- IM2-MPPI-specific RViz config -->
-  <node pkg="rviz"
-        type="rviz"
-        name="im2_mppi_rviz"
-        args="-d $(find autonomous_flight)/cfg/im2_mppi_navigation.rviz"
-        required="false"/>
+  <group if="$(arg enable_rviz)">
+    <node pkg="rviz"
+          type="rviz"
+          name="im2_mppi_rviz"
+          args="-d $(find autonomous_flight)/cfg/im2_mppi_navigation.rviz"
+          required="false"/>
+  </group>
 
 </launch>

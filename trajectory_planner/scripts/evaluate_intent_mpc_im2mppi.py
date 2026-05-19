@@ -633,6 +633,24 @@ class Evaluator:
                 add_event(cur["t"], "target_jump_gt_0p3m", jump, 0.3, "target position jump")
 
         # Tracking divergence and command spikes.
+        last_odom_t = self.odom_samples[-1]["t"] if self.odom_samples else None
+        last_target_t = self.target_samples[-1]["t"] if self.target_samples else None
+        last_plan_t = self.plan_time_samples[-1][0] if self.plan_time_samples else None
+        target_stopped_age = None
+        plan_stopped_age = None
+        if last_odom_t is not None and last_target_t is not None:
+            target_stopped_age = last_odom_t - last_target_t
+            if target_stopped_age > 1.0:
+                add_event(last_target_t, "target_stream_stopped_before_eval_end",
+                          target_stopped_age, 1.0,
+                          "no target_state messages near the end; navigation node may have died")
+        if last_odom_t is not None and last_plan_t is not None:
+            plan_stopped_age = last_odom_t - last_plan_t
+            if plan_stopped_age > 1.0:
+                add_event(last_plan_t, "plan_time_stopped_before_eval_end",
+                          plan_stopped_age, 1.0,
+                          "no plan_time messages near the end; planner loop may have died")
+
         first_err_gt_2 = None
         first_err_gt_5 = None
         for row in self.odom_samples:
@@ -662,6 +680,9 @@ class Evaluator:
             verdict = "target_stream_stall"
         if target_jumps and max(target_jumps) > 1.0:
             verdict = "target_switch_discontinuity"
+        if ((target_stopped_age is not None and target_stopped_age > 1.0) or
+                (plan_stopped_age is not None and plan_stopped_age > 1.0)):
+            verdict = "navigation_node_stopped_or_crashed"
         if first_err_gt_5 is not None and verdict == "no_clear_single_cause":
             verdict = "tracking_diverged_without_obvious_timing_spike"
 
@@ -698,6 +719,13 @@ class Evaluator:
                 "max_target_error_m": summary["tracking"]["max_target_error_m"],
                 "first_error_gt_2m_s": first_err_gt_2,
                 "first_error_gt_5m_s": first_err_gt_5,
+            },
+            "end_of_run": {
+                "last_odom_t_s": last_odom_t,
+                "last_target_t_s": last_target_t,
+                "last_plan_time_t_s": last_plan_t,
+                "target_stopped_age_s": target_stopped_age,
+                "plan_time_stopped_age_s": plan_stopped_age,
             },
             "num_events": len(events),
         }
