@@ -9,6 +9,7 @@
 
 #include <ros/ros.h>
 #include <Eigen/Dense>
+#include <algorithm>
 #include <mutex>
 #include <onboard_detector/dynamicDetector.h>
 #include <onboard_detector/fakeDetector.h>

@@ -492,6 +492,7 @@ im2MppiNavigation::convertPredictions(
     const auto&  params   = this->mppi_->getParams();
     const double dt_mppi  = params.dt;
     const int    H        = params.horizon_steps;
+    const Eigen::Vector3d prediction_sigma(0.15, 0.15, 0.10);
 
     std::vector<im2mppi::DynamicObstaclePrediction> result;
     result.reserve(predOb.size());
@@ -522,15 +523,12 @@ im2MppiNavigation::convertPredictions(
             if (m >= static_cast<int>(ob.posPred.size())) {
                 mode.pi = 0.0;
                 mode.mu_seq.assign(H, Eigen::Vector3d::Zero());
-                mode.sigma_diag_seq.assign(H, Eigen::Vector3d(0.3, 0.3, 0.3));
+                mode.sigma_diag_seq.assign(H, prediction_sigma);
                 pred.modes.push_back(mode);
                 continue;
             }
 
             const auto& pos_seq  = ob.posPred[m];
-            const auto& size_seq = (m < static_cast<int>(ob.sizePred.size()))
-                                       ? ob.sizePred[m]
-                                       : std::vector<Eigen::Vector3d>{};
             const int   N_pred   = static_cast<int>(pos_seq.size());
 
             mode.mu_seq.resize(H);
@@ -547,21 +545,12 @@ im2MppiNavigation::convertPredictions(
 
                 if (N_pred == 0) {
                     mode.mu_seq[k]         = Eigen::Vector3d::Zero();
-                    mode.sigma_diag_seq[k] = Eigen::Vector3d(0.3, 0.3, 0.3);
+                    mode.sigma_diag_seq[k] = prediction_sigma;
                     continue;
                 }
 
                 mode.mu_seq[k] = pos_seq[lo] + alpha * (pos_seq[hi] - pos_seq[lo]);
-
-                if (!size_seq.empty()) {
-                    const int slo = std::min(lo, static_cast<int>(size_seq.size()) - 1);
-                    const int shi = std::min(hi, static_cast<int>(size_seq.size()) - 1);
-                    const Eigen::Vector3d sz =
-                        size_seq[slo] + alpha * (size_seq[shi] - size_seq[slo]);
-                    mode.sigma_diag_seq[k] = (sz * 0.5).cwiseMax(0.1);
-                } else {
-                    mode.sigma_diag_seq[k] = Eigen::Vector3d(0.3, 0.3, 0.3);
-                }
+                mode.sigma_diag_seq[k] = prediction_sigma;
             }
             pred.modes.push_back(mode);
         }
@@ -625,8 +614,8 @@ im2MppiNavigation::compressToMeanPrediction(
 //      likelihood_m = N(o_observed; μ_m_predicted_for_now, diag(σ_m²))
 //
 //  μ_m_predicted_for_now is read at predictor-step offset = round(dt / dt_pred)
-//  from the previous tick's posPred[m]. σ_m is taken from sizePred[m] / 2
-//  (the existing convention used in convertPredictions for uncertainty proxy).
+//  from the previous tick's posPred[m]. The likelihood width is a small fixed
+//  position-noise proxy, not sizePred. sizePred is physical obstacle size only.
 //
 //  Modes for which the previous prediction was a good match get upweighted;
 //  modes whose prediction missed the actual trajectory get downweighted.
@@ -682,14 +671,10 @@ void im2MppiNavigation::applyClosedLoopIntentCorrection(
                 static_cast<int>(last.posPred[m].size()) - 1);
             const Eigen::Vector3d mu = last.posPred[m][off];
 
-            // σ from sizePred (full extent → half = σ proxy)
-            Eigen::Vector3d sigma(0.3, 0.3, 0.3);
-            if (m < static_cast<int>(last.sizePred.size())
-                && !last.sizePred[m].empty()) {
-                const int sz_off = std::min(off,
-                    static_cast<int>(last.sizePred[m].size()) - 1);
-                sigma = (last.sizePred[m][sz_off] * 0.5).cwiseMax(0.1);
-            }
+            // Fixed observation-noise proxy. Do not derive this from
+            // sizePred; that would mix physical obstacle size with prediction
+            // uncertainty and inflate the displayed/planned obstacle geometry.
+            const Eigen::Vector3d sigma(0.15, 0.15, 0.10);
 
             // Log-Gaussian (drop normalization constants — they cancel in softmax)
             const Eigen::Vector3d d = observed - mu;

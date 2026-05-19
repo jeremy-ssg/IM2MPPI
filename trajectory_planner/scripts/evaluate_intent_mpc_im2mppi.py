@@ -638,6 +638,16 @@ class Evaluator:
         last_plan_t = self.plan_time_samples[-1][0] if self.plan_time_samples else None
         target_stopped_age = None
         plan_stopped_age = None
+        target_stream_absent = last_odom_t is not None and not self.target_samples
+        plan_time_absent = last_odom_t is not None and not self.plan_time_samples
+        if target_stream_absent:
+            add_event(last_odom_t, "target_stream_absent",
+                      len(self.target_samples), 1,
+                      "odom continued but no target_state messages were recorded; navigation node likely died before publishing")
+        if plan_time_absent:
+            add_event(last_odom_t, "plan_time_absent",
+                      len(self.plan_time_samples), 1,
+                      "odom continued but no plan_time messages were recorded; planner loop likely never ran or node died")
         if last_odom_t is not None and last_target_t is not None:
             target_stopped_age = last_odom_t - last_target_t
             if target_stopped_age > 1.0:
@@ -681,7 +691,8 @@ class Evaluator:
         if target_jumps and max(target_jumps) > 1.0:
             verdict = "target_switch_discontinuity"
         if ((target_stopped_age is not None and target_stopped_age > 1.0) or
-                (plan_stopped_age is not None and plan_stopped_age > 1.0)):
+                (plan_stopped_age is not None and plan_stopped_age > 1.0) or
+                target_stream_absent or plan_time_absent):
             verdict = "navigation_node_stopped_or_crashed"
         if first_err_gt_5 is not None and verdict == "no_clear_single_cause":
             verdict = "tracking_diverged_without_obvious_timing_spike"
@@ -724,6 +735,8 @@ class Evaluator:
                 "last_odom_t_s": last_odom_t,
                 "last_target_t_s": last_target_t,
                 "last_plan_time_t_s": last_plan_t,
+                "target_stream_absent": target_stream_absent,
+                "plan_time_absent": plan_time_absent,
                 "target_stopped_age_s": target_stopped_age,
                 "plan_time_stopped_age_s": plan_stopped_age,
             },

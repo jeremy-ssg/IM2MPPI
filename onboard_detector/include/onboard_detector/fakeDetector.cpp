@@ -156,20 +156,38 @@ namespace onboardDetector{
 	}
 
 	void fakeDetector::stateCB(const gazebo_msgs::ModelStatesConstPtr& allStates){
+		std::lock_guard<std::mutex> lk(this->dataMutex_);
 		bool update = false;
 		if (this->firstTime_){
 			this->targetIndex_ = this->findTargetIndex(allStates->name);
 			this->firstTime_ = false;
+		}
+		if (this->lastObVec_.size() != this->targetIndex_.size() ||
+			this->lastTimeVec_.size() != this->targetIndex_.size() ||
+			this->lastTimeVel_.size() != this->targetIndex_.size() ||
+			this->lastTimeAcc_.size() != this->targetIndex_.size()){
+			this->lastObVec_.clear();
+			this->lastTimeVec_.clear();
+			this->lastTimeVel_.clear();
+			this->lastTimeAcc_.clear();
+			update = true;
 		}
 		std::vector<onboardDetector::box3D> obVec;
 		onboardDetector::box3D ob;
 		geometry_msgs::Pose p;
 		geometry_msgs::Twist tw;
 		for (int i=0; i<int(this->targetIndex_.size()); ++i){
-			std::string name = allStates->name[this->targetIndex_[i]];
+			const int modelIdx = this->targetIndex_[i];
+			if (modelIdx < 0 ||
+				modelIdx >= int(allStates->name.size()) ||
+				modelIdx >= int(allStates->pose.size()) ||
+				modelIdx >= int(allStates->twist.size())){
+				continue;
+			}
+			std::string name = allStates->name[modelIdx];
 			// 1. get position and velocity
-			p = allStates->pose[this->targetIndex_[i]];
-			tw = allStates->twist[this->targetIndex_[i]];
+			p = allStates->pose[modelIdx];
+			tw = allStates->twist[modelIdx];
 			ob.x = p.position.x;
 			ob.y = p.position.y;
 			if (name.size() >= 6 and name.compare(0, 6, "person") == 0){
@@ -247,29 +265,32 @@ namespace onboardDetector{
 			ob.z_width = zsize;
 			obVec.push_back(ob);
 		}
-		{
-			// Race fix: histCB / getDynamicObstaclesHist read obstacleMsg_/
-			// obstacleHist_ on AsyncSpinner threads. Without this lock, a
-			// reader iterating obstacleHist_[i] while histCB does push_front
-			// triggers a deque reallocation and SIGSEGV inside
-			// libonboard_detector.so.
-			std::lock_guard<std::mutex> lk(this->dataMutex_);
-			if (update){
-				this->lastObVec_ = obVec;
-			}
-			this->obstacleMsg_ = obVec;
+		if (update){
+			this->lastObVec_ = obVec;
 		}
+		this->obstacleMsg_ = obVec;
 		// ros::Rate r (60);
 		// r.sleep();
 	}
 
 	void fakeDetector::posCB(const nav_msgs::PathConstPtr& obPoses){
+		std::lock_guard<std::mutex> lk(this->dataMutex_);
 		bool update = false;
 		std::vector<onboardDetector::box3D> obVec;
 		// geometry_msgs::PoseStamped p;
 		nav_msgs::Path p;
 		p = *obPoses;
 		onboardDetector::box3D ob;
+		if (this->lastObVec_.size() != p.poses.size() ||
+			this->lastTimeVec_.size() != p.poses.size() ||
+			this->lastTimeVel_.size() != p.poses.size() ||
+			this->lastTimeAcc_.size() != p.poses.size()){
+			this->lastObVec_.clear();
+			this->lastTimeVec_.clear();
+			this->lastTimeVel_.clear();
+			this->lastTimeAcc_.clear();
+			update = true;
+		}
 		
 		for (int i=0;i<int(p.poses.size());i++){
 			ob.x = p.poses[i].pose.position.x;
@@ -330,17 +351,14 @@ namespace onboardDetector{
 			ob.z_width = this->obstacleSize_[2];
 			obVec.push_back(ob);
 		}
-		{
-			// Race fix (see stateCB).
-			std::lock_guard<std::mutex> lk(this->dataMutex_);
-			if (update){
-				this->lastObVec_ = obVec;
-			}
-			this->obstacleMsg_ = obVec;
+		if (update){
+			this->lastObVec_ = obVec;
 		}
+		this->obstacleMsg_ = obVec;
 	}
 
 	void fakeDetector::odomCB(const nav_msgs::OdometryConstPtr& odom){
+		std::lock_guard<std::mutex> lk(this->dataMutex_);
 		this->odom_ = *odom;
 	}
 
@@ -351,8 +369,8 @@ namespace onboardDetector{
 		// the whole pass to make the mutation atomic with any concurrent
 		// iteration.
 		std::lock_guard<std::mutex> lk(this->dataMutex_);
-		if (this->obstacleHist_.size() == 0){
-			this->obstacleHist_.resize(this->obstacleMsg_.size());
+		if (this->obstacleHist_.size() != this->obstacleMsg_.size()){
+			this->obstacleHist_.assign(this->obstacleMsg_.size(), std::deque<onboardDetector::box3D>());
 		}
 		for (int i=0; i<int(this->obstacleMsg_.size());i++){
 			if (int(this->obstacleHist_[i].size()) >= this->histSize_){
@@ -380,9 +398,11 @@ namespace onboardDetector{
 		// Race fix: snapshot obstacleMsg_ under the lock instead of iterating
 		// the live container while the gazebo / pose callback may overwrite it.
 		std::vector<onboardDetector::box3D> obstacleMsgCopy;
+		nav_msgs::Odometry odomCopy;
 		{
 			std::lock_guard<std::mutex> lk(this->dataMutex_);
 			obstacleMsgCopy = this->obstacleMsg_;
+			odomCopy = this->odom_;
 		}
 		std::vector<visualization_msgs::Marker> bboxVec;
 		int obIdx = 0;
@@ -444,7 +464,7 @@ namespace onboardDetector{
 				line.scale.y = 0.05;
 				line.scale.z = 0.05;
 				line.color.a = 1.0;
-				if (this->isObstacleInSensorRange(obstacle, PI_const)){
+				if (obstacleInSensorRangeWithOdom(obstacle, odomCopy, PI_const, this->colorDistance_)){
 					line.color.r = 1;
 					line.color.g = 0;
 					line.color.b = 0;
@@ -459,23 +479,28 @@ namespace onboardDetector{
 			}
 			++obIdx;
 		}
-		this->visMsg_.markers = bboxVec;
+		{
+			std::lock_guard<std::mutex> lk(this->dataMutex_);
+			this->visMsg_.markers = bboxVec;
+		}
 	}
 
 	void fakeDetector::publishHistoryTraj(){
 		// Race fix: histCB mutates obstacleHist_ on its own thread; we must
 		// snapshot under the lock before iterating.
 		std::vector<std::deque<onboardDetector::box3D>> obstacleHistCopy;
+		nav_msgs::Odometry odomCopy;
 		{
 			std::lock_guard<std::mutex> lk(this->dataMutex_);
 			obstacleHistCopy = this->obstacleHist_;
+			odomCopy = this->odom_;
 		}
 		if (obstacleHistCopy.size() != 0){
 			visualization_msgs::MarkerArray trajMsg;
 			int countMarker = 0;
 			for (size_t i=0; i<obstacleHistCopy.size(); ++i){
 				if (obstacleHistCopy[i].empty()) continue;
-				if (this->isObstacleInSensorRange(obstacleHistCopy[i][0],2*M_PI)){
+				if (obstacleInSensorRangeWithOdom(obstacleHistCopy[i][0], odomCopy, 2*M_PI, this->colorDistance_)){
 					visualization_msgs::Marker traj;
 					traj.header.frame_id = "map";
 					traj.header.stamp = ros::Time::now();
@@ -507,26 +532,21 @@ namespace onboardDetector{
 
 	void fakeDetector::publishVisualization(){
 		this->updateVisMsg();
-		this->visPub_.publish(this->visMsg_);
+		visualization_msgs::MarkerArray visMsgCopy;
+		{
+			std::lock_guard<std::mutex> lk(this->dataMutex_);
+			visMsgCopy = this->visMsg_;
+		}
+		this->visPub_.publish(visMsgCopy);
 	}
 
 	bool fakeDetector::isObstacleInSensorRange(const onboardDetector::box3D& ob, double fov){
-		Eigen::Vector3d pRobot (this->odom_.pose.pose.position.x, this->odom_.pose.pose.position.y, this->odom_.pose.pose.position.z);
-		Eigen::Vector3d pObstacle (ob.x, ob.y, ob.z);	
-		
-		Eigen::Vector3d diff = pObstacle - pRobot;
-		diff(2) = 0.0;
-		double distance = diff.norm();
-		double yaw = rpy_from_quaternion(this->odom_.pose.pose.orientation);
-		Eigen::Vector3d direction (cos(yaw), sin(yaw), 0);
-
-		double angle = angleBetweenVectors(direction, diff);
-		if (angle <= fov/2 and distance <= this->colorDistance_){
-			return true;
+		nav_msgs::Odometry odomCopy;
+		{
+			std::lock_guard<std::mutex> lk(this->dataMutex_);
+			odomCopy = this->odom_;
 		}
-		else{
-			return false;
-		}
+		return obstacleInSensorRangeWithOdom(ob, odomCopy, fov, this->colorDistance_);
 	
 	}
 
@@ -551,12 +571,14 @@ namespace onboardDetector{
 		obstacles.clear();
 		// Race fix: snapshot under lock then iterate the copy.
 		std::vector<onboardDetector::box3D> obstacleMsgCopy;
+		nav_msgs::Odometry odomCopy;
 		{
 			std::lock_guard<std::mutex> lk(this->dataMutex_);
 			obstacleMsgCopy = this->obstacleMsg_;
+			odomCopy = this->odom_;
 		}
 		for (onboardDetector::box3D obstacle : obstacleMsgCopy){
-			if (this->isObstacleInSensorRange(obstacle, fov)){
+			if (obstacleInSensorRangeWithOdom(obstacle, odomCopy, fov, this->colorDistance_)){
 				obstacle.x_width += robotSize(0);
 				obstacle.y_width += robotSize(1);
 				obstacle.z_width += robotSize(2);
@@ -573,9 +595,11 @@ namespace onboardDetector{
 		// reader segfaults inside libonboard_detector.so. This is the call
 		// stack #0 of the GDB crash dump.
 		std::vector<std::deque<onboardDetector::box3D>> obstacleHistCopy;
+		nav_msgs::Odometry odomCopy;
 		{
 			std::lock_guard<std::mutex> lk(this->dataMutex_);
 			obstacleHistCopy = this->obstacleHist_;
+			odomCopy = this->odom_;
 		}
 
 		posHist.clear();
@@ -586,7 +610,7 @@ namespace onboardDetector{
         if (obstacleHistCopy.size()){
             for (size_t i=0 ; i<obstacleHistCopy.size() ; ++i){
 				if (obstacleHistCopy[i].empty()) continue;
-				if (this->isObstacleInSensorRange(obstacleHistCopy[i][0],2*M_PI)){
+				if (obstacleInSensorRangeWithOdom(obstacleHistCopy[i][0], odomCopy, 2*M_PI, this->colorDistance_)){
 					std::vector<Eigen::Vector3d> obPosHist, obVelHist, obAccHist, obSizeHist;
 					for (size_t j=0; j<obstacleHistCopy[i].size() ; ++j){
 						Eigen::Vector3d pos(obstacleHistCopy[i][j].x, obstacleHistCopy[i][j].y, obstacleHistCopy[i][j].z);

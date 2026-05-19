@@ -317,15 +317,11 @@ namespace dynamicPredictor{
                 }
                 else{
                     Eigen::Vector3d size = this->sizeHist_[i][0];
-                    Eigen::Vector3d currVel = this->velHist_[i][0];
                     Eigen::Vector3d currPos = this->posHist_[i][0];
                     std::vector<Eigen::Vector3d> predPos;
-                    double vel = sqrt(pow(currVel(0),2)+pow(currVel(1),2)); 
-                    for (int i=0;i<this->numPred_+1;i++){
+                    for (int step=0; step<this->numPred_+1; ++step){
                         predPos.push_back(currPos);
                         predSize.push_back(size);
-                        size(0) += 2*min(vel,this->stopVel_)*this->dt_;
-                        size(1) += 2*min(vel,this->stopVel_)*this->dt_;
                     }
                     posPredTemp[i][j] = predPos;
                     sizePredTemp[i][j] = predSize;
@@ -494,14 +490,12 @@ namespace dynamicPredictor{
     void predictor::modelStop(const Eigen::Vector3d &currPos, const Eigen::Vector3d &currVel, const Eigen::Vector3d &currSize, std::vector<std::vector<Eigen::Vector3d>> &predPoints, std::vector<Eigen::Vector3d> &predSize){
         predPoints.clear();
         predSize.clear();
+        (void)currVel;
         std::vector<Eigen::Vector3d> predPointTemp;
         Eigen::Vector3d size = currSize;
-        double vel = sqrt(pow(currVel(0),2)+pow(currVel(1),2)); 
         for (int i=0;i<this->numPred_+1;i++){
             predPointTemp.push_back(currPos);
             predSize.push_back(size);
-            size(0) += 2*min(vel,this->stopVel_)*this->dt_;
-            size(1) += 2*min(vel,this->stopVel_)*this->dt_;
         }
         predPoints.push_back(predPointTemp);
     }
@@ -510,9 +504,7 @@ namespace dynamicPredictor{
         predPos.clear();
         for (int i=0;i<this->numPred_+1;i++){
             double meanx, meany;
-            double variancex, variancey;
             double sumx = 0 , sumy = 0;
-            double sumVarx = 0, sumVary = 0;
             int counter = 0;
             for (int j=0; j<int(predPoints.size());j++){
                 if (i < int(predPoints[j].size())){
@@ -524,17 +516,9 @@ namespace dynamicPredictor{
             if (counter){
                 meanx = sumx/counter;
                 meany = sumy/counter;
-                for (int j=0; j<int(predPoints.size()); j++){
-                    sumVarx += pow(predPoints[j][i](0)-meanx,2);
-                    sumVary += pow(predPoints[j][i](1)-meany,2);
-                }
-                variancex = sumVarx/counter;
-                variancey = sumVary/counter;
                 Eigen::Vector3d p;
                 p<<meanx, meany, predPoints[0][0](2);
                 predPos.push_back(p);
-                predSize[i](0) += 2*sqrt(variancex)*this->zScore_; // confidence level under gaussian
-                predSize[i](1) += 2*sqrt(variancey)*this->zScore_;
             }
             else{
                 break;
@@ -573,6 +557,7 @@ namespace dynamicPredictor{
     }
 
     void predictor::publishVarPoints(){
+        std::lock_guard<std::mutex> lk(this->dataMutex_);
         visualization_msgs::MarkerArray trajMsg;
         int countMarker = 0;
         for (size_t i=0; i<this->allPredPoints_.size(); ++i){
@@ -619,6 +604,7 @@ namespace dynamicPredictor{
     }
 
     void predictor::publishHistoryTraj(){
+        std::lock_guard<std::mutex> lk(this->dataMutex_);
         visualization_msgs::MarkerArray trajMsg;
         int countMarker = 0;
         for (size_t i=0; i<this->posHist_.size(); ++i){
@@ -650,6 +636,7 @@ namespace dynamicPredictor{
     }
 
     void predictor::publishPredTraj(){
+        std::lock_guard<std::mutex> lk(this->dataMutex_);
 		if (this->posPred_.size() != 0){
             visualization_msgs::MarkerArray trajMsg;
             int countMarker = 0;
@@ -684,6 +671,7 @@ namespace dynamicPredictor{
 	}
 
     void predictor::publishIntentVis(){ 
+        std::lock_guard<std::mutex> lk(this->dataMutex_);
         visualization_msgs::MarkerArray intentVisMsg;
         int countMarker = 0;
         for (int i=0; i<int(this->posHist_.size()); ++i){
@@ -730,6 +718,7 @@ namespace dynamicPredictor{
     }
 
     void predictor::publishPredBBox(){
+        std::lock_guard<std::mutex> lk(this->dataMutex_);
         if (this->posPred_.size() == 0) return;
         // publish top N intent future bounding box with the inflate size
         visualization_msgs::MarkerArray predBBoxMsg;
@@ -881,16 +870,14 @@ namespace dynamicPredictor{
     }
 
     void predictor::getPrediction(std::vector<dynamicPredictor::obstacle> &predOb){
-        // Race fix: serialize against predict() — bounds must be consistent
-        // across posPred_ / sizePred_ / intentProb_ during the read.
+        // Race fix: serialize against predict(); bounds must be consistent
+        // across posPred_ / sizePred_ / intentProb_ during reads.
         std::lock_guard<std::mutex> lk(this->dataMutex_);
-        const int n = static_cast<int>(this->posPred_.size());
+        predOb.clear();
+        const int n = static_cast<int>(std::min(this->posPred_.size(),
+                                               std::min(this->sizePred_.size(),
+                                                        this->intentProb_.size())));
         for (int i = 0; i < n; ++i){
-            // Defensive bounds — the three vectors should always have the
-            // same length, but guard anyway in case predict() was mid-write
-            // earlier (cannot happen now under the lock, but cheap).
-            if (i >= static_cast<int>(this->sizePred_.size())) break;
-            if (i >= static_cast<int>(this->intentProb_.size())) break;
             dynamicPredictor::obstacle ob;
             ob.posPred = this->posPred_[i];
             ob.sizePred = this->sizePred_[i];
