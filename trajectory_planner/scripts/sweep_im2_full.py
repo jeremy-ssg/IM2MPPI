@@ -45,11 +45,17 @@ import numpy as np
 # ─── Defaults (override via CLI) ──────────────────────────────────────────
 EVAL_DURATION_S = 90        # how long the evaluator runs (sets internal timer)
 TRIAL_TIMEOUT_S = 150       # hard kill on the eval process after this
-LAUNCH_WARMUP_S = 12        # wait for gazebo + nodes to spin up
-INTER_TRIAL_PAUSE_S = 3     # let OS reclaim ports / shared mem
+SIM_WARMUP_S    = 12        # wait after roslaunch start.launch for gazebo
+STACK_WARMUP_S  = 6         # additional wait after launching the planner stack
+INTER_TRIAL_PAUSE_S = 4     # let OS reclaim ports / shared mem
 
-LAUNCH_PKG = "autonomous_flight"
-LAUNCH_FILE = "im2_mppi_demo.launch"
+# Simulator (gazebo + drone urdf spawn). Headless via gui:=false.
+SIM_PKG    = "uav_simulator"
+SIM_LAUNCH = "start.launch"
+
+# Planner stack (params + nav node + tracking controller, no gazebo).
+NAV_PKG    = "autonomous_flight"
+NAV_LAUNCH = "im2_mppi_demo.launch"
 
 
 # ─── Sweep definitions (OFAT around v0.2 baseline) ────────────────────────
@@ -149,21 +155,26 @@ def set_yaml_param(yaml_path: Path, param_name: str, value, kind: str):
 # ─── ROS lifecycle ────────────────────────────────────────────────────────
 _KILL_TARGETS = [
     "roslaunch", "rosmaster", "rosout",
-    "gzserver", "gzclient",
+    "gzserver", "gzclient", "gazebo",
+    "spawn_gazebo_model",
     "im2_mppi_navigation_node",
     "tracking_controller_node",
     "evaluate_intent_mpc_im2mppi",
+    "keyboard_control",
     "rviz",
 ]
 
 
 def kill_ros():
-    """Best-effort: nuke every project / ROS process by name."""
-    for t in _KILL_TARGETS:
-        subprocess.run(
-            ["pkill", "-9", "-f", t],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
+    """Best-effort: nuke every project / ROS / gazebo process by name."""
+    # Two passes: TERM then KILL, so any state flushes finish cleanly.
+    for sig in ("-15", "-9"):
+        for t in _KILL_TARGETS:
+            subprocess.run(
+                ["pkill", sig, "-f", t],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        time.sleep(0.5)
 
 
 def run_trial(idx: int, param_name: str, value, kind: str,
@@ -183,15 +194,23 @@ def run_trial(idx: int, param_name: str, value, kind: str,
     yaml_path.write_text(baseline_yaml_text)
     set_yaml_param(yaml_path, param_name, value, kind)
 
-    # 2. Background-launch the demo + sim.
-    launch_log = open(trial_dir / "roslaunch.log", "wb")
-    launch_proc = subprocess.Popen(
-        ["roslaunch", LAUNCH_PKG, LAUNCH_FILE, "enable_rviz:=false"],
-        stdout=launch_log, stderr=subprocess.STDOUT,
+    # 2a. Background-launch the simulator (Gazebo) HEADLESS.
+    sim_log = open(trial_dir / "sim.log", "wb")
+    sim_proc = subprocess.Popen(
+        ["roslaunch", SIM_PKG, SIM_LAUNCH, "gui:=false"],
+        stdout=sim_log, stderr=subprocess.STDOUT,
         preexec_fn=os.setsid,
     )
+    time.sleep(SIM_WARMUP_S)
 
-    time.sleep(LAUNCH_WARMUP_S)
+    # 2b. Background-launch the planner stack (nav node + tracking controller).
+    nav_log = open(trial_dir / "nav.log", "wb")
+    nav_proc = subprocess.Popen(
+        ["roslaunch", NAV_PKG, NAV_LAUNCH, "enable_rviz:=false"],
+        stdout=nav_log, stderr=subprocess.STDOUT,
+        preexec_fn=os.setsid,
+    )
+    time.sleep(STACK_WARMUP_S)
 
     # 3. Run evaluator (foreground) for `eval_duration` seconds.
     eval_log = open(trial_dir / "eval.log", "wb")
@@ -216,14 +235,19 @@ def run_trial(idx: int, param_name: str, value, kind: str,
     finally:
         eval_log.close()
 
-    # 4. Tear down everything.
-    try:
-        os.killpg(os.getpgid(launch_proc.pid), signal.SIGINT)
-        launch_proc.wait(timeout=8)
-    except Exception:
-        pass
+    # 4. Tear down everything: nav stack first, then sim, then nuke stragglers.
+    for proc in (nav_proc, sim_proc):
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGINT)
+            proc.wait(timeout=6)
+        except Exception:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                pass
     kill_ros()
-    launch_log.close()
+    nav_log.close()
+    sim_log.close()
     time.sleep(INTER_TRIAL_PAUSE_S)
 
     # 5. Locate + parse summary JSON.
