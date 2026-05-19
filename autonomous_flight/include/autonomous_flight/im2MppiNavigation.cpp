@@ -240,6 +240,15 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
     // 5. Method-type dispatch — predictions come from async cache (predCB)
     const std::string& method = this->mppi_->getParams().method_type;
 
+    // Always feed detector boxes as static obstacles so the box AABB cost runs
+    // for walls / furniture even in mode_aware / cvar_mppi. The sparse map cost
+    // alone (≈6 stride checks per rollout) misses thin geometry.
+    {
+        std::vector<im2mppi::BoxObstacle> boxes;
+        this->getDynamicBoxes(boxes);
+        this->mppi_->setStaticObstacles(boxes);
+    }
+
     if (this->usePredictor_ && method != "vanilla_mppi") {
         std::vector<im2mppi::DynamicObstaclePrediction> dynPreds;
         {
@@ -247,11 +256,7 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
             dynPreds = this->cachedDynPreds_;
         }
         this->mppi_->setDynamicObstaclePredictions(dynPreds);
-        this->mppi_->setStaticObstacles({});
     } else {
-        std::vector<im2mppi::BoxObstacle> boxes;
-        this->getDynamicBoxes(boxes);
-        this->mppi_->setStaticObstacles(boxes);
         this->mppi_->setDynamicObstaclePredictions({});
     }
 
@@ -553,15 +558,13 @@ im2MppiNavigation::convertPredictions(
 
                 mode.mu_seq[k] = pos_seq[lo] + alpha * (pos_seq[hi] - pos_seq[lo]);
 
-                if (!size_seq.empty()) {
-                    const int slo = std::min(lo, static_cast<int>(size_seq.size()) - 1);
-                    const int shi = std::min(hi, static_cast<int>(size_seq.size()) - 1);
-                    const Eigen::Vector3d sz =
-                        size_seq[slo] + alpha * (size_seq[shi] - size_seq[slo]);
-                    mode.sigma_diag_seq[k] = (sz * 0.5).cwiseMax(0.1);
-                } else {
-                    mode.sigma_diag_seq[k] = Eigen::Vector3d(0.3, 0.3, 0.3);
-                }
+                // sigma_diag_seq is the position-prediction UNCERTAINTY (std-dev
+                // of the obstacle centre at step k), NOT the obstacle half-size.
+                // Use a fixed small value representative of short-horizon
+                // pedestrian prediction error; the obstacle's physical extent
+                // is already captured by pred.size inside aabbSDF().
+                (void)size_seq; (void)lo; (void)hi; (void)alpha;
+                mode.sigma_diag_seq[k] = Eigen::Vector3d(0.15, 0.15, 0.10);
             }
             pred.modes.push_back(mode);
         }
