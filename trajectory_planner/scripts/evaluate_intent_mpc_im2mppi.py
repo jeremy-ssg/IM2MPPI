@@ -162,10 +162,12 @@ class Evaluator:
         self.odom_samples = []
         self.target_errors = []
         self.clearances = []
+        self.target_samples = []      # full /autonomous_flight/target_state stream
         self.cmd_accel_samples = []   # (t, (ax,ay,az)) from target msg
         self.path_metrics = []
         self.path_arrival_times = []
         self.plan_time_samples_ms = []
+        self.plan_time_samples = []   # (t, plan_time_ms)
 
         # Tiered collision counters.
         self.collision_strict_samples    = 0
@@ -232,6 +234,16 @@ class Evaluator:
         with self.lock:
             self.latest_target = msg
             if not self.flight_ended:
+                self.target_samples.append({
+                    "t": t,
+                    "x": msg.position.x, "y": msg.position.y, "z": msg.position.z,
+                    "vx": msg.velocity.x, "vy": msg.velocity.y, "vz": msg.velocity.z,
+                    "ax": msg.acceleration.x, "ay": msg.acceleration.y, "az": msg.acceleration.z,
+                    "acc_norm": norm3((msg.acceleration.x,
+                                       msg.acceleration.y,
+                                       msg.acceleration.z)),
+                    "yaw": msg.yaw,
+                })
                 a = (msg.acceleration.x, msg.acceleration.y, msg.acceleration.z)
                 self.cmd_accel_samples.append((t, a))
 
@@ -252,10 +264,13 @@ class Evaluator:
                 self.path_metrics.append(metric)
 
     def plan_time_cb(self, msg):
+        t = self.now_rel()
         with self.lock:
             if self.flight_ended:
                 return
-            self.plan_time_samples_ms.append(float(msg.data))
+            v = float(msg.data)
+            self.plan_time_samples_ms.append(v)
+            self.plan_time_samples.append((t, v))
 
     def obstacle_cb(self, msg):
         boxes = []
@@ -361,12 +376,15 @@ class Evaluator:
                    odom.twist.twist.linear.z)
 
             target_error = None
+            target_age = None
             if self.latest_target is not None:
                 tgt = (self.latest_target.position.x,
                        self.latest_target.position.y,
                        self.latest_target.position.z)
                 target_error = dist3(pos, tgt)
                 self.target_errors.append(target_error)
+                if self.target_samples:
+                    target_age = max(0.0, t - self.target_samples[-1]["t"])
 
             clearance = self.min_clearance_locked(pos)
             if clearance is not None:
@@ -408,6 +426,7 @@ class Evaluator:
                 "vx": vel[0], "vy": vel[1], "vz": vel[2],
                 "speed": norm3(vel),
                 "target_error": target_error,
+                "target_age_s": target_age,
                 "obstacle_clearance": clearance,
                 "goal_distance": goal_dist,
             })
@@ -483,6 +502,7 @@ class Evaluator:
             },
             "samples": {
                 "odom": len(self.odom_samples),
+                "target": len(self.target_samples),
                 "cmd_accel": len(self.cmd_accel_samples),
                 "planned_paths": len(self.path_metrics),
                 "obstacle_clearance": len(self.clearances),
@@ -566,9 +586,129 @@ class Evaluator:
         }
         return summary
 
+    def build_diagnostics(self, summary):
+        """Return a diagnosis dictionary plus timestamped events for debugging fly-away runs."""
+        events = []
+
+        def add_event(t, kind, value, threshold, detail):
+            events.append({
+                "t": t,
+                "kind": kind,
+                "value": value,
+                "threshold": threshold,
+                "detail": detail,
+            })
+
+        # Planner latency spikes.
+        plan_vals = [v for _t, v in self.plan_time_samples]
+        for t, v in self.plan_time_samples:
+            if v > 100.0:
+                add_event(t, "plan_latency_gt_100ms", v, 100.0, "planning over one 10Hz period")
+            elif v > 50.0:
+                add_event(t, "plan_latency_gt_50ms", v, 50.0, "large planning spike")
+            elif v > 20.0:
+                add_event(t, "plan_latency_gt_20ms", v, 20.0, "planning spike")
+
+        # Target stream cadence from /autonomous_flight/target_state.
+        target_gaps = []
+        target_jumps = []
+        for i in range(1, len(self.target_samples)):
+            prev = self.target_samples[i - 1]
+            cur = self.target_samples[i]
+            gap = cur["t"] - prev["t"]
+            target_gaps.append(gap)
+            if gap > 0.10:
+                add_event(cur["t"], "target_gap_gt_100ms", gap, 0.10, "target stream stalled")
+            elif gap > 0.05:
+                add_event(cur["t"], "target_gap_gt_50ms", gap, 0.05, "target stream gap")
+            elif gap > 0.02:
+                add_event(cur["t"], "target_gap_gt_20ms", gap, 0.02, "target stream jitter")
+
+            jump = dist3((cur["x"], cur["y"], cur["z"]),
+                         (prev["x"], prev["y"], prev["z"]))
+            target_jumps.append(jump)
+            if jump > 1.0:
+                add_event(cur["t"], "target_jump_gt_1m", jump, 1.0, "trajectory switch discontinuity")
+            elif jump > 0.3:
+                add_event(cur["t"], "target_jump_gt_0p3m", jump, 0.3, "target position jump")
+
+        # Tracking divergence and command spikes.
+        first_err_gt_2 = None
+        first_err_gt_5 = None
+        for row in self.odom_samples:
+            err = row.get("target_error")
+            if err is None:
+                continue
+            if err > 2.0 and first_err_gt_2 is None:
+                first_err_gt_2 = row["t"]
+                add_event(row["t"], "tracking_error_gt_2m", err, 2.0, "tracking has diverged")
+            if err > 5.0 and first_err_gt_5 is None:
+                first_err_gt_5 = row["t"]
+                add_event(row["t"], "tracking_error_gt_5m", err, 5.0, "fly-away likely")
+
+        cmd_accel_norms = [norm3(a) for _t, a in self.cmd_accel_samples]
+        cmd_jerk_norms = finite_diff_norms(self.cmd_accel_samples)
+        for t, a in self.cmd_accel_samples:
+            an = norm3(a)
+            if an > 6.0:
+                add_event(t, "cmd_accel_gt_6mps2", an, 6.0, "aggressive commanded acceleration")
+            elif an > 3.5:
+                add_event(t, "cmd_accel_gt_3p5mps2", an, 3.5, "above nominal planner a_max")
+
+        verdict = "no_clear_single_cause"
+        if plan_vals and max(plan_vals) > 100.0:
+            verdict = "planning_latency_spike"
+        if target_gaps and max(target_gaps) > 0.10:
+            verdict = "target_stream_stall"
+        if target_jumps and max(target_jumps) > 1.0:
+            verdict = "target_switch_discontinuity"
+        if first_err_gt_5 is not None and verdict == "no_clear_single_cause":
+            verdict = "tracking_diverged_without_obvious_timing_spike"
+
+        diagnostics = {
+            "verdict": verdict,
+            "plan_latency": {
+                "count": len(plan_vals),
+                "mean_ms": mean(plan_vals),
+                "p95_ms": percentile(plan_vals, 0.95),
+                "p99_ms": percentile(plan_vals, 0.99),
+                "max_ms": max(plan_vals) if plan_vals else None,
+                "count_gt_20ms": sum(1 for v in plan_vals if v > 20.0),
+                "count_gt_50ms": sum(1 for v in plan_vals if v > 50.0),
+                "count_gt_100ms": sum(1 for v in plan_vals if v > 100.0),
+            },
+            "target_stream": {
+                "count": len(self.target_samples),
+                "mean_gap_s": mean(target_gaps),
+                "p95_gap_s": percentile(target_gaps, 0.95),
+                "max_gap_s": max(target_gaps) if target_gaps else None,
+                "count_gap_gt_20ms": sum(1 for v in target_gaps if v > 0.02),
+                "count_gap_gt_50ms": sum(1 for v in target_gaps if v > 0.05),
+                "count_gap_gt_100ms": sum(1 for v in target_gaps if v > 0.10),
+            },
+            "target_command": {
+                "max_position_jump_m": max(target_jumps) if target_jumps else None,
+                "p95_position_jump_m": percentile(target_jumps, 0.95),
+                "count_position_jump_gt_0p3m": sum(1 for v in target_jumps if v > 0.3),
+                "count_position_jump_gt_1m": sum(1 for v in target_jumps if v > 1.0),
+                "max_cmd_accel_mps2": max(cmd_accel_norms) if cmd_accel_norms else None,
+                "max_cmd_jerk_mps3": max(cmd_jerk_norms) if cmd_jerk_norms else None,
+            },
+            "tracking": {
+                "max_target_error_m": summary["tracking"]["max_target_error_m"],
+                "first_error_gt_2m_s": first_err_gt_2,
+                "first_error_gt_5m_s": first_err_gt_5,
+            },
+            "num_events": len(events),
+        }
+        events.sort(key=lambda e: e["t"])
+        return diagnostics, events
+
     def write_outputs(self):
         with self.lock:
             summary = self.summarize()
+            diagnostics, diagnostic_events = self.build_diagnostics(summary)
+            summary["diagnostics"] = diagnostics
             prefix = os.path.join(self.output_dir, self.algorithm)
 
             with open(prefix + "_summary.json", "w") as f:
@@ -576,10 +716,19 @@ class Evaluator:
 
             with open(prefix + "_timeseries.csv", "w", newline="") as f:
                 fields = ["t", "x", "y", "z", "vx", "vy", "vz", "speed",
-                          "target_error", "obstacle_clearance", "goal_distance"]
+                          "target_error", "target_age_s",
+                          "obstacle_clearance", "goal_distance"]
                 writer = csv.DictWriter(f, fieldnames=fields)
                 writer.writeheader()
                 for row in self.odom_samples:
+                    writer.writerow(row)
+
+            with open(prefix + "_target_state.csv", "w", newline="") as f:
+                fields = ["t", "x", "y", "z", "vx", "vy", "vz",
+                          "ax", "ay", "az", "acc_norm", "yaw"]
+                writer = csv.DictWriter(f, fieldnames=fields)
+                writer.writeheader()
+                for row in self.target_samples:
                     writer.writerow(row)
 
             with open(prefix + "_path_metrics.csv", "w", newline="") as f:
@@ -597,6 +746,12 @@ class Evaluator:
                 for v in self.plan_time_samples_ms:
                     writer.writerow([v])
 
+            with open(prefix + "_plan_time_timeline.csv", "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["t", "plan_time_ms"])
+                for t, v in self.plan_time_samples:
+                    writer.writerow([t, v])
+
             # Raw commanded acceleration (from tracking_controller::Target),
             # the noise-free signal jerk metrics are computed from.
             with open(prefix + "_cmd_accel.csv", "w", newline="") as f:
@@ -612,16 +767,27 @@ class Evaluator:
                 for (t, tier, clr) in self.collision_event_log:
                     writer.writerow([t, tier, clr])
 
+            with open(prefix + "_diagnostics.json", "w") as f:
+                json.dump(diagnostics, f, indent=2, sort_keys=True)
+
+            with open(prefix + "_diagnostic_events.csv", "w", newline="") as f:
+                fields = ["t", "kind", "value", "threshold", "detail"]
+                writer = csv.DictWriter(f, fieldnames=fields)
+                writer.writeheader()
+                for row in diagnostic_events:
+                    writer.writerow(row)
+
             rospy.loginfo("[eval] Wrote summary to %s_summary.json", prefix)
             rospy.loginfo(
                 "[eval] CR_strict=%d  CR_near=%d  CR_tail=%d  "
-                "min_clr=%.3f  cvar5=%s  p95_lat=%s ms",
+                "min_clr=%.3f  cvar5=%s  p95_lat=%s ms  diag=%s",
                 summary["safety"]["collision_strict_events"],
                 summary["safety"]["collision_near_miss_events"],
                 summary["safety"]["collision_tail_events"],
                 summary["safety"]["min_clearance_m"] or float("nan"),
                 summary["safety"]["empirical_cvar_5pct_m"],
-                summary["planner"]["plan_latency_p95_ms"])
+                summary["planner"]["plan_latency_p95_ms"],
+                diagnostics["verdict"])
 
 
 if __name__ == "__main__":

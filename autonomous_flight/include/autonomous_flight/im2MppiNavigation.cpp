@@ -196,7 +196,7 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
 
     bool success = false;
     double plan_ms = 0.0;
-    ros::Time planEnd;
+    ros::Time planStart;
     double traj_dt = 0.05;
     double snapshot_facing_yaw = this->facingYaw_;
     bool use_yaw_postprocess = true;
@@ -255,11 +255,13 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
         this->mppi_->setDynamicObstaclePredictions({});
     }
 
-    // 6. Plan (instrumented — publish wall-clock duration in ms)
+    // 6. Plan. Latency uses wall-clock time; the trajectory start stays at
+    // the ROS time when the state was sampled, so execution compensates for
+    // planning delay instead of replaying a stale t=0 target.
+    planStart = ros::Time::now();
     const ros::WallTime wallStart = ros::WallTime::now();
     success = this->mppi_->plan();
     const ros::WallTime wallEnd = ros::WallTime::now();
-    planEnd = ros::Time::now();
     plan_ms = (wallEnd - wallStart).toSec() * 1000.0;
 
     if (success) {
@@ -281,7 +283,7 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
         this->activeTrajDt_            = traj_dt;
         this->activeFacingYaw_         = snapshot_facing_yaw;
         this->activeUseYawPostprocess_ = use_yaw_postprocess;
-        this->trajStartTime_           = planEnd;
+        this->trajStartTime_           = planStart;
         this->mppiReady_               = true;
     } else {
         ROS_WARN_THROTTLE(1.0, "[IM2-MPPI Nav] plan() failed.");

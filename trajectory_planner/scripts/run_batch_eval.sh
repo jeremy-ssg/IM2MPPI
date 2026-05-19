@@ -83,6 +83,18 @@ for SEED in $(seq 1 "${N_SEEDS}"); do
                "${OUT_DIR}/${ALGO}_seed${SEED}_timeseries.csv" 2>/dev/null || true
             mv "${OUT_DIR}/_tmp_${ALGO}_${SEED}/${ALGO}_plan_time.csv" \
                "${OUT_DIR}/${ALGO}_seed${SEED}_plan_time.csv"  2>/dev/null || true
+            mv "${OUT_DIR}/_tmp_${ALGO}_${SEED}/${ALGO}_plan_time_timeline.csv" \
+               "${OUT_DIR}/${ALGO}_seed${SEED}_plan_time_timeline.csv" 2>/dev/null || true
+            mv "${OUT_DIR}/_tmp_${ALGO}_${SEED}/${ALGO}_target_state.csv" \
+               "${OUT_DIR}/${ALGO}_seed${SEED}_target_state.csv" 2>/dev/null || true
+            mv "${OUT_DIR}/_tmp_${ALGO}_${SEED}/${ALGO}_cmd_accel.csv" \
+               "${OUT_DIR}/${ALGO}_seed${SEED}_cmd_accel.csv" 2>/dev/null || true
+            mv "${OUT_DIR}/_tmp_${ALGO}_${SEED}/${ALGO}_collision_events.csv" \
+               "${OUT_DIR}/${ALGO}_seed${SEED}_collision_events.csv" 2>/dev/null || true
+            mv "${OUT_DIR}/_tmp_${ALGO}_${SEED}/${ALGO}_diagnostics.json" \
+               "${OUT_DIR}/${ALGO}_seed${SEED}_diagnostics.json" 2>/dev/null || true
+            mv "${OUT_DIR}/_tmp_${ALGO}_${SEED}/${ALGO}_diagnostic_events.csv" \
+               "${OUT_DIR}/${ALGO}_seed${SEED}_diagnostic_events.csv" 2>/dev/null || true
         else
             echo "[batch] WARNING: no summary produced for ${ALGO} seed ${SEED}"
         fi

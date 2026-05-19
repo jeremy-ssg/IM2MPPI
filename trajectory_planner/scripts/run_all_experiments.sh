@@ -212,6 +212,12 @@ run_one() {
         mv  "${TMP_OUT}/${EVAL_ALGO}_timeseries.csv"   "${OUT_DIR}/${TAG}_timeseries.csv"  2>/dev/null || true
         mv  "${TMP_OUT}/${EVAL_ALGO}_path_metrics.csv" "${OUT_DIR}/${TAG}_path_metrics.csv" 2>/dev/null || true
         mv  "${TMP_OUT}/${EVAL_ALGO}_plan_time.csv"    "${OUT_DIR}/${TAG}_plan_time.csv"   2>/dev/null || true
+        mv  "${TMP_OUT}/${EVAL_ALGO}_plan_time_timeline.csv" "${OUT_DIR}/${TAG}_plan_time_timeline.csv" 2>/dev/null || true
+        mv  "${TMP_OUT}/${EVAL_ALGO}_target_state.csv"  "${OUT_DIR}/${TAG}_target_state.csv" 2>/dev/null || true
+        mv  "${TMP_OUT}/${EVAL_ALGO}_cmd_accel.csv"     "${OUT_DIR}/${TAG}_cmd_accel.csv"    2>/dev/null || true
+        mv  "${TMP_OUT}/${EVAL_ALGO}_collision_events.csv" "${OUT_DIR}/${TAG}_collision_events.csv" 2>/dev/null || true
+        mv  "${TMP_OUT}/${EVAL_ALGO}_diagnostics.json"  "${OUT_DIR}/${TAG}_diagnostics.json" 2>/dev/null || true
+        mv  "${TMP_OUT}/${EVAL_ALGO}_diagnostic_events.csv" "${OUT_DIR}/${TAG}_diagnostic_events.csv" 2>/dev/null || true
         echo "    [OK]  -> ${TAG}_summary.json"
     else
         echo "    [FAIL]  no summary produced (see ${LOG_DIR}/${TAG}_*.log)"
