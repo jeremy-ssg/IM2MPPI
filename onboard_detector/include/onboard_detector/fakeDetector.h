@@ -64,7 +64,7 @@ namespace onboardDetector{
 		void posCB(const nav_msgs::PathConstPtr& obPoses);
 		void odomCB(const nav_msgs::OdometryConstPtr& odom);
 		void histCB(const ros::TimerEvent&);
-		std::vector<int>& findTargetIndex(const std::vector<std::string>& modelNames);
+		std::vector<int> findTargetIndex(const std::vector<std::string>& modelNames) const;
 		void updateVisMsg();
 		void publishObstacles();
 		void publishVisualization();

@@ -320,8 +320,8 @@ namespace onboardDetector{
 		}
 	}
 
-	std::vector<int>& fakeDetector::findTargetIndex(const std::vector<std::string>& modelNames){
-		static std::vector<int> targetIndex;
+	std::vector<int> fakeDetector::findTargetIndex(const std::vector<std::string>& modelNames) const {
+		std::vector<int> targetIndex;
 		int countID = 0;
 		for (std::string name : modelNames){
 			for (std::string targetName : this->targetObstacle_){
