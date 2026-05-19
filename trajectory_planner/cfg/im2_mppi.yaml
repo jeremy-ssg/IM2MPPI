@@ -26,7 +26,7 @@ im2_mppi:
   # ── Control noise std-dev per axis [m/s²] ───────────────────────────
   sigma_ax: 0.8
   sigma_ay: 0.8
-  sigma_az: 0.3
+  sigma_az: 0.8    # ↑ from 0.3 — match xy noise so MPPI explores vertical escape
 
   # ── Cost weights ────────────────────────────────────────────────────
   w_goal:   10.0
