@@ -47,6 +47,7 @@ namespace onboardDetector{
 		std::vector<std::vector<double>> lastTimeVel_;
 		std::vector<std::vector<double>> lastTimeAcc_;
 		std::vector<std::deque<onboardDetector::box3D>> obstacleHist_;
+		mutable std::mutex dataMutex_;
 
 		// visualization:
 		nav_msgs::Odometry odom_;
@@ -64,7 +65,7 @@ namespace onboardDetector{
 		void posCB(const nav_msgs::PathConstPtr& obPoses);
 		void odomCB(const nav_msgs::OdometryConstPtr& odom);
 		void histCB(const ros::TimerEvent&);
-		std::vector<int>& findTargetIndex(const std::vector<std::string>& modelNames);
+		std::vector<int> findTargetIndex(const std::vector<std::string>& modelNames) const;
 		void updateVisMsg();
 		void publishObstacles();
 		void publishVisualization();
