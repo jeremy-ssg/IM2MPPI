@@ -160,7 +160,13 @@ namespace dynamicPredictor{
     }
 
     // main function for prediction
-    void predictor::predict(){ 
+    void predictor::predict(){
+        // Race fix: serialize the whole predict() body against getPrediction()
+        // which the navigation layer can call from a separate AsyncSpinner
+        // thread. Without this, partially-written posPred_ / sizePred_ /
+        // intentProb_ leak out and crash downstream consumers.
+        std::lock_guard<std::mutex> lk(this->dataMutex_);
+
         // get history
         if (this->useFakeDetector_ and this->detectorGTReady_ and this->mapReady_){
             this->detectorGT_->getDynamicObstaclesHist(this->posHist_, this->velHist_, this->accHist_, this->sizeHist_, this->robotSize_);
@@ -859,6 +865,9 @@ namespace dynamicPredictor{
     }
 
     void predictor::getPrediction(std::vector<std::vector<std::vector<Eigen::Vector3d>>> &predPos, std::vector<std::vector<std::vector<Eigen::Vector3d>>> &predSize, std::vector<Eigen::VectorXd> &intentProb){
+        // Race fix: serialize against predict() which writes these members
+        // on the predictor's own timer thread.
+        std::lock_guard<std::mutex> lk(this->dataMutex_);
         if (this->sizePred_.size()){
             predPos = this->posPred_;
             predSize = this->sizePred_;
@@ -872,7 +881,16 @@ namespace dynamicPredictor{
     }
 
     void predictor::getPrediction(std::vector<dynamicPredictor::obstacle> &predOb){
-        for (int i=0;i<int(this->posPred_.size());i++){
+        // Race fix: serialize against predict() — bounds must be consistent
+        // across posPred_ / sizePred_ / intentProb_ during the read.
+        std::lock_guard<std::mutex> lk(this->dataMutex_);
+        const int n = static_cast<int>(this->posPred_.size());
+        for (int i = 0; i < n; ++i){
+            // Defensive bounds — the three vectors should always have the
+            // same length, but guard anyway in case predict() was mid-write
+            // earlier (cannot happen now under the lock, but cheap).
+            if (i >= static_cast<int>(this->sizePred_.size())) break;
+            if (i >= static_cast<int>(this->intentProb_.size())) break;
             dynamicPredictor::obstacle ob;
             ob.posPred = this->posPred_[i];
             ob.sizePred = this->sizePred_[i];

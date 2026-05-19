@@ -9,6 +9,7 @@
 
 #include <ros/ros.h>
 #include <Eigen/Dense>
+#include <mutex>
 #include <onboard_detector/dynamicDetector.h>
 #include <onboard_detector/fakeDetector.h>
 #include <map_manager/dynamicMap.h>
@@ -60,6 +61,11 @@ namespace dynamicPredictor{
         std::vector<std::vector<std::vector<Eigen::Vector3d>>> posPred_;
         std::vector<std::vector<std::vector<Eigen::Vector3d>>> sizePred_;
         std::vector<Eigen::VectorXd> intentProb_;
+
+        // Serializes predict() (writer) against getPrediction() (reader on
+        // another AsyncSpinner thread). Without this, the reader can see
+        // partially-overwritten posPred_/sizePred_/intentProb_ structures.
+        mutable std::mutex dataMutex_;
 
     public:
         predictor(const ros::NodeHandle& nh);

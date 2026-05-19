@@ -7,6 +7,25 @@
 #include <onboard_detector/fakeDetector.h>
 
 namespace onboardDetector{
+	namespace {
+		bool obstacleInSensorRangeWithOdom(const onboardDetector::box3D& ob,
+										   const nav_msgs::Odometry& odom,
+										   double fov,
+										   double colorDistance){
+			Eigen::Vector3d pRobot (odom.pose.pose.position.x, odom.pose.pose.position.y, odom.pose.pose.position.z);
+			Eigen::Vector3d pObstacle (ob.x, ob.y, ob.z);
+
+			Eigen::Vector3d diff = pObstacle - pRobot;
+			diff(2) = 0.0;
+			double distance = diff.norm();
+			double yaw = rpy_from_quaternion(odom.pose.pose.orientation);
+			Eigen::Vector3d direction (cos(yaw), sin(yaw), 0);
+
+			double angle = angleBetweenVectors(direction, diff);
+			return angle <= fov/2 and distance <= colorDistance;
+		}
+	}
+
 	fakeDetector::fakeDetector(const ros::NodeHandle& nh) : nh_(nh){
 		// load ros parameter:
 		if (not this->nh_.getParam("use_mocap", this->useMocap_)){
@@ -76,12 +95,17 @@ namespace onboardDetector{
                                            onboard_detector::GetDynamicObstacles::Response& res) {
         // Get the current robot position
 		Eigen::Vector3d currPos (req.current_position.x, req.current_position.y, req.current_position.z);
+		std::vector<onboardDetector::box3D> obstacleMsg;
+		{
+			std::lock_guard<std::mutex> lk(this->dataMutex_);
+			obstacleMsg = this->obstacleMsg_;
+		}
 
         // Vector to store obstacles along with their distances
         std::vector<std::pair<double, onboardDetector::box3D>> obstaclesWithDistances;
 
         // Go through all obstacles and calculate distances
-        for (const onboardDetector::box3D& bbox : this->obstacleMsg_) {
+        for (const onboardDetector::box3D& bbox : obstacleMsg) {
             Eigen::Vector3d obsPos(bbox.x, bbox.y, bbox.z);
             Eigen::Vector3d diff = currPos - obsPos;
             diff(2) = 0.;
@@ -223,10 +247,18 @@ namespace onboardDetector{
 			ob.z_width = zsize;
 			obVec.push_back(ob);
 		}
-		if (update){
-			this->lastObVec_ = obVec;
+		{
+			// Race fix: histCB / getDynamicObstaclesHist read obstacleMsg_/
+			// obstacleHist_ on AsyncSpinner threads. Without this lock, a
+			// reader iterating obstacleHist_[i] while histCB does push_front
+			// triggers a deque reallocation and SIGSEGV inside
+			// libonboard_detector.so.
+			std::lock_guard<std::mutex> lk(this->dataMutex_);
+			if (update){
+				this->lastObVec_ = obVec;
+			}
+			this->obstacleMsg_ = obVec;
 		}
-		this->obstacleMsg_ = obVec;
 		// ros::Rate r (60);
 		// r.sleep();
 	}
@@ -298,10 +330,14 @@ namespace onboardDetector{
 			ob.z_width = this->obstacleSize_[2];
 			obVec.push_back(ob);
 		}
-		if (update){
-			this->lastObVec_ = obVec;
+		{
+			// Race fix (see stateCB).
+			std::lock_guard<std::mutex> lk(this->dataMutex_);
+			if (update){
+				this->lastObVec_ = obVec;
+			}
+			this->obstacleMsg_ = obVec;
 		}
-		this->obstacleMsg_ = obVec;
 	}
 
 	void fakeDetector::odomCB(const nav_msgs::OdometryConstPtr& odom){
@@ -309,6 +345,12 @@ namespace onboardDetector{
 	}
 
 	void fakeDetector::histCB(const ros::TimerEvent&){
+		// Race fix: this entire body mutates obstacleHist_ (push_front /
+		// pop_back / resize) while readers like getDynamicObstaclesHist
+		// iterate it from the predictor thread. Must hold dataMutex_ for
+		// the whole pass to make the mutation atomic with any concurrent
+		// iteration.
+		std::lock_guard<std::mutex> lk(this->dataMutex_);
 		if (this->obstacleHist_.size() == 0){
 			this->obstacleHist_.resize(this->obstacleMsg_.size());
 		}
@@ -335,9 +377,16 @@ namespace onboardDetector{
 	}
 
 	void fakeDetector::updateVisMsg(){
+		// Race fix: snapshot obstacleMsg_ under the lock instead of iterating
+		// the live container while the gazebo / pose callback may overwrite it.
+		std::vector<onboardDetector::box3D> obstacleMsgCopy;
+		{
+			std::lock_guard<std::mutex> lk(this->dataMutex_);
+			obstacleMsgCopy = this->obstacleMsg_;
+		}
 		std::vector<visualization_msgs::Marker> bboxVec;
 		int obIdx = 0;
-		for (const onboardDetector:: box3D& obstacle : this->obstacleMsg_){
+		for (const onboardDetector:: box3D& obstacle : obstacleMsgCopy){
 
 			// 12 lines for each obstacle
 			geometry_msgs::Point p1, p2, p3, p4, p5, p6, p7, p8;
@@ -414,11 +463,19 @@ namespace onboardDetector{
 	}
 
 	void fakeDetector::publishHistoryTraj(){
-		if (this->obstacleHist_.size() != 0){
+		// Race fix: histCB mutates obstacleHist_ on its own thread; we must
+		// snapshot under the lock before iterating.
+		std::vector<std::deque<onboardDetector::box3D>> obstacleHistCopy;
+		{
+			std::lock_guard<std::mutex> lk(this->dataMutex_);
+			obstacleHistCopy = this->obstacleHist_;
+		}
+		if (obstacleHistCopy.size() != 0){
 			visualization_msgs::MarkerArray trajMsg;
 			int countMarker = 0;
-			for (size_t i=0; i<this->obstacleHist_.size(); ++i){
-				if (this->isObstacleInSensorRange(this->obstacleHist_[i][0],2*M_PI)){
+			for (size_t i=0; i<obstacleHistCopy.size(); ++i){
+				if (obstacleHistCopy[i].empty()) continue;
+				if (this->isObstacleInSensorRange(obstacleHistCopy[i][0],2*M_PI)){
 					visualization_msgs::Marker traj;
 					traj.header.frame_id = "map";
 					traj.header.stamp = ros::Time::now();
@@ -428,13 +485,13 @@ namespace onboardDetector{
 					traj.scale.x = 0.1;
 					traj.scale.y = 0.1;
 					traj.scale.z = 0.1;
-					traj.color.a = 1.0; 
+					traj.color.a = 1.0;
 					traj.color.r = 0.0;
 					traj.color.g = 1.0;
 					traj.color.b = 0.0;
-					for (size_t j=0; j<this->obstacleHist_[i].size(); ++j){
+					for (size_t j=0; j<obstacleHistCopy[i].size(); ++j){
 						geometry_msgs::Point p1;
-						onboardDetector::box3D box1 = this->obstacleHist_[i][j];
+						onboardDetector::box3D box1 = obstacleHistCopy[i][j];
 						p1.x = box1.x; p1.y = box1.y; p1.z = box1.z;
 						traj.points.push_back(p1);
 					}
@@ -475,7 +532,13 @@ namespace onboardDetector{
 
 	void fakeDetector::getObstacles(std::vector<onboardDetector::box3D>& obstacles, const Eigen::Vector3d &robotSize){
 		obstacles.clear();
-		for (onboardDetector::box3D ob : this->obstacleMsg_){
+		// Race fix: snapshot under lock then iterate the copy.
+		std::vector<onboardDetector::box3D> obstacleMsgCopy;
+		{
+			std::lock_guard<std::mutex> lk(this->dataMutex_);
+			obstacleMsgCopy = this->obstacleMsg_;
+		}
+		for (onboardDetector::box3D ob : obstacleMsgCopy){
 			ob.x_width += robotSize(0);
 			ob.y_width += robotSize(1);
 			ob.z_width += robotSize(2);
@@ -486,7 +549,13 @@ namespace onboardDetector{
 
 	void fakeDetector::getObstaclesInSensorRange(double fov, std::vector<onboardDetector::box3D>& obstacles, const Eigen::Vector3d &robotSize){
 		obstacles.clear();
-		for (onboardDetector::box3D obstacle : this->obstacleMsg_){
+		// Race fix: snapshot under lock then iterate the copy.
+		std::vector<onboardDetector::box3D> obstacleMsgCopy;
+		{
+			std::lock_guard<std::mutex> lk(this->dataMutex_);
+			obstacleMsgCopy = this->obstacleMsg_;
+		}
+		for (onboardDetector::box3D obstacle : obstacleMsgCopy){
 			if (this->isObstacleInSensorRange(obstacle, fov)){
 				obstacle.x_width += robotSize(0);
 				obstacle.y_width += robotSize(1);
@@ -497,20 +566,33 @@ namespace onboardDetector{
 	}
 
 	void fakeDetector::getDynamicObstaclesHist(std::vector<std::vector<Eigen::Vector3d>>& posHist, std::vector<std::vector<Eigen::Vector3d>>& velHist, std::vector<std::vector<Eigen::Vector3d>>& accHist, std::vector<std::vector<Eigen::Vector3d>>& sizeHist, const Eigen::Vector3d &robotSize){
+		// PRIMARY RACE FIX: this function is called from the predictor thread
+		// while histCB simultaneously mutates obstacleHist_ at 30 Hz on
+		// another AsyncSpinner thread. Without this lock, push_front /
+		// pop_back inside histCB invalidate iterators held here and the
+		// reader segfaults inside libonboard_detector.so. This is the call
+		// stack #0 of the GDB crash dump.
+		std::vector<std::deque<onboardDetector::box3D>> obstacleHistCopy;
+		{
+			std::lock_guard<std::mutex> lk(this->dataMutex_);
+			obstacleHistCopy = this->obstacleHist_;
+		}
+
 		posHist.clear();
         velHist.clear();
 		accHist.clear();
         sizeHist.clear();
 
-        if (this->obstacleHist_.size()){
-            for (size_t i=0 ; i<this->obstacleHist_.size() ; ++i){
-				if (this->isObstacleInSensorRange(this->obstacleHist_[i][0],2*M_PI)){
+        if (obstacleHistCopy.size()){
+            for (size_t i=0 ; i<obstacleHistCopy.size() ; ++i){
+				if (obstacleHistCopy[i].empty()) continue;
+				if (this->isObstacleInSensorRange(obstacleHistCopy[i][0],2*M_PI)){
 					std::vector<Eigen::Vector3d> obPosHist, obVelHist, obAccHist, obSizeHist;
-					for (size_t j=0; j<this->obstacleHist_[i].size() ; ++j){
-						Eigen::Vector3d pos(this->obstacleHist_[i][j].x, this->obstacleHist_[i][j].y, this->obstacleHist_[i][j].z);
-						Eigen::Vector3d vel(this->obstacleHist_[i][j].Vx, this->obstacleHist_[i][j].Vy, 0);
-						Eigen::Vector3d acc(this->obstacleHist_[i][j].Ax, this->obstacleHist_[i][j].Ay, 0);
-						Eigen::Vector3d size(this->obstacleHist_[i][j].x_width, this->obstacleHist_[i][j].y_width, this->obstacleHist_[i][j].z_width);
+					for (size_t j=0; j<obstacleHistCopy[i].size() ; ++j){
+						Eigen::Vector3d pos(obstacleHistCopy[i][j].x, obstacleHistCopy[i][j].y, obstacleHistCopy[i][j].z);
+						Eigen::Vector3d vel(obstacleHistCopy[i][j].Vx, obstacleHistCopy[i][j].Vy, 0);
+						Eigen::Vector3d acc(obstacleHistCopy[i][j].Ax, obstacleHistCopy[i][j].Ay, 0);
+						Eigen::Vector3d size(obstacleHistCopy[i][j].x_width, obstacleHistCopy[i][j].y_width, obstacleHistCopy[i][j].z_width);
 						size += robotSize;
 						obPosHist.push_back(pos);
 						obVelHist.push_back(vel);
