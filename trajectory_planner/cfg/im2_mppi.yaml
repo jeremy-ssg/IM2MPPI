@@ -16,11 +16,9 @@ im2_mppi:
   lambda: 5.0               # cost-to-weight sharpness; lower = greedier
 
   # ── Safety geometry ─────────────────────────────────────────────────
-  d_safe: 0.65              # ↑ from 0.5 — match Intent-MPC dynamic_safety_dist=0.6 + buffer
+  d_safe: 0.5               # soft-cost clearance threshold [m]
   sigma_risk: 1.0           # preliminary-risk scale: exp(-d_min / sigma_risk)
-  hard_floor_clearance: 0.20  # NEW — any rollout with min clearance below this is
-                              # rejected (cost=+∞). Hard safety floor on policy
-                              # without giving up MPPI soft-cost smoothness elsewhere.
+  hard_floor_clearance: 0.0 # hard safety floor [m]; 0 = disabled (v0.2 default)
 
   # ── Kinematic constraints ───────────────────────────────────────────
   v_max: 2.0                # max velocity norm [m/s]

@@ -291,6 +291,7 @@ target_link_libraries(mpc_solver_setup ${PROJECT_SOURCE_DIR}/include/${PROJECT_N
 catkin_install_python(PROGRAMS
   scripts/evaluate_intent_mpc_im2mppi.py
   scripts/compare_planner_eval.py
+  scripts/sweep_im2_full.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
