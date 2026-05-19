@@ -251,12 +251,17 @@ def run_trial(idx: int, param_name: str, value, kind: str,
     time.sleep(INTER_TRIAL_PAUSE_S)
 
     # 5. Locate + parse summary JSON.
-    summaries = sorted(trial_dir.glob("summary*.json"))
+    #    Evaluator writes "<algorithm>_summary.json"; for this sweep that's
+    #    "im2_mppi_summary.json". Match the suffix to be robust to any rename.
+    summaries = sorted(trial_dir.glob("*_summary.json"))
     if not summaries:
-        print("  ! no summary*.json produced", flush=True)
+        print(f"  ! no *_summary.json produced in {trial_dir}", flush=True)
         return None
+    # Prefer im2_mppi_summary.json if present; otherwise take the newest.
+    preferred = trial_dir / "im2_mppi_summary.json"
+    target = preferred if preferred.exists() else summaries[-1]
     try:
-        return json.loads(summaries[-1].read_text())
+        return json.loads(target.read_text())
     except Exception as e:
         print(f"  ! summary parse failed: {e}", flush=True)
         return None
