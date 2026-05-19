@@ -8,6 +8,39 @@
 
 namespace AutoFlight {
 
+namespace {
+
+im2mppi::TrajectoryPoint sampleTrajectorySnapshot(
+    const std::vector<im2mppi::TrajectoryPoint>& traj,
+    double dt,
+    double t)
+{
+    im2mppi::TrajectoryPoint out;
+    if (traj.empty()) return out;
+    if (traj.size() == 1 || t <= 0.0 || dt <= 1e-6) return traj.front();
+
+    const double horizon_time =
+        static_cast<double>(traj.size() - 1) * dt;
+    if (t >= horizon_time) return traj.back();
+
+    const double scaled = t / dt;
+    const int k = std::max(0, std::min(
+        static_cast<int>(std::floor(scaled)),
+        static_cast<int>(traj.size()) - 2));
+    const double alpha = std::max(0.0, std::min(
+        1.0, scaled - static_cast<double>(k)));
+
+    const auto& a = traj[k];
+    const auto& b = traj[k + 1];
+    out.p = a.p + alpha * (b.p - a.p);
+    out.v = a.v + alpha * (b.v - a.v);
+    out.a = a.a + alpha * (b.a - a.a);
+    out.yaw = (alpha < 0.5) ? a.yaw : b.yaw;
+    return out;
+}
+
+} // namespace
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Constructor
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,7 +194,18 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
     if (!this->goalReceived_ && !this->usePredefinedGoal_) return;
     if (!this->odomReceived_) return;
 
-    // Lock for the whole iteration — trajExeCB/visCB will briefly wait.
+    bool success = false;
+    double plan_ms = 0.0;
+    ros::Time planEnd;
+    double traj_dt = 0.05;
+    double snapshot_facing_yaw = this->facingYaw_;
+    bool use_yaw_postprocess = true;
+    std::vector<im2mppi::TrajectoryPoint> planned_traj;
+
+    {
+
+    // Planner internals are locked while plan() mutates them. trajExeCB reads
+    // the previous published snapshot, so target streaming is not blocked here.
     std::lock_guard<std::mutex> lk(this->planMutex_);
 
     // 1. Current state
@@ -212,20 +256,40 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
     }
 
     // 6. Plan (instrumented — publish wall-clock duration in ms)
-    const ros::Time planStart = ros::Time::now();
-    const bool success = this->mppi_->plan();
-    const double plan_ms = (ros::Time::now() - planStart).toSec() * 1000.0;
+    const ros::WallTime wallStart = ros::WallTime::now();
+    success = this->mppi_->plan();
+    const ros::WallTime wallEnd = ros::WallTime::now();
+    planEnd = ros::Time::now();
+    plan_ms = (wallEnd - wallStart).toSec() * 1000.0;
+
+    if (success) {
+        planned_traj = this->mppi_->getPlannedTrajectory();
+        const auto& params = this->mppi_->getParams();
+        traj_dt = params.dt;
+        use_yaw_postprocess = params.use_yaw_postprocess;
+        snapshot_facing_yaw = this->facingYaw_;
+    }
+    }
 
     std_msgs::Float64 pt_msg;
     pt_msg.data = plan_ms;
     this->planTimePub_.publish(pt_msg);
 
-    if (success) {
-        this->trajStartTime_ = planStart;
-        this->mppiReady_     = true;
+    if (success && !planned_traj.empty()) {
+        std::lock_guard<std::mutex> tk(this->trajMutex_);
+        this->activeTraj_              = std::move(planned_traj);
+        this->activeTrajDt_            = traj_dt;
+        this->activeFacingYaw_         = snapshot_facing_yaw;
+        this->activeUseYawPostprocess_ = use_yaw_postprocess;
+        this->trajStartTime_           = planEnd;
+        this->mppiReady_               = true;
     } else {
         ROS_WARN_THROTTLE(1.0, "[IM2-MPPI Nav] plan() failed.");
-        this->mppiReady_ = false;
+        {
+            std::lock_guard<std::mutex> tk(this->trajMutex_);
+            this->mppiReady_ = false;
+            this->activeTraj_.clear();
+        }
         this->stop();
     }
 }
@@ -236,20 +300,34 @@ void im2MppiNavigation::mppiCB(const ros::TimerEvent&)
 
 void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
 {
-    if (!this->mppiReady_) return;
+    std::vector<im2mppi::TrajectoryPoint> traj;
+    ros::Time trajStartTime;
+    double traj_dt = 0.05;
+    double snapshot_facing_yaw = 0.0;
+    bool use_yaw_postprocess = true;
 
-    std::lock_guard<std::mutex> lk(this->planMutex_);
+    {
+        std::lock_guard<std::mutex> tk(this->trajMutex_);
+        if (!this->mppiReady_ || this->activeTraj_.empty()) return;
+        traj = this->activeTraj_;
+        trajStartTime = this->trajStartTime_;
+        traj_dt = this->activeTrajDt_;
+        snapshot_facing_yaw = this->activeFacingYaw_;
+        use_yaw_postprocess = this->activeUseYawPostprocess_;
+    }
 
-    const auto&  params  = this->mppi_->getParams();
-    const double endTime = static_cast<double>(params.horizon_steps) * params.dt;
-    const double realTime = (ros::Time::now() - this->trajStartTime_).toSec();
+    const double endTime =
+        std::max(0.0, static_cast<double>(traj.size() - 1) * traj_dt);
+    const double realTime =
+        std::max(0.0, (ros::Time::now() - trajStartTime).toSec());
 
     tracking_controller::Target target;
 
     // ── Compute raw position / velocity / accel from the plan ────────────
     double raw_yaw = 0.0;
     if (realTime >= endTime) {
-        const Eigen::Vector3d p = this->mppi_->getPos(endTime);
+        const auto pt = sampleTrajectorySnapshot(traj, traj_dt, endTime);
+        const Eigen::Vector3d p = pt.p;
         target.position.x = p.x();
         target.position.y = p.y();
         target.position.z = p.z();
@@ -258,17 +336,16 @@ void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
 
         // Hold the LAST PLANNED yaw instead of snapping to current odom yaw
         // (which used to inject a one-shot step every time a plan expired).
-        if (this->useYawControl_ && params.use_yaw_postprocess) {
-            const auto& traj = this->mppi_->getPlannedTrajectory();
-            if (!traj.empty()) raw_yaw = traj.back().yaw;
-            else               raw_yaw = this->facingYaw_;
+        if (this->useYawControl_ && use_yaw_postprocess) {
+            raw_yaw = traj.back().yaw;
         } else {
-            raw_yaw = this->facingYaw_;
+            raw_yaw = snapshot_facing_yaw;
         }
     } else {
-        const Eigen::Vector3d p   = this->mppi_->getPos(realTime);
-        const Eigen::Vector3d v   = this->mppi_->getVel(realTime);
-        const Eigen::Vector3d acc = this->mppi_->getAcc(realTime);
+        const auto pt = sampleTrajectorySnapshot(traj, traj_dt, realTime);
+        const Eigen::Vector3d p   = pt.p;
+        const Eigen::Vector3d v   = pt.v;
+        const Eigen::Vector3d acc = pt.a;
 
         target.position.x     = p.x();
         target.position.y     = p.y();
@@ -280,13 +357,10 @@ void im2MppiNavigation::trajExeCB(const ros::TimerEvent&)
         target.acceleration.y = acc.y();
         target.acceleration.z = acc.z();
 
-        if (this->useYawControl_ && params.use_yaw_postprocess) {
-            const auto& traj = this->mppi_->getPlannedTrajectory();
-            int k = static_cast<int>(realTime / params.dt);
-            k = std::max(0, std::min(k, static_cast<int>(traj.size()) - 1));
-            raw_yaw = traj[k].yaw;
+        if (this->useYawControl_ && use_yaw_postprocess) {
+            raw_yaw = pt.yaw;
         } else {
-            raw_yaw = this->facingYaw_;
+            raw_yaw = snapshot_facing_yaw;
         }
     }
 
@@ -382,7 +456,10 @@ void im2MppiNavigation::visCB(const ros::TimerEvent&)
         this->publishGoal();
     }
 
-    if (!this->mppiReady_) return;
+    {
+        std::lock_guard<std::mutex> tk(this->trajMutex_);
+        if (!this->mppiReady_) return;
+    }
 
     // Lock only for mppi_ internal vector reads.
     std::lock_guard<std::mutex> lk(this->planMutex_);

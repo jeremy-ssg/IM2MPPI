@@ -108,6 +108,14 @@ private:
     ros::Time     trajStartTime_;
     double        facingYaw_  = 0.0;
 
+    // Snapshot consumed by trajExeCB. It lets the 100-Hz target stream keep
+    // following the last valid trajectory while plan() computes the next one.
+    std::mutex                            trajMutex_;
+    std::vector<im2mppi::TrajectoryPoint> activeTraj_;
+    double                                activeTrajDt_ = 0.05;
+    double                                activeFacingYaw_ = 0.0;
+    bool                                  activeUseYawPostprocess_ = true;
+
     // Output yaw rate limiter state (trajExeCB). Caps how fast target.yaw
     // can change per 100-Hz tick so MPPI's potentially noisy yaw reference
     // doesn't translate into physical yaw flapping.
@@ -130,9 +138,8 @@ private:
     std::vector<dynamicPredictor::obstacle> lastPredOb_;
     ros::Time                               lastPredTime_;
 
-    // Protects mppi_ internal vector reads (best traj, rollouts, etc.) across
-    // AsyncSpinner threads. predCB does NOT take this lock — it only touches
-    // cachedDynPreds_ under predMutex_, and reads getParams() (immutable).
+    // Protects planner mutation/visualization reads. trajExeCB reads the
+    // active trajectory snapshot under trajMutex_ instead.
     mutable std::mutex planMutex_;
 
     // ── Callbacks ──────────────────────────────────────────────────────────

@@ -48,6 +48,7 @@ METRICS = [
     # Planning latency
     ("planner.plan_latency_mean_ms",          "plan_latency_mean_ms",         "lower"),
     ("planner.plan_latency_p95_ms",           "plan_latency_p95_ms",          "lower"),
+    ("planner.plan_latency_max_ms",           "plan_latency_max_ms",          "lower"),
 ]
 
 

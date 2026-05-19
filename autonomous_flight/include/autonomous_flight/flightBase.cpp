@@ -84,11 +84,20 @@ namespace AutoFlight{
 		ros::Rate r (200);
 		if(this->simulation_){
 			while (ros::ok()){
-				if (this->poseControl_){
-					this->posePub_.publish(this->poseTgt_);
+				bool poseControl;
+				geometry_msgs::PoseStamped poseTgt;
+				tracking_controller::Target stateTgt;
+				{
+					std::lock_guard<std::mutex> lk(this->targetMutex_);
+					poseControl = this->poseControl_;
+					poseTgt = this->poseTgt_;
+					stateTgt = this->stateTgt_;
+				}
+				if (poseControl){
+					this->posePub_.publish(poseTgt);
 				}
 				else{
-					this->statePub_.publish(this->stateTgt_);
+					this->statePub_.publish(stateTgt);
 				}
 				r.sleep();
 			}
@@ -96,8 +105,13 @@ namespace AutoFlight{
 		else{
 			// warmup
 			for(int i = 100; ros::ok() && i > 0; --i){
-				this->poseTgt_.header.stamp = ros::Time::now();
-				this->posePub_.publish(this->poseTgt_);
+				geometry_msgs::PoseStamped poseTgt;
+				{
+					std::lock_guard<std::mutex> lk(this->targetMutex_);
+					this->poseTgt_.header.stamp = ros::Time::now();
+					poseTgt = this->poseTgt_;
+				}
+				this->posePub_.publish(poseTgt);
 			}
 
 			mavros_msgs::SetMode offboardMode;
@@ -122,12 +136,21 @@ namespace AutoFlight{
 					}
 				}
 
-				if (this->poseControl_){
-					// this->poseTgt_.header.stamp = ros::Time::now();
-					this->posePub_.publish(this->poseTgt_);
+				bool poseControl;
+				geometry_msgs::PoseStamped poseTgt;
+				tracking_controller::Target stateTgt;
+				{
+					std::lock_guard<std::mutex> lk(this->targetMutex_);
+					poseControl = this->poseControl_;
+					poseTgt = this->poseTgt_;
+					stateTgt = this->stateTgt_;
+				}
+				if (poseControl){
+					// poseTgt.header.stamp = ros::Time::now();
+					this->posePub_.publish(poseTgt);
 				}
 				else{
-					this->statePub_.publish(this->stateTgt_);
+					this->statePub_.publish(stateTgt);
 				}
 				r.sleep();
 			}		
@@ -516,12 +539,14 @@ namespace AutoFlight{
 	}
 
 	void flightBase::updateTarget(const geometry_msgs::PoseStamped& ps){ // global frame
+		std::lock_guard<std::mutex> lk(this->targetMutex_);
 		this->poseTgt_ = ps;
 		this->poseTgt_.header.frame_id = "map";
 		this->poseControl_ = true;
 	}
 
 	void flightBase::updateTargetWithState(const tracking_controller::Target& target){
+		std::lock_guard<std::mutex> lk(this->targetMutex_);
 		this->stateTgt_ = target;
 		this->poseControl_ = false;
 	}

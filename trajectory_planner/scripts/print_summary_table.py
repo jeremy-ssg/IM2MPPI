@@ -35,6 +35,7 @@ METRICS = [
     ("smoothness.cmd_rms_jerk_mps3",       "Jerk",       ".2f", True ),
     ("planner.plan_latency_mean_ms",       "Lat_avg",    ".2f", True ),
     ("planner.plan_latency_p95_ms",        "Lat_p95",    ".2f", True ),
+    ("planner.plan_latency_max_ms",        "Lat_max",    ".2f", True ),
 ]
 
 
@@ -174,6 +175,7 @@ def print_legend():
     print("  Jerk      = commanded RMS jerk (m/s³)                    (lower  better)")
     print("  Lat_avg   = mean planning latency (ms)                   (lower  better)")
     print("  Lat_p95   = p95 planning latency (ms)                    (lower  better)")
+    print("  Lat_max   = max planning latency spike (ms)              (lower  better)")
     print()
 
 

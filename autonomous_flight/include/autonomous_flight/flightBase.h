@@ -43,6 +43,7 @@ namespace AutoFlight{
         mavros_msgs::State mavrosState_;
 		geometry_msgs::PoseStamped poseTgt_; // target pose
 		tracking_controller::Target stateTgt_;
+		std::mutex targetMutex_;
 		geometry_msgs::PoseStamped goal_;
 		Eigen::Vector3d currPos_;
 		double currYaw_;
