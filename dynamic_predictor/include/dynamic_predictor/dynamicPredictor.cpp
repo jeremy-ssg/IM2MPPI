@@ -190,6 +190,38 @@ namespace dynamicPredictor{
                 this->posPred_ = posPredTemp;
                 this->sizePred_ = sizePredTemp;
                 this->allPredPoints_ = allPredPointsTemp;
+
+                // Per-(obstacle, intent, step) empirical std-dev of the
+                // predictor's internal sample cloud. This is the "real"
+                // position uncertainty that downstream CVaR consumes.
+                // Single-sample steps fall back to a zero vector (caller
+                // applies a sigma_min floor).
+                const int n_ob = static_cast<int>(this->allPredPoints_.size());
+                this->sigmaPred_.assign(n_ob, {});
+                for (int i = 0; i < n_ob; ++i) {
+                    const int n_intent = static_cast<int>(this->allPredPoints_[i].size());
+                    this->sigmaPred_[i].assign(n_intent, {});
+                    for (int j = 0; j < n_intent; ++j) {
+                        const int n_step = static_cast<int>(this->allPredPoints_[i][j].size());
+                        this->sigmaPred_[i][j].assign(n_step, Eigen::Vector3d::Zero());
+                        for (int k = 0; k < n_step; ++k) {
+                            const auto& pts = this->allPredPoints_[i][j][k];
+                            const int n_pts = static_cast<int>(pts.size());
+                            if (n_pts < 2) continue;
+                            Eigen::Vector3d mean = Eigen::Vector3d::Zero();
+                            for (const auto& p : pts) mean += p;
+                            mean /= static_cast<double>(n_pts);
+                            Eigen::Vector3d sum_sq = Eigen::Vector3d::Zero();
+                            for (const auto& p : pts) {
+                                const Eigen::Vector3d d = p - mean;
+                                sum_sq += d.cwiseProduct(d);
+                            }
+                            // sample (unbiased) std: divide by N-1
+                            this->sigmaPred_[i][j][k] =
+                                (sum_sq / static_cast<double>(n_pts - 1)).cwiseSqrt();
+                        }
+                    }
+                }
             }
         }
         else{
@@ -197,6 +229,7 @@ namespace dynamicPredictor{
             this->allPredPoints_.clear();
             this->posPred_.clear();
             this->sizePred_.clear();
+            this->sigmaPred_.clear();
         }
     }
 
@@ -882,6 +915,13 @@ namespace dynamicPredictor{
             ob.posPred = this->posPred_[i];
             ob.sizePred = this->sizePred_[i];
             ob.intentProb = this->intentProb_[i];
+            // sigmaPred is computed alongside posPred_ in predict(). Guard the
+            // index in case the two structures momentarily disagree (would
+            // only happen during predict()'s write window, but dataMutex_
+            // serializes that — still defensive).
+            if (i < static_cast<int>(this->sigmaPred_.size())) {
+                ob.sigmaPred = this->sigmaPred_[i];
+            }
             predOb.push_back(ob);
         }
     }

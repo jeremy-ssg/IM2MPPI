@@ -61,6 +61,10 @@ namespace dynamicPredictor{
         std::vector<std::vector<std::vector<std::vector<Eigen::Vector3d>>>> allPredPoints_;
         std::vector<std::vector<std::vector<Eigen::Vector3d>>> posPred_;
         std::vector<std::vector<std::vector<Eigen::Vector3d>>> sizePred_;
+        // Per-(obstacle, intent, step) empirical position-prediction std-dev,
+        // computed from the spread of allPredPoints_ samples inside predict().
+        // Exposed via getPrediction() for IM2-MPPI's CVaR risk term.
+        std::vector<std::vector<std::vector<Eigen::Vector3d>>> sigmaPred_;
         std::vector<Eigen::VectorXd> intentProb_;
 
         // Serializes predict() (writer) against getPrediction() (reader on

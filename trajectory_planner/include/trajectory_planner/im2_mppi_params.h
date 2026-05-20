@@ -33,6 +33,11 @@ struct IM2MPPIParams {
     // ── Safety geometry ──────────────────────────────────────────────────────
     double d_safe              = 0.5;  // soft-cost clearance threshold [m]
     double sigma_risk          = 1.0;  // scale for preliminary risk: exp(-d_min / sigma_risk)
+    // Floor (per-axis) on the position-prediction std used by CVaR sampling.
+    // The predictor exposes per-step empirical sigma; we clamp it from below
+    // so that CVaR never collapses to deterministic hinge when the predictor
+    // happens to report ~zero spread on a stationary obstacle.
+    double sigma_min           = 0.05; // [m]
     // Hard-floor filter: any rollout whose minimum clearance against ANY
     // dynamic mode or static obstacle (over the full horizon) drops below
     // this value gets cost = +∞ before the MPPI weighted update. Effectively
@@ -135,6 +140,7 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
     nh.param(ns + "/lambda",      p.lambda,      p.lambda);
     nh.param(ns + "/d_safe",      p.d_safe,      p.d_safe);
     nh.param(ns + "/sigma_risk",  p.sigma_risk,  p.sigma_risk);
+    nh.param(ns + "/sigma_min",   p.sigma_min,   p.sigma_min);
     nh.param(ns + "/hard_floor_clearance", p.hard_floor_clearance, p.hard_floor_clearance);
 
     nh.param(ns + "/v_max",  p.v_max,  p.v_max);
@@ -179,6 +185,7 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
     p.num_joint_modes_keep   = std::max(1, p.num_joint_modes_keep);
     p.lambda                 = std::max(1e-6, p.lambda);
     p.d_safe                 = std::max(0.0, p.d_safe);
+    p.sigma_min              = std::max(0.0, p.sigma_min);
     p.hard_floor_clearance   = std::max(0.0, p.hard_floor_clearance);
     p.sigma_risk             = std::max(1e-6, p.sigma_risk);
     p.v_max                  = std::max(1e-3, p.v_max);

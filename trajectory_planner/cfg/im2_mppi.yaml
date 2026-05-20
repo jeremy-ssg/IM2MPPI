@@ -18,6 +18,7 @@ im2_mppi:
   # ── Safety geometry ─────────────────────────────────────────────────
   d_safe: 0.55              # ↑ from 0.5 — push MinClr / CVaR toward / past M0
   sigma_risk: 1.0           # preliminary-risk scale: exp(-d_min / sigma_risk)
+  sigma_min: 0.05           # floor on predictor's per-axis position-std fed to CVaR
   hard_floor_clearance: 0.0 # KEEP 0 — values > 0.2 cause drone to freeze: all rollouts
                             # rejected, MPPI falls back to stale nominal, drone exhausts
                             # the old trajectory and hovers. The sweep showed MinClr goes

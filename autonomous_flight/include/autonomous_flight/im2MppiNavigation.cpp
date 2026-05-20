@@ -492,7 +492,11 @@ im2MppiNavigation::convertPredictions(
     const auto&  params   = this->mppi_->getParams();
     const double dt_mppi  = params.dt;
     const int    H        = params.horizon_steps;
-    const Eigen::Vector3d prediction_sigma(0.15, 0.15, 0.10);
+    // sigma_min is a per-axis floor on the predictor's empirical sigma, so
+    // that CVaR sampling never fully degenerates to deterministic hinge.
+    const Eigen::Vector3d sigma_floor(params.sigma_min,
+                                      params.sigma_min,
+                                      params.sigma_min);
 
     std::vector<im2mppi::DynamicObstaclePrediction> result;
     result.reserve(predOb.size());
@@ -523,13 +527,22 @@ im2MppiNavigation::convertPredictions(
             if (m >= static_cast<int>(ob.posPred.size())) {
                 mode.pi = 0.0;
                 mode.mu_seq.assign(H, Eigen::Vector3d::Zero());
-                mode.sigma_diag_seq.assign(H, prediction_sigma);
+                mode.sigma_diag_seq.assign(H, sigma_floor);
                 pred.modes.push_back(mode);
                 continue;
             }
 
             const auto& pos_seq  = ob.posPred[m];
             const int   N_pred   = static_cast<int>(pos_seq.size());
+
+            // Predictor's per-step empirical sigma for THIS intent mode.
+            // Same indexing as pos_seq when present; otherwise we fall back
+            // to the sigma_floor below.
+            const std::vector<Eigen::Vector3d>* sigma_seq = nullptr;
+            if (m < static_cast<int>(ob.sigmaPred.size()) &&
+                !ob.sigmaPred[m].empty()) {
+                sigma_seq = &ob.sigmaPred[m];
+            }
 
             mode.mu_seq.resize(H);
             mode.sigma_diag_seq.resize(H);
@@ -545,12 +558,25 @@ im2MppiNavigation::convertPredictions(
 
                 if (N_pred == 0) {
                     mode.mu_seq[k]         = Eigen::Vector3d::Zero();
-                    mode.sigma_diag_seq[k] = prediction_sigma;
+                    mode.sigma_diag_seq[k] = sigma_floor;
                     continue;
                 }
 
                 mode.mu_seq[k] = pos_seq[lo] + alpha * (pos_seq[hi] - pos_seq[lo]);
-                mode.sigma_diag_seq[k] = prediction_sigma;
+
+                // Sigma: linear-interpolate the predictor's empirical std at
+                // the same lo/hi, then floor each axis at sigma_min so CVaR
+                // sampling cannot collapse to zero when the predictor reports
+                // a perfectly confident step (e.g., a stationary obstacle).
+                Eigen::Vector3d sigma_k = Eigen::Vector3d::Zero();
+                if (sigma_seq && !sigma_seq->empty()) {
+                    const int s_N = static_cast<int>(sigma_seq->size());
+                    const int slo = std::min(lo, s_N - 1);
+                    const int shi = std::min(hi, s_N - 1);
+                    sigma_k = (*sigma_seq)[slo] +
+                              alpha * ((*sigma_seq)[shi] - (*sigma_seq)[slo]);
+                }
+                mode.sigma_diag_seq[k] = sigma_k.cwiseMax(sigma_floor);
             }
             pred.modes.push_back(mode);
         }
