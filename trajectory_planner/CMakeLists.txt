@@ -292,6 +292,7 @@ catkin_install_python(PROGRAMS
   scripts/evaluate_intent_mpc_im2mppi.py
   scripts/compare_planner_eval.py
   scripts/sweep_im2_full.py
+  scripts/analyze_sweep.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
