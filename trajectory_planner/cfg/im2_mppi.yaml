@@ -18,7 +18,11 @@ im2_mppi:
   # ── Safety geometry ─────────────────────────────────────────────────
   d_safe: 0.55              # ↑ from 0.5 — push MinClr / CVaR toward / past M0
   sigma_risk: 1.0           # preliminary-risk scale: exp(-d_min / sigma_risk)
-  hard_floor_clearance: 0.25 # hard safety floor [m]; rejects rollout tail outliers below this clearance
+  hard_floor_clearance: 0.0 # KEEP 0 — values > 0.2 cause drone to freeze: all rollouts
+                            # rejected, MPPI falls back to stale nominal, drone exhausts
+                            # the old trajectory and hovers. The sweep showed MinClr goes
+                            # NEGATIVE at hard_floor > 0.2. Confirmed in flight: latter-half
+                            # freeze + dynamic obstacles disappearing from RViz.
 
   # ── Kinematic constraints ───────────────────────────────────────────
   v_max: 2.0                # max velocity norm [m/s]
