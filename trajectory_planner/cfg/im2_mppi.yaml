@@ -16,7 +16,7 @@ im2_mppi:
   lambda: 5.0               # cost-to-weight sharpness; lower = greedier
 
   # ── Safety geometry ─────────────────────────────────────────────────
-  d_safe: 0.6               # ↑ from 0.5 — push MinClr / CVaR toward / past M0
+  d_safe: 0.55              # ↑ from 0.5 — push MinClr / CVaR toward / past M0
   sigma_risk: 1.0           # preliminary-risk scale: exp(-d_min / sigma_risk)
   hard_floor_clearance: 0.0 # hard safety floor [m]; 0 = disabled (v0.2 default)
 
