@@ -23,8 +23,13 @@ NAME_RE = re.compile(r"(?P<cfg>.+)_seed(?P<seed>\d+)_summary\.json$")
 
 # (dotted_path, label, format_spec, lower_is_better)
 # Tight headline table — collision EVENT counts are the primary safety metric.
+#
+# Synthetic paths (prefixed "__"):
+#   "__col_free__"  → 1.0 if this seed had NO strict-collision events, else 0.0.
+#                     Mean over seeds = collision-free success rate.
 METRICS = [
     ("task.success",                       "SR",         ".0%", False),
+    ("__col_free__",                       "ColFree",    ".0%", False),
     ("task.mission_time_s",                "Time",       ".1f", True ),
     ("task.completed_path_length_m",       "Length",     ".1f", True ),
     ("task.lap_progress_fraction",         "Progress",   ".0%", False),
@@ -62,6 +67,18 @@ def coerce(v):
         return None
 
 
+def extract_metric(data, path):
+    """Extract a metric value from a single-seed summary, handling synthetic
+    paths (prefixed "__") that don't map directly to a JSON key."""
+    if path == "__col_free__":
+        # Collision-free seed indicator: 1 if zero strict-collision events.
+        cr = coerce(nested_get(data, "safety.collision_strict_events"))
+        if cr is None:
+            return None
+        return 1.0 if cr == 0.0 else 0.0
+    return coerce(nested_get(data, path))
+
+
 def fmt(val, spec):
     if val is None:
         return "—"
@@ -91,7 +108,7 @@ def stats_per_config(groups):
         runs = groups[cfg]
         agg = {}
         for path, label, spec, lower in METRICS:
-            vals = [coerce(nested_get(r, path)) for r in runs]
+            vals = [extract_metric(r, path) for r in runs]
             vals = [v for v in vals if v is not None]
             if not vals:
                 agg[label] = None
@@ -168,6 +185,7 @@ def print_table(rows, winners):
 def print_legend():
     print("Metric legend (mean ± std across seeds):")
     print("  SR        = one-lap completion rate                       (higher better)")
+    print("  ColFree   = collision-free seed rate (CR_events==0)        (higher better)")
     print("  Time      = one-lap completion time (s)                   (lower  better)")
     print("  Length    = executed path length after one completed lap  (lower  better)")
     print("  Progress  = final reference-lap progress before timeout   (higher better)")

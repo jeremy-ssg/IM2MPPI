@@ -160,7 +160,7 @@ void im2MppiNavigation::registerPub()
 //      mppiTimer_    : 10 Hz planning loop
 //      trajExeTimer_ : 100 Hz target publishing
 //      visTimer_     : 5 Hz RViz visualization
-//      predTimer_    : 5 Hz async prediction (separate spinner thread)
+//      predTimer_    : 10 Hz async prediction (separate spinner thread)
 // ─────────────────────────────────────────────────────────────────────────────
 
 void im2MppiNavigation::registerCallback()
@@ -172,7 +172,7 @@ void im2MppiNavigation::registerCallback()
     this->visTimer_     = this->nh_.createTimer(ros::Duration(0.2),
                             &im2MppiNavigation::visCB, this);
     if (this->usePredictor_) {
-        this->predTimer_ = this->nh_.createTimer(ros::Duration(0.2),
+        this->predTimer_ = this->nh_.createTimer(ros::Duration(0.1),
                             &im2MppiNavigation::predCB, this);
     }
 }
@@ -761,10 +761,11 @@ void im2MppiNavigation::getDynamicBoxes(
 
     Eigen::Vector3d robotSize(0.0, 0.0, 0.0);
     if (this->map_) this->map_->getRobotSize(robotSize);
-    // Inflate per-axis by the robot's half-extent so the box clearance test
-    // effectively becomes "free space for the robot's centre".
-    const Eigen::Vector3d inflate = robotSize.cwiseMax(0.0);
 
+    // The detector's getObstaclesInSensorRange ALREADY inflates b.x/y/z_width
+    // by robotSize internally (fakeDetector.cpp). Adding it again here was a
+    // double-inflation bug that made vanilla MPPI see obstacles ~0.5 m wider
+    // than M4 sees them, artificially boosting M1's MinClr in comparison.
     std::vector<onboardDetector::box3D> boxes;
     this->detector_->getObstaclesInSensorRange(2.0 * M_PI, boxes, robotSize);
 
@@ -772,7 +773,7 @@ void im2MppiNavigation::getDynamicBoxes(
     for (const auto& b : boxes) {
         im2mppi::BoxObstacle bo;
         bo.center = Eigen::Vector3d(b.x, b.y, b.z);
-        bo.size   = Eigen::Vector3d(b.x_width, b.y_width, b.z_width) + inflate;
+        bo.size   = Eigen::Vector3d(b.x_width, b.y_width, b.z_width);
         boxes_out.push_back(bo);
     }
 }

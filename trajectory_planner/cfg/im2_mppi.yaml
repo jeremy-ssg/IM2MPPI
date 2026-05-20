@@ -16,7 +16,7 @@ im2_mppi:
   lambda: 5.0               # cost-to-weight sharpness; lower = greedier
 
   # ── Safety geometry ─────────────────────────────────────────────────
-  d_safe: 0.55              # ↑ from 0.5 — push MinClr / CVaR toward / past M0
+  d_safe: 0.5               # soft-cost clearance threshold
   sigma_risk: 1.0           # preliminary-risk scale: exp(-d_min / sigma_risk)
   sigma_min: 0.0            # ↓ from 0.05 — let CVaR gracefully degrade to 0 when
                             # predictor reports zero uncertainty (deterministic obstacle).
@@ -42,9 +42,9 @@ im2_mppi:
   w_path:    1.0
   w_vel:     0.1
   w_acc:     0.05
-  w_jerk:    0.05
+  w_jerk:    0.2             # ↑ from 0.05 — penalise jerk more, smoother control
   w_static: 30.0
-  w_dyn:    50.0
+  w_dyn:    30.0             # ↓ from 50.0 — sweet spot (better Time/Length/Jerk, same safety)
 
   # ── Method selection (ablation) ─────────────────────────────────────
   #   vanilla_mppi         : baseline, ignores dynamic predictions
