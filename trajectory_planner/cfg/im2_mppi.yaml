@@ -5,7 +5,7 @@
 im2_mppi:
   # ── Dynamics / horizon ──────────────────────────────────────────────
   dt: 0.05                  # simulation timestep [s]
-  horizon_steps: 30         # planning horizon length (=> 1.5 s)
+  horizon_steps: 38         # ↑ from 30 — sweep showed 38 minimises MinClr×Time
 
   # ── Sampling ────────────────────────────────────────────────────────
   num_rollouts: 512         # N parallel trajectory samples
@@ -13,12 +13,12 @@ im2_mppi:
   num_joint_modes_keep: 4   # Kbar retained joint modes after pruning
 
   # ── MPPI temperature ────────────────────────────────────────────────
-  lambda: 5.0               # cost-to-weight sharpness; lower = greedier
+  lambda: 8.0               # ↑ from 5.0 — sweep sweet spot 7-12
 
   # ── Safety geometry ─────────────────────────────────────────────────
-  d_safe: 0.5               # soft-cost clearance threshold [m]
+  d_safe: 0.40              # ↓ from 0.5 — sweep sweet spot 0.34-0.43
   sigma_risk: 1.0           # preliminary-risk scale: exp(-d_min / sigma_risk)
-  hard_floor_clearance: 0.0 # hard safety floor [m]; 0 = disabled (v0.2 default)
+  hard_floor_clearance: 0.0 # KEEP 0 — sweep showed >0.2 makes MinClr WORSE
 
   # ── Kinematic constraints ───────────────────────────────────────────
   v_max: 2.0                # max velocity norm [m/s]
@@ -31,12 +31,12 @@ im2_mppi:
 
   # ── Cost weights ────────────────────────────────────────────────────
   w_goal:   10.0
-  w_path:    1.0
+  w_path:    4.5            # ↑ from 1.0 — sweep sweet spot 4-5 (huge MinClr win, no Time loss)
   w_vel:     0.1
   w_acc:     0.05
   w_jerk:    0.05
-  w_static: 30.0
-  w_dyn:    50.0
+  w_static:  5.0            # ↓ from 30.0 — sweep sweet spot 3.8-6.5
+  w_dyn:    15.0            # ↓ from 50.0 — sweep sweet spot 11-19 (default was 3x too aggressive)
 
   # ── Method selection (ablation) ─────────────────────────────────────
   #   vanilla_mppi         : baseline, ignores dynamic predictions
@@ -57,7 +57,7 @@ im2_mppi:
   #   This scalar enters the MPPI cost via lambda_r.
   cvar_alpha: 0.20                # tail fraction (worst 20%)
   cvar_num_obstacle_samples: 16   # R: obstacle Monte-Carlo samples per (i,m,j)
-  cvar_lambda_r: 5.0              # weight on Σ_j ρ in the per-rollout cost
+  cvar_lambda_r: 3.0              # ↓ from 5.0 — sweep showed 2.5-6 region with 2.63 best
 
   # ── Mode fusion (Phase 4) ───────────────────────────────────────────
   # How joint-mode posteriors π_m enter the MPPI free-energy update:
@@ -66,7 +66,7 @@ im2_mppi:
   #   adaptive   : same as sharpened, γ = 1 + κ·(log K − H(π))
   #                — high π entropy → no sharpening; low entropy → argmax-like
   #   argmax     : one-hot — picks argmax_m π_m·Σ_i exp(−S_{m,i}/λ)
-  fusion_mode: "adaptive"
+  fusion_mode: "sharpened"        # ↓ from adaptive — sweep top: sharpened 0.373 > soft 0.290 > adaptive 0.284
   fusion_gamma: 2.0               # used only when fusion_mode == sharpened
   fusion_kappa: 2.0               # used only when fusion_mode == adaptive
 
