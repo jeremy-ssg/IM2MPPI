@@ -5,7 +5,7 @@
 im2_mppi:
   # ── Dynamics / horizon ──────────────────────────────────────────────
   dt: 0.05                  # simulation timestep [s]
-  horizon_steps: 30         # planning horizon length (=> 1.5 s)
+  horizon_steps: 38         # OFAT sweep trial 152: best balance (Time 41.8s, MinClr 0.492, CR=0)
 
   # ── Sampling ────────────────────────────────────────────────────────
   num_rollouts: 512         # N parallel trajectory samples
