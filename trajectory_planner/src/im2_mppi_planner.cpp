@@ -918,7 +918,11 @@ std::vector<double> IM2MPPIPlanner::computeFusionWeights(
 
     // Original posteriors, clamped to non-negative.
     std::vector<double> pi(M, 0.0);
-    for (int m = 0; m < M; ++m) pi[m] = std::max(0.0, modes[m].probability);
+    double pi_sum = 0.0;
+    for (int m = 0; m < M; ++m) {
+        pi[m] = std::max(0.0, modes[m].probability);
+        pi_sum += pi[m];
+    }
 
     const std::string& mode = params_.fusion_mode;
 
@@ -963,14 +967,62 @@ std::vector<double> IM2MPPIPlanner::computeFusionWeights(
     if (mode == "sharpened") {
         gamma = std::max(1.0, params_.fusion_gamma);
     } else if (mode == "adaptive") {
+        // The retained-mode posterior may no longer sum to one after pruning.
         // H(π) using natural log; clamp π to (1e-12, 1] so log is finite.
         double H = 0.0;
-        for (int m = 0; m < M; ++m) {
-            if (pi[m] > 1e-12) H -= pi[m] * std::log(pi[m]);
+        if (pi_sum > 1e-12) {
+            for (int m = 0; m < M; ++m) {
+                const double q = pi[m] / pi_sum;
+                if (q > 1e-12) H -= q * std::log(q);
+            }
         }
         const double H_max = std::log(static_cast<double>(M));
         const double slack = std::max(0.0, H_max - H);
         gamma = 1.0 + params_.fusion_kappa * slack;
+
+        // If retained modes disagree sharply in cost, keep the dangerous tail
+        // alive by backing adaptive fusion toward soft fusion.
+        if (static_cast<int>(costs_flat.size()) == M * N && N > 0) {
+            std::vector<double> mode_cost(M, std::numeric_limits<double>::infinity());
+            for (int m = 0; m < M; ++m) {
+                double sum_cost = 0.0;
+                int count = 0;
+                for (int i = 0; i < N; ++i) {
+                    const double c = costs_flat[m * N + i];
+                    if (!std::isfinite(c)) continue;
+                    sum_cost += c;
+                    ++count;
+                }
+                if (count > 0) {
+                    mode_cost[m] = sum_cost / static_cast<double>(count);
+                }
+            }
+
+            double mean_cost = 0.0;
+            double mass = 0.0;
+            bool nonfinite_positive_tail = false;
+            for (int m = 0; m < M; ++m) {
+                if (pi[m] <= 0.0) continue;
+                if (!std::isfinite(mode_cost[m])) {
+                    nonfinite_positive_tail = true;
+                    break;
+                }
+                mean_cost += pi[m] * mode_cost[m];
+                mass += pi[m];
+            }
+            if (nonfinite_positive_tail) {
+                gamma = 1.0;
+            } else if (mass > 1e-12) {
+                mean_cost /= mass;
+                const double tail_cost = computeCVaR(mode_cost, pi, params_.cvar_alpha);
+                if (std::isfinite(tail_cost)) {
+                    const double risk_gap = std::max(0.0, tail_cost - mean_cost);
+                    const double scale = std::max(1e-6, 2.0 * params_.lambda);
+                    const double risk_gate = scale / (scale + risk_gap);
+                    gamma = 1.0 + (gamma - 1.0) * risk_gate;
+                }
+            }
+        }
     } else if (mode != "soft") {
         ROS_WARN_THROTTLE(5.0,
             "[IM2-MPPI/fusion] unknown fusion_mode '%s' — using soft.", mode.c_str());

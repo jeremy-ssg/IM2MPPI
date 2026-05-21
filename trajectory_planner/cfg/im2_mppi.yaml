@@ -74,6 +74,8 @@ im2_mppi:
   #   adaptive   : same as sharpened, γ = 1 + κ·(log K − H(π))
   #                — high π entropy → no sharpening; low entropy → argmax-like
   #   argmax     : one-hot — picks argmax_m π_m·Σ_i exp(−S_{m,i}/λ)
+  # adaptive normalizes retained joint-mode probabilities after pruning and
+  # gates sharpening back toward soft fusion when tail cost disagreement is high.
   fusion_mode: "adaptive"
   fusion_gamma: 2.0               # used only when fusion_mode == sharpened
   fusion_kappa: 2.0               # used only when fusion_mode == adaptive

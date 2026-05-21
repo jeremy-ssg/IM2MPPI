@@ -102,6 +102,8 @@ struct IM2MPPIParams {
     //
     // The adaptive mode is the IM2-MPPI default: it avoids dangerous
     // mode-averaging when modes disagree without committing prematurely.
+    // After pruning, entropy is computed on the retained-mode conditional
+    // posterior, and high tail-cost disagreement gates sharpening toward soft.
     std::string fusion_mode  = "adaptive";
     double      fusion_gamma = 2.0;     // sharpening exponent for "sharpened"
     double      fusion_kappa = 2.0;     // entropy-adaptive coefficient for "adaptive"
