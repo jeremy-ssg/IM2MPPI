@@ -5,7 +5,7 @@
 #  Batch driver for the intent-uncertain pedestrian-only scene.
 #
 #  It reuses run_all_experiments.sh, but overrides:
-#    * Gazebo world: intent_uncertain/intent_branch_3.world
+#    * Gazebo world: intent_uncertain/intent_branch_cvar_stress.world
 #    * Planner launch files: no-static-map variants
 #    * RViz/Gazebo GUI: enabled by default so the new scene can be inspected
 #
@@ -26,7 +26,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(rospack find trajectory_planner)/scripts"
-WORLD_DEFAULT="$(rospack find uav_simulator)/worlds/intent_uncertain/intent_branch_3.world"
+WORLD_DEFAULT="$(rospack find uav_simulator)/worlds/intent_uncertain/intent_branch_cvar_stress.world"
 
 export WORLD_FILE="${WORLD_FILE:-${WORLD_DEFAULT}}"
 export GAZEBO_GUI="${GAZEBO_GUI:-true}"

@@ -1,0 +1,18 @@
+# Intent-uncertainty stress-scene predictor parameters.
+#
+# Keep the predictor less overconfident than the default demo setting. The
+# stress world has late pedestrian branch choices; if the forward mode becomes
+# too sticky, mean-prediction baselines win for the wrong reason.
+
+# Trajectory prediction
+prediction_size: 30
+prediction_time_step: 0.1 # sec
+min_turning_time: 2.0 # sec
+max_turning_time: 3.0 # sec
+prediction_z_score: 0.674
+
+# Intent probability distribution
+max_front_prob: 0.40
+front_angle: 10.0
+stop_velocity_thereshold: 0.1
+prob_scale_param: 1.5
