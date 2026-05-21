@@ -102,11 +102,15 @@ struct IM2MPPIParams {
     //
     // The adaptive mode is the IM2-MPPI default: it avoids dangerous
     // mode-averaging when modes disagree without committing prematurely.
-    // After pruning, entropy is computed on the retained-mode conditional
-    // posterior, and high tail-cost disagreement gates sharpening toward soft.
+    // Current adaptive fusion keeps a soft posterior and boosts retained
+    // joint modes whose mean rollout cost is worse than the posterior mean.
+    // This preserves low-probability high-consequence modes without committing
+    // to the fully conservative Intent-MPC-style detour.
     std::string fusion_mode  = "adaptive";
     double      fusion_gamma = 2.0;     // sharpening exponent for "sharpened"
     double      fusion_kappa = 2.0;     // entropy-adaptive coefficient for "adaptive"
+    double      fusion_risk_beta = 1.0; // risk boost slope for "adaptive"
+    double      fusion_risk_boost_max = 3.0; // cap for adaptive risk boost
 
     // ── Visualization ────────────────────────────────────────────────────────
     int  viz_num_rollouts     = 60;    // how many rollouts to draw in RViz
@@ -171,6 +175,8 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
     nh.param(ns + "/fusion_mode",  p.fusion_mode,  p.fusion_mode);
     nh.param(ns + "/fusion_gamma", p.fusion_gamma, p.fusion_gamma);
     nh.param(ns + "/fusion_kappa", p.fusion_kappa, p.fusion_kappa);
+    nh.param(ns + "/fusion_risk_beta",      p.fusion_risk_beta,      p.fusion_risk_beta);
+    nh.param(ns + "/fusion_risk_boost_max", p.fusion_risk_boost_max, p.fusion_risk_boost_max);
 
     nh.param(ns + "/viz_num_rollouts",    p.viz_num_rollouts,    p.viz_num_rollouts);
     nh.param(ns + "/viz_color_by_weight", p.viz_color_by_weight, p.viz_color_by_weight);
@@ -205,6 +211,8 @@ inline IM2MPPIParams loadParams(const ros::NodeHandle& nh,
     p.cvar_lambda_r             = std::max(0.0, p.cvar_lambda_r);
     p.fusion_gamma              = std::max(1.0, p.fusion_gamma);
     p.fusion_kappa              = std::max(0.0, p.fusion_kappa);
+    p.fusion_risk_beta          = std::max(0.0, p.fusion_risk_beta);
+    p.fusion_risk_boost_max     = std::max(1.0, p.fusion_risk_boost_max);
 
     return p;
 }

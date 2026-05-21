@@ -71,14 +71,15 @@ im2_mppi:
   # How joint-mode posteriors π_m enter the MPPI free-energy update:
   #   soft       : standard Proposition 1 (use π_m directly)
   #   sharpened  : π_m^γ normalized,  γ = fusion_gamma (fixed)
-  #   adaptive   : same as sharpened, γ = 1 + κ·(log K − H(π))
-  #                — high π entropy → no sharpening; low entropy → argmax-like
+  #   adaptive   : soft posterior with risk-aware boost for high-cost modes
   #   argmax     : one-hot — picks argmax_m π_m·Σ_i exp(−S_{m,i}/λ)
-  # adaptive normalizes retained joint-mode probabilities after pruning and
-  # gates sharpening back toward soft fusion when tail cost disagreement is high.
+  # adaptive keeps a soft posterior and boosts retained joint modes whose
+  # rollout cost is worse than the posterior mean.
   fusion_mode: "adaptive"
   fusion_gamma: 2.0               # used only when fusion_mode == sharpened
-  fusion_kappa: 2.0               # used only when fusion_mode == adaptive
+  fusion_kappa: 2.0               # legacy entropy coefficient (not used by risk-aware adaptive)
+  fusion_risk_beta: 1.0           # adaptive risk boost slope
+  fusion_risk_boost_max: 3.0      # cap for per-mode risk boost
 
   # ── Visualization (RViz) ────────────────────────────────────────────
   viz_num_rollouts: 20        # how many rollouts to draw as line strips

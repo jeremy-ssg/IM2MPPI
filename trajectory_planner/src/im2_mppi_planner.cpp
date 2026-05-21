@@ -963,6 +963,71 @@ std::vector<double> IM2MPPIPlanner::computeFusionWeights(
     }
 
     // ── soft / sharpened / adaptive ──────────────────────────────────────
+    if (mode == "adaptive") {
+        // Risk-aware soft posterior. Start from the retained-mode conditional
+        // posterior and boost high-cost modes instead of sharpening probability.
+        std::vector<double> q(M, 0.0);
+        if (pi_sum < 1e-12) {
+            const double u = 1.0 / static_cast<double>(M);
+            for (int m = 0; m < M; ++m) q[m] = u;
+        } else {
+            for (int m = 0; m < M; ++m) q[m] = pi[m] / pi_sum;
+        }
+
+        if (static_cast<int>(costs_flat.size()) != M * N || N <= 0) {
+            return q;
+        }
+
+        std::vector<double> mode_cost(M, std::numeric_limits<double>::infinity());
+        for (int m = 0; m < M; ++m) {
+            double sum_cost = 0.0;
+            int count = 0;
+            for (int i = 0; i < N; ++i) {
+                const double c = costs_flat[m * N + i];
+                if (!std::isfinite(c)) continue;
+                sum_cost += c;
+                ++count;
+            }
+            if (count > 0) {
+                mode_cost[m] = sum_cost / static_cast<double>(count);
+            }
+        }
+
+        double mean_cost = 0.0;
+        double finite_mass = 0.0;
+        for (int m = 0; m < M; ++m) {
+            if (q[m] <= 0.0 || !std::isfinite(mode_cost[m])) continue;
+            mean_cost += q[m] * mode_cost[m];
+            finite_mass += q[m];
+        }
+        if (finite_mass < 1e-12) {
+            return q;
+        }
+        mean_cost /= finite_mass;
+
+        double sum = 0.0;
+        const double scale = std::max(1e-6, params_.lambda);
+        for (int m = 0; m < M; ++m) {
+            double boost = 1.0;
+            if (q[m] > 0.0) {
+                if (!std::isfinite(mode_cost[m])) {
+                    boost = params_.fusion_risk_boost_max;
+                } else {
+                    const double risk = std::max(0.0, mode_cost[m] - mean_cost);
+                    boost = std::exp(params_.fusion_risk_beta * risk / scale);
+                    boost = std::max(1.0, std::min(params_.fusion_risk_boost_max, boost));
+                }
+            }
+            pi_eff[m] = q[m] * boost;
+            sum += pi_eff[m];
+        }
+        if (sum < 1e-12) {
+            return q;
+        }
+        for (int m = 0; m < M; ++m) pi_eff[m] /= sum;
+        return pi_eff;
+    }
+
     double gamma = 1.0;
     if (mode == "sharpened") {
         gamma = std::max(1.0, params_.fusion_gamma);
