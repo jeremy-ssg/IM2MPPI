@@ -32,7 +32,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.72</velocity>
+        <velocity>0.97</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-10.20 4.30 0.00</waypoint>
@@ -70,7 +70,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.68</velocity>
+        <velocity>0.92</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-10.40 1.50 0.00</waypoint>
@@ -108,7 +108,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.74</velocity>
+        <velocity>1.00</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-9.80 -3.00 0.00</waypoint>
@@ -146,7 +146,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.78</velocity>
+        <velocity>1.05</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-6.20 -10.00 0.00</waypoint>
@@ -184,7 +184,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.70</velocity>
+        <velocity>0.94</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-1.80 -10.50 0.00</waypoint>
@@ -222,7 +222,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.76</velocity>
+        <velocity>1.03</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>6.10 -10.10 0.00</waypoint>
@@ -260,7 +260,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.69</velocity>
+        <velocity>0.93</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>10.40 -1.20 0.00</waypoint>
@@ -298,7 +298,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.73</velocity>
+        <velocity>0.99</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>10.30 3.40 0.00</waypoint>
@@ -336,7 +336,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.67</velocity>
+        <velocity>0.90</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>7.60 9.80 0.00</waypoint>
@@ -374,7 +374,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.67</velocity>
+        <velocity>0.90</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-7.60 9.80 0.00</waypoint>
@@ -412,7 +412,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.62</velocity>
+        <velocity>0.84</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-2.20 10.80 0.00</waypoint>
@@ -450,7 +450,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.62</velocity>
+        <velocity>0.84</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>2.20 10.80 0.00</waypoint>
@@ -488,7 +488,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.50</velocity>
+        <velocity>0.68</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-12.00 -8.00 0.00</waypoint>
@@ -525,7 +525,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.55</velocity>
+        <velocity>0.74</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>12.00 8.00 0.00</waypoint>
@@ -562,7 +562,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.52</velocity>
+        <velocity>0.70</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-11.50 8.80 0.00</waypoint>
@@ -599,7 +599,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.58</velocity>
+        <velocity>0.78</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>11.50 -8.80 0.00</waypoint>
@@ -636,7 +636,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.60</velocity>
+        <velocity>0.81</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-13.00 0.00 0.00</waypoint>
@@ -673,7 +673,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.60</velocity>
+        <velocity>0.81</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>13.00 0.00 0.00</waypoint>
@@ -710,7 +710,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.48</velocity>
+        <velocity>0.65</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-14.00 4.80 0.00</waypoint>
@@ -747,7 +747,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.48</velocity>
+        <velocity>0.65</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>14.00 -4.80 0.00</waypoint>
@@ -784,7 +784,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.54</velocity>
+        <velocity>0.73</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-3.40 -12.20 0.00</waypoint>
@@ -821,7 +821,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.54</velocity>
+        <velocity>0.73</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>3.40 12.20 0.00</waypoint>
@@ -858,7 +858,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.57</velocity>
+        <velocity>0.77</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>-14.00 -5.80 0.00</waypoint>
@@ -895,7 +895,7 @@
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
         <loop>0</loop>
-        <velocity>0.57</velocity>
+        <velocity>0.77</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
           <waypoint>14.00 5.80 0.00</waypoint>

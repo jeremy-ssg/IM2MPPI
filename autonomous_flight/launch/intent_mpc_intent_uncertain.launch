@@ -1,5 +1,7 @@
 <launch>
   <arg name="enable_rviz" default="false"/>
+  <arg name="predictor_param_file"
+       default="$(find autonomous_flight)/cfg/mpc_navigation/predictor_param.yaml"/>
 
   <rosparam file="$(find tracking_controller)/cfg/controller_param.yaml"
             ns="controller"/>
@@ -11,7 +13,7 @@
             ns="/dynamic_map"/>
   <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/dynamic_detector_param.yaml"
             ns="/onboard_detector"/>
-  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/predictor_param_intent_uncertain.yaml"
+  <rosparam file="$(arg predictor_param_file)"
             ns="/dynamic_predictor"/>
 
   <node pkg="tracking_controller"

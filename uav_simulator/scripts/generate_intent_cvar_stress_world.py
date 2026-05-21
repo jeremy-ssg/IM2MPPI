@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "worlds" / "intent_uncertain" / "intent_branch_cvar_stress.world"
+STRESS_VELOCITY_SCALE = 1.35
 
 
 def fmt_pt(pt):
@@ -20,6 +21,7 @@ def fmt_pt(pt):
 
 def person_block(name, velocity, waypoints, choices, note):
     model_name = name if name.startswith("person") else f"person_{name}"
+    velocity *= STRESS_VELOCITY_SCALE
     lines = [
         f"    <!-- {note} -->",
         f'    <model name="{model_name}_0.5_0.5_1.8">',
