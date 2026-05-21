@@ -170,8 +170,20 @@ run_one() {
     fi
 
     # 4. Launch the simulator (hard-timeout the launch process itself).
+    #    OBS_BRANCH_SEED feeds the obstaclePathPlugin's branch-point sampler:
+    #    it XOR'd with hash(model_name) seeds the per-pedestrian std::mt19937
+    #    so the SAME seed across all configs in one batch sees the SAME
+    #    obstacle motion (fair head-to-head) while different SEEDs across
+    #    the batch exercise different branch outcomes (coverage).
+    #    An optional WORLD_FILE override lets caller pick the intent-uncertain
+    #    world without touching start.launch's hard-coded default.
+    local LAUNCH_EXTRA=""
+    if [[ -n "${WORLD_FILE:-}" ]]; then
+        LAUNCH_EXTRA="world_name:=${WORLD_FILE}"
+    fi
+    OBS_BRANCH_SEED="${SEED}" \
     timeout --kill-after=10 $((DURATION + 90)) \
-        roslaunch uav_simulator start.launch \
+        roslaunch uav_simulator start.launch ${LAUNCH_EXTRA} \
         > "${LOG_DIR}/${TAG}_sim.log" 2>&1 &
     SIM_PID=$!
     sleep 10

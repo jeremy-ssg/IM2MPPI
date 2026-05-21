@@ -64,7 +64,7 @@
 
   <!-- <arg name="world_name" value="$(find uav_simulator)/worlds/room/room_empty.world" /> -->
   <!-- <arg name="world_name" value="$(find uav_simulator)/worlds/room/room_static.world" /> -->
-  <arg name="world_name" value="$(find uav_simulator)/worlds/generated_env/generated_env.world" />
+  <arg name="world_name" default="$(find uav_simulator)/worlds/generated_env/generated_env.world" />
   
   <!-- launch the custom world -->
   <include file="$(find gazebo_ros)/launch/empty_world.launch" >

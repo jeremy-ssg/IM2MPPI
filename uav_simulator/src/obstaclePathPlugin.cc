@@ -1,7 +1,33 @@
 #include <uav_simulator/obstaclePathPlugin.hh>
 
+#include <cstdlib>      // std::getenv, std::strtoul
+#include <functional>   // std::hash
+#include <random>       // std::mt19937, std::discrete_distribution
+#include <string>
+#include <vector>
+
 namespace gazebo
 {
+namespace {
+
+// Pick a per-model seed: env var OBS_BRANCH_SEED if set, mixed with a hash of
+// the model name so multiple branching pedestrians in the same launch get
+// DIFFERENT random choices (otherwise they'd all pick branch index 0).
+// Falls back to std::random_device when the env var is not present.
+unsigned int makeBranchSeed(const std::string& modelName)
+{
+    const char* env = std::getenv("OBS_BRANCH_SEED");
+    unsigned int base;
+    if (env && *env) {
+        base = static_cast<unsigned int>(std::strtoul(env, nullptr, 10));
+    } else {
+        base = std::random_device{}();
+    }
+    return base ^ static_cast<unsigned int>(std::hash<std::string>{}(modelName));
+}
+
+}  // namespace
+
   void DynamicObstacle::Load(physics::ModelPtr _parent, sdf::ElementPtr _sdf){
       // Store the pointer to the model
       this->model = _parent;
@@ -45,14 +71,88 @@ namespace gazebo
         this->sinWave = false;
       }
 
-      // read path:
+      // ─── Read path (now supports <branch_point> for intent uncertainty) ───
+      //
+      // Legacy path:
+      //   <path>
+      //     <waypoint>x y z</waypoint>
+      //     <waypoint>x y z</waypoint>
+      //   </path>
+      //
+      // Branching path:
+      //   <path>
+      //     <waypoint>x y z</waypoint>            <!-- pre-branch leg     -->
+      //     <branch_point>
+      //       <choice prob="0.6">                 <!-- 60%-probability    -->
+      //         <waypoint>x y z</waypoint>
+      //         <waypoint>x y z</waypoint>
+      //       </choice>
+      //       <choice prob="0.4">                 <!-- 40%-probability    -->
+      //         <waypoint>x y z</waypoint>
+      //       </choice>
+      //     </branch_point>
+      //     <waypoint>x y z</waypoint>            <!-- post-branch leg    -->
+      //   </path>
+      //
+      // At Load() time we sample ONE <choice> per <branch_point> using a
+      // seed derived from OBS_BRANCH_SEED ⊕ hash(model name).  Each Gazebo
+      // launch fires Load() once, so the obstacle motion is determined for
+      // the rest of that run.  Over N seeds (run_all_experiments.sh sweeps
+      // OBS_BRANCH_SEED), the obstacle exercises the full intent
+      // distribution.  The drone never knows which choice was picked → the
+      // predictor's intent classifier sees genuine multi-modality.
       this->path.clear();
       if (this->sdf->HasElement("path")){
-        sdf::ElementPtr waypointElem = _sdf->GetElement("path")->GetElement("waypoint");
-        while (waypointElem){
-          ignition::math::Vector3d wp = waypointElem->Get<ignition::math::Vector3d>();
-          this->path.push_back(wp);
-          waypointElem = waypointElem->GetNextElement("waypoint");
+        std::mt19937 rng(makeBranchSeed(this->model->GetName()));
+        sdf::ElementPtr pathElem = _sdf->GetElement("path");
+
+        // Walk all direct children of <path> in document order so that
+        // <waypoint> and <branch_point> elements can be interleaved.
+        sdf::ElementPtr child = pathElem->GetFirstElement();
+        while (child){
+          const std::string name = child->GetName();
+          if (name == "waypoint"){
+            this->path.push_back(child->Get<ignition::math::Vector3d>());
+          }
+          else if (name == "branch_point"){
+            // Collect every <choice> under this branch point.
+            std::vector<double> probs;
+            std::vector<std::vector<ignition::math::Vector3d>> choiceWps;
+            sdf::ElementPtr choiceElem = child->HasElement("choice")
+                                         ? child->GetElement("choice")
+                                         : sdf::ElementPtr();
+            while (choiceElem){
+              double p = 1.0;
+              if (choiceElem->HasAttribute("prob")) {
+                p = choiceElem->Get<double>("prob");
+              } else if (choiceElem->HasElement("prob")) {
+                p = choiceElem->Get<double>("prob");
+              }
+              std::vector<ignition::math::Vector3d> wps;
+              if (choiceElem->HasElement("waypoint")){
+                sdf::ElementPtr wp = choiceElem->GetElement("waypoint");
+                while (wp){
+                  wps.push_back(wp->Get<ignition::math::Vector3d>());
+                  wp = wp->GetNextElement("waypoint");
+                }
+              }
+              probs.push_back(std::max(0.0, p));
+              choiceWps.push_back(std::move(wps));
+              choiceElem = choiceElem->GetNextElement("choice");
+            }
+            // Sample one choice (or skip the whole branch_point if empty).
+            if (!probs.empty()){
+              std::discrete_distribution<size_t> dist(probs.begin(), probs.end());
+              const size_t pick = dist(rng);
+              gzdbg << "[" << this->model->GetName()
+                    << "] branch_point sampled choice " << pick
+                    << " (" << probs.size() << " options)" << std::endl;
+              for (const auto& wp : choiceWps[pick]){
+                this->path.push_back(wp);
+              }
+            }
+          }
+          child = child->GetNextElement();
         }
       }
 
