@@ -5,6 +5,10 @@
     Dynamic pedestrian-only scene with 25 branching pedestrians.  The planner-
     side static prebuilt map is disabled by the intent-uncertain launch files.
 
+    The quadcopter starts at (0, 7).  Pedestrian paths are kept outside a
+    3.5 m start exclusion radius so launch/takeoff collisions do not
+    dominate the benchmark before the planner has a meaningful decision to make.
+
     Every pedestrian has a branch_point with multiple possible future routes.
     obstaclePathPlugin samples one branch per pedestrian at Gazebo load time
     using OBS_BRANCH_SEED mixed with the model name hash.  Thus each seed gives
@@ -13,7 +17,7 @@
   -->
   <world name='default'>
 
-    <!-- Pedestrian 1: vertical crossing with straight/inside/outside intents. -->
+    <!-- Pedestrian 1: side vertical crossing with straight/outer/far-outer intents.  Start-zone clearance >= 8.60 m. -->
     <model name="person01_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -31,27 +35,27 @@
         <velocity>0.45</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>-6.40 -8.40 0.00</waypoint>
-          <waypoint>-6.40 -3.40 0.00</waypoint>
-          <waypoint>-6.40 0.00 0.00</waypoint>
+          <waypoint>-8.60 -8.60 0.00</waypoint>
+          <waypoint>-8.60 -3.50 0.00</waypoint>
+          <waypoint>-8.60 0.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>-6.40 8.20 0.00</waypoint>
+              <waypoint>-8.60 8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-4.60 0.60 0.00</waypoint>
-              <waypoint>-4.60 8.20 0.00</waypoint>
+              <waypoint>-10.00 0.80 0.00</waypoint>
+              <waypoint>-10.00 8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-8.20 -0.60 0.00</waypoint>
-              <waypoint>-8.20 8.20 0.00</waypoint>
+              <waypoint>-11.20 -0.80 0.00</waypoint>
+              <waypoint>-11.20 8.30 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 2: vertical crossing with straight/inside/outside intents. -->
+    <!-- Pedestrian 2: side vertical crossing with straight/outer/far-outer intents.  Start-zone clearance >= 7.40 m. -->
     <model name="person02_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -69,27 +73,27 @@
         <velocity>0.52</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>-5.10 8.75 0.00</waypoint>
-          <waypoint>-5.10 3.40 0.00</waypoint>
-          <waypoint>-5.10 0.00 0.00</waypoint>
+          <waypoint>-7.40 9.05 0.00</waypoint>
+          <waypoint>-7.40 3.50 0.00</waypoint>
+          <waypoint>-7.40 0.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>-5.10 -8.20 0.00</waypoint>
+              <waypoint>-7.40 -8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-3.30 -0.60 0.00</waypoint>
-              <waypoint>-3.30 -8.20 0.00</waypoint>
+              <waypoint>-8.80 -0.80 0.00</waypoint>
+              <waypoint>-8.80 -8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-6.90 0.60 0.00</waypoint>
-              <waypoint>-6.90 -8.20 0.00</waypoint>
+              <waypoint>-10.00 0.80 0.00</waypoint>
+              <waypoint>-10.00 -8.30 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 3: vertical crossing with straight/inside/outside intents. -->
+    <!-- Pedestrian 3: side vertical crossing with straight/outer/far-outer intents.  Start-zone clearance >= 6.20 m. -->
     <model name="person03_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -107,27 +111,27 @@
         <velocity>0.59</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>-3.80 -9.10 0.00</waypoint>
-          <waypoint>-3.80 -3.40 0.00</waypoint>
-          <waypoint>-3.80 0.00 0.00</waypoint>
+          <waypoint>-6.20 -9.10 0.00</waypoint>
+          <waypoint>-6.20 -3.50 0.00</waypoint>
+          <waypoint>-6.20 0.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>-3.80 8.20 0.00</waypoint>
+              <waypoint>-6.20 8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-2.00 0.60 0.00</waypoint>
-              <waypoint>-2.00 8.20 0.00</waypoint>
+              <waypoint>-7.60 0.80 0.00</waypoint>
+              <waypoint>-7.60 8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-5.60 -0.60 0.00</waypoint>
-              <waypoint>-5.60 8.20 0.00</waypoint>
+              <waypoint>-8.80 -0.80 0.00</waypoint>
+              <waypoint>-8.80 8.30 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 4: vertical crossing with straight/inside/outside intents. -->
+    <!-- Pedestrian 4: side vertical crossing with straight/outer/far-outer intents.  Start-zone clearance >= 5.00 m. -->
     <model name="person04_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -145,27 +149,27 @@
         <velocity>0.66</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>-2.50 8.40 0.00</waypoint>
-          <waypoint>-2.50 3.40 0.00</waypoint>
-          <waypoint>-2.50 0.00 0.00</waypoint>
+          <waypoint>-5.00 8.80 0.00</waypoint>
+          <waypoint>-5.00 3.50 0.00</waypoint>
+          <waypoint>-5.00 0.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>-2.50 -8.20 0.00</waypoint>
+              <waypoint>-5.00 -8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-0.70 -0.60 0.00</waypoint>
-              <waypoint>-0.70 -8.20 0.00</waypoint>
+              <waypoint>-6.40 -0.80 0.00</waypoint>
+              <waypoint>-6.40 -8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-4.30 0.60 0.00</waypoint>
-              <waypoint>-4.30 -8.20 0.00</waypoint>
+              <waypoint>-7.60 0.80 0.00</waypoint>
+              <waypoint>-7.60 -8.30 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 5: vertical crossing with straight/inside/outside intents. -->
+    <!-- Pedestrian 5: side vertical crossing with straight/outer/far-outer intents.  Start-zone clearance >= 3.80 m. -->
     <model name="person05_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -183,27 +187,27 @@
         <velocity>0.73</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>-1.20 -8.75 0.00</waypoint>
-          <waypoint>-1.20 -3.40 0.00</waypoint>
-          <waypoint>-1.20 0.00 0.00</waypoint>
+          <waypoint>-3.80 -8.85 0.00</waypoint>
+          <waypoint>-3.80 -3.50 0.00</waypoint>
+          <waypoint>-3.80 0.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>-1.20 8.20 0.00</waypoint>
+              <waypoint>-3.80 8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>0.60 0.60 0.00</waypoint>
-              <waypoint>0.60 8.20 0.00</waypoint>
+              <waypoint>-5.20 0.80 0.00</waypoint>
+              <waypoint>-5.20 8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-3.00 -0.60 0.00</waypoint>
-              <waypoint>-3.00 8.20 0.00</waypoint>
+              <waypoint>-6.40 -0.80 0.00</waypoint>
+              <waypoint>-6.40 8.30 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 6: vertical crossing with straight/inside/outside intents. -->
+    <!-- Pedestrian 6: side vertical crossing with straight/outer/far-outer intents.  Start-zone clearance >= 3.80 m. -->
     <model name="person06_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -221,27 +225,27 @@
         <velocity>0.45</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>1.20 9.10 0.00</waypoint>
-          <waypoint>1.20 3.40 0.00</waypoint>
-          <waypoint>1.20 0.00 0.00</waypoint>
+          <waypoint>3.80 9.30 0.00</waypoint>
+          <waypoint>3.80 3.50 0.00</waypoint>
+          <waypoint>3.80 0.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>1.20 -8.20 0.00</waypoint>
+              <waypoint>3.80 -8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-0.60 -0.60 0.00</waypoint>
-              <waypoint>-0.60 -8.20 0.00</waypoint>
+              <waypoint>5.20 -0.80 0.00</waypoint>
+              <waypoint>5.20 -8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>3.00 0.60 0.00</waypoint>
-              <waypoint>3.00 -8.20 0.00</waypoint>
+              <waypoint>6.40 0.80 0.00</waypoint>
+              <waypoint>6.40 -8.30 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 7: vertical crossing with straight/inside/outside intents. -->
+    <!-- Pedestrian 7: side vertical crossing with straight/outer/far-outer intents.  Start-zone clearance >= 5.00 m. -->
     <model name="person07_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -259,27 +263,27 @@
         <velocity>0.52</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>2.50 -8.40 0.00</waypoint>
-          <waypoint>2.50 -3.40 0.00</waypoint>
-          <waypoint>2.50 0.00 0.00</waypoint>
+          <waypoint>5.00 -8.60 0.00</waypoint>
+          <waypoint>5.00 -3.50 0.00</waypoint>
+          <waypoint>5.00 0.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>2.50 8.20 0.00</waypoint>
+              <waypoint>5.00 8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>0.70 0.60 0.00</waypoint>
-              <waypoint>0.70 8.20 0.00</waypoint>
+              <waypoint>6.40 0.80 0.00</waypoint>
+              <waypoint>6.40 8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>4.30 -0.60 0.00</waypoint>
-              <waypoint>4.30 8.20 0.00</waypoint>
+              <waypoint>7.60 -0.80 0.00</waypoint>
+              <waypoint>7.60 8.30 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 8: vertical crossing with straight/inside/outside intents. -->
+    <!-- Pedestrian 8: side vertical crossing with straight/outer/far-outer intents.  Start-zone clearance >= 6.20 m. -->
     <model name="person08_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -297,27 +301,27 @@
         <velocity>0.59</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>3.80 8.75 0.00</waypoint>
-          <waypoint>3.80 3.40 0.00</waypoint>
-          <waypoint>3.80 0.00 0.00</waypoint>
+          <waypoint>6.20 9.05 0.00</waypoint>
+          <waypoint>6.20 3.50 0.00</waypoint>
+          <waypoint>6.20 0.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>3.80 -8.20 0.00</waypoint>
+              <waypoint>6.20 -8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>2.00 -0.60 0.00</waypoint>
-              <waypoint>2.00 -8.20 0.00</waypoint>
+              <waypoint>7.60 -0.80 0.00</waypoint>
+              <waypoint>7.60 -8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>5.60 0.60 0.00</waypoint>
-              <waypoint>5.60 -8.20 0.00</waypoint>
+              <waypoint>8.80 0.80 0.00</waypoint>
+              <waypoint>8.80 -8.30 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 9: vertical crossing with straight/inside/outside intents. -->
+    <!-- Pedestrian 9: side vertical crossing with straight/outer/far-outer intents.  Start-zone clearance >= 7.40 m. -->
     <model name="person09_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -335,27 +339,27 @@
         <velocity>0.66</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>5.10 -9.10 0.00</waypoint>
-          <waypoint>5.10 -3.40 0.00</waypoint>
-          <waypoint>5.10 0.00 0.00</waypoint>
+          <waypoint>7.40 -9.10 0.00</waypoint>
+          <waypoint>7.40 -3.50 0.00</waypoint>
+          <waypoint>7.40 0.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>5.10 8.20 0.00</waypoint>
+              <waypoint>7.40 8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>3.30 0.60 0.00</waypoint>
-              <waypoint>3.30 8.20 0.00</waypoint>
+              <waypoint>8.80 0.80 0.00</waypoint>
+              <waypoint>8.80 8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>6.90 -0.60 0.00</waypoint>
-              <waypoint>6.90 8.20 0.00</waypoint>
+              <waypoint>10.00 -0.80 0.00</waypoint>
+              <waypoint>10.00 8.30 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 10: vertical crossing with straight/inside/outside intents. -->
+    <!-- Pedestrian 10: side vertical crossing with straight/outer/far-outer intents.  Start-zone clearance >= 8.60 m. -->
     <model name="person10_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -373,27 +377,27 @@
         <velocity>0.73</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>6.40 8.40 0.00</waypoint>
-          <waypoint>6.40 3.40 0.00</waypoint>
-          <waypoint>6.40 0.00 0.00</waypoint>
+          <waypoint>8.60 8.80 0.00</waypoint>
+          <waypoint>8.60 3.50 0.00</waypoint>
+          <waypoint>8.60 0.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>6.40 -8.20 0.00</waypoint>
+              <waypoint>8.60 -8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>4.60 -0.60 0.00</waypoint>
-              <waypoint>4.60 -8.20 0.00</waypoint>
+              <waypoint>10.00 -0.80 0.00</waypoint>
+              <waypoint>10.00 -8.30 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>8.20 0.60 0.00</waypoint>
-              <waypoint>8.20 -8.20 0.00</waypoint>
+              <waypoint>11.20 0.80 0.00</waypoint>
+              <waypoint>11.20 -8.30 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 11: horizontal crossing with straight/upper/lower intents. -->
+    <!-- Pedestrian 11: lower horizontal crossing with straight/lane-change intents.  Start-zone clearance >= 14.02 m. -->
     <model name="person11_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -411,27 +415,27 @@
         <velocity>0.45</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>-8.40 -6.40 0.00</waypoint>
-          <waypoint>-3.40 -6.40 0.00</waypoint>
-          <waypoint>0.00 -6.40 0.00</waypoint>
+          <waypoint>-8.70 -8.20 0.00</waypoint>
+          <waypoint>-3.50 -8.20 0.00</waypoint>
+          <waypoint>0.00 -8.20 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>8.20 -6.40 0.00</waypoint>
+              <waypoint>8.30 -8.20 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>0.60 -4.60 0.00</waypoint>
-              <waypoint>8.20 -4.60 0.00</waypoint>
+              <waypoint>0.80 -7.00 0.00</waypoint>
+              <waypoint>8.30 -7.00 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-0.60 -8.20 0.00</waypoint>
-              <waypoint>8.20 -8.20 0.00</waypoint>
+              <waypoint>-0.80 -9.40 0.00</waypoint>
+              <waypoint>8.30 -9.40 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 12: horizontal crossing with straight/upper/lower intents. -->
+    <!-- Pedestrian 12: lower horizontal crossing with straight/lane-change intents.  Start-zone clearance >= 12.82 m. -->
     <model name="person12_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -449,27 +453,27 @@
         <velocity>0.52</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>8.75 -5.10 0.00</waypoint>
-          <waypoint>3.40 -5.10 0.00</waypoint>
-          <waypoint>0.00 -5.10 0.00</waypoint>
+          <waypoint>8.95 -7.00 0.00</waypoint>
+          <waypoint>3.50 -7.00 0.00</waypoint>
+          <waypoint>0.00 -7.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>-8.20 -5.10 0.00</waypoint>
+              <waypoint>-8.30 -7.00 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-0.60 -3.30 0.00</waypoint>
-              <waypoint>-8.20 -3.30 0.00</waypoint>
+              <waypoint>-0.80 -5.80 0.00</waypoint>
+              <waypoint>-8.30 -5.80 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>0.60 -6.90 0.00</waypoint>
-              <waypoint>-8.20 -6.90 0.00</waypoint>
+              <waypoint>0.80 -8.20 0.00</waypoint>
+              <waypoint>-8.30 -8.20 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 13: horizontal crossing with straight/upper/lower intents. -->
+    <!-- Pedestrian 13: lower horizontal crossing with straight/lane-change intents.  Start-zone clearance >= 11.63 m. -->
     <model name="person13_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -487,27 +491,27 @@
         <velocity>0.59</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>-9.10 -3.80 0.00</waypoint>
-          <waypoint>-3.40 -3.80 0.00</waypoint>
-          <waypoint>0.00 -3.80 0.00</waypoint>
+          <waypoint>-9.20 -5.80 0.00</waypoint>
+          <waypoint>-3.50 -5.80 0.00</waypoint>
+          <waypoint>0.00 -5.80 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>8.20 -3.80 0.00</waypoint>
+              <waypoint>8.30 -5.80 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>0.60 -2.00 0.00</waypoint>
-              <waypoint>8.20 -2.00 0.00</waypoint>
+              <waypoint>0.80 -4.60 0.00</waypoint>
+              <waypoint>8.30 -4.60 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-0.60 -5.60 0.00</waypoint>
-              <waypoint>8.20 -5.60 0.00</waypoint>
+              <waypoint>-0.80 -7.00 0.00</waypoint>
+              <waypoint>8.30 -7.00 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 14: horizontal crossing with straight/upper/lower intents. -->
+    <!-- Pedestrian 14: lower horizontal crossing with straight/lane-change intents.  Start-zone clearance >= 10.43 m. -->
     <model name="person14_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -525,27 +529,27 @@
         <velocity>0.66</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>8.40 -2.50 0.00</waypoint>
-          <waypoint>3.40 -2.50 0.00</waypoint>
-          <waypoint>0.00 -2.50 0.00</waypoint>
+          <waypoint>8.70 -4.60 0.00</waypoint>
+          <waypoint>3.50 -4.60 0.00</waypoint>
+          <waypoint>0.00 -4.60 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>-8.20 -2.50 0.00</waypoint>
+              <waypoint>-8.30 -4.60 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-0.60 -0.70 0.00</waypoint>
-              <waypoint>-8.20 -0.70 0.00</waypoint>
+              <waypoint>-0.80 -3.40 0.00</waypoint>
+              <waypoint>-8.30 -3.40 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>0.60 -4.30 0.00</waypoint>
-              <waypoint>-8.20 -4.30 0.00</waypoint>
+              <waypoint>0.80 -5.80 0.00</waypoint>
+              <waypoint>-8.30 -5.80 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 15: horizontal crossing with straight/upper/lower intents. -->
+    <!-- Pedestrian 15: lower horizontal crossing with straight/lane-change intents.  Start-zone clearance >= 9.23 m. -->
     <model name="person15_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -563,27 +567,27 @@
         <velocity>0.73</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>-8.75 -1.20 0.00</waypoint>
-          <waypoint>-3.40 -1.20 0.00</waypoint>
-          <waypoint>0.00 -1.20 0.00</waypoint>
+          <waypoint>-8.95 -3.40 0.00</waypoint>
+          <waypoint>-3.50 -3.40 0.00</waypoint>
+          <waypoint>0.00 -3.40 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>8.20 -1.20 0.00</waypoint>
+              <waypoint>8.30 -3.40 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>0.60 0.60 0.00</waypoint>
-              <waypoint>8.20 0.60 0.00</waypoint>
+              <waypoint>0.80 -2.20 0.00</waypoint>
+              <waypoint>8.30 -2.20 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-0.60 -3.00 0.00</waypoint>
-              <waypoint>8.20 -3.00 0.00</waypoint>
+              <waypoint>-0.80 -4.60 0.00</waypoint>
+              <waypoint>8.30 -4.60 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 16: horizontal crossing with straight/upper/lower intents. -->
+    <!-- Pedestrian 16: lower horizontal crossing with straight/lane-change intents.  Start-zone clearance >= 8.04 m. -->
     <model name="person16_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -601,27 +605,27 @@
         <velocity>0.45</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>9.10 1.20 0.00</waypoint>
-          <waypoint>3.40 1.20 0.00</waypoint>
-          <waypoint>0.00 1.20 0.00</waypoint>
+          <waypoint>9.20 -2.20 0.00</waypoint>
+          <waypoint>3.50 -2.20 0.00</waypoint>
+          <waypoint>0.00 -2.20 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>-8.20 1.20 0.00</waypoint>
+              <waypoint>-8.30 -2.20 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-0.60 -0.60 0.00</waypoint>
-              <waypoint>-8.20 -0.60 0.00</waypoint>
+              <waypoint>-0.80 -1.00 0.00</waypoint>
+              <waypoint>-8.30 -1.00 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>0.60 3.00 0.00</waypoint>
-              <waypoint>-8.20 3.00 0.00</waypoint>
+              <waypoint>0.80 -3.40 0.00</waypoint>
+              <waypoint>-8.30 -3.40 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 17: horizontal crossing with straight/upper/lower intents. -->
+    <!-- Pedestrian 17: lower horizontal crossing with straight/lane-change intents.  Start-zone clearance >= 6.85 m. -->
     <model name="person17_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -639,27 +643,27 @@
         <velocity>0.52</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>-8.40 2.50 0.00</waypoint>
-          <waypoint>-3.40 2.50 0.00</waypoint>
-          <waypoint>0.00 2.50 0.00</waypoint>
+          <waypoint>-8.70 -1.00 0.00</waypoint>
+          <waypoint>-3.50 -1.00 0.00</waypoint>
+          <waypoint>0.00 -1.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>8.20 2.50 0.00</waypoint>
+              <waypoint>8.30 -1.00 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>0.60 0.70 0.00</waypoint>
-              <waypoint>8.20 0.70 0.00</waypoint>
+              <waypoint>0.80 0.20 0.00</waypoint>
+              <waypoint>8.30 0.20 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-0.60 4.30 0.00</waypoint>
-              <waypoint>8.20 4.30 0.00</waypoint>
+              <waypoint>-0.80 -2.20 0.00</waypoint>
+              <waypoint>8.30 -2.20 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 18: horizontal crossing with straight/upper/lower intents. -->
+    <!-- Pedestrian 18: lower horizontal crossing with straight/lane-change intents.  Start-zone clearance >= 6.00 m. -->
     <model name="person18_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -677,27 +681,27 @@
         <velocity>0.59</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>8.75 3.80 0.00</waypoint>
-          <waypoint>3.40 3.80 0.00</waypoint>
-          <waypoint>0.00 3.80 0.00</waypoint>
+          <waypoint>8.95 1.00 0.00</waypoint>
+          <waypoint>3.50 1.00 0.00</waypoint>
+          <waypoint>0.00 1.00 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>-8.20 3.80 0.00</waypoint>
+              <waypoint>-8.30 1.00 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-0.60 2.00 0.00</waypoint>
-              <waypoint>-8.20 2.00 0.00</waypoint>
+              <waypoint>-0.80 -0.40 0.00</waypoint>
+              <waypoint>-8.30 -0.40 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>0.60 5.60 0.00</waypoint>
-              <waypoint>-8.20 5.60 0.00</waypoint>
+              <waypoint>0.80 -1.60 0.00</waypoint>
+              <waypoint>-8.30 -1.60 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 19: horizontal crossing with straight/upper/lower intents. -->
+    <!-- Pedestrian 19: lower horizontal crossing with straight/lane-change intents.  Start-zone clearance >= 4.80 m. -->
     <model name="person19_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -715,27 +719,27 @@
         <velocity>0.66</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>-9.10 5.10 0.00</waypoint>
-          <waypoint>-3.40 5.10 0.00</waypoint>
-          <waypoint>0.00 5.10 0.00</waypoint>
+          <waypoint>-9.20 2.20 0.00</waypoint>
+          <waypoint>-3.50 2.20 0.00</waypoint>
+          <waypoint>0.00 2.20 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>8.20 5.10 0.00</waypoint>
+              <waypoint>8.30 2.20 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>0.60 3.30 0.00</waypoint>
-              <waypoint>8.20 3.30 0.00</waypoint>
+              <waypoint>0.80 0.80 0.00</waypoint>
+              <waypoint>8.30 0.80 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-0.60 6.90 0.00</waypoint>
-              <waypoint>8.20 6.90 0.00</waypoint>
+              <waypoint>-0.80 -0.40 0.00</waypoint>
+              <waypoint>8.30 -0.40 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 20: horizontal crossing with straight/upper/lower intents. -->
+    <!-- Pedestrian 20: lower horizontal crossing with straight/lane-change intents.  Start-zone clearance >= 3.60 m. -->
     <model name="person20_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -753,27 +757,27 @@
         <velocity>0.73</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>8.40 6.40 0.00</waypoint>
-          <waypoint>3.40 6.40 0.00</waypoint>
-          <waypoint>0.00 6.40 0.00</waypoint>
+          <waypoint>8.70 3.40 0.00</waypoint>
+          <waypoint>3.50 3.40 0.00</waypoint>
+          <waypoint>0.00 3.40 0.00</waypoint>
           <branch_point>
             <choice prob="0.50">
-              <waypoint>-8.20 6.40 0.00</waypoint>
+              <waypoint>-8.30 3.40 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>-0.60 4.60 0.00</waypoint>
-              <waypoint>-8.20 4.60 0.00</waypoint>
+              <waypoint>-0.80 2.00 0.00</waypoint>
+              <waypoint>-8.30 2.00 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>0.60 8.20 0.00</waypoint>
-              <waypoint>-8.20 8.20 0.00</waypoint>
+              <waypoint>0.80 0.80 0.00</waypoint>
+              <waypoint>-8.30 0.80 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 21: diagonal approach with cross/left/right intents. -->
+    <!-- Pedestrian 21: diagonal encounter outside the start exclusion zone.  Start-zone clearance >= 6.80 m. -->
     <model name="person21_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -791,28 +795,28 @@
         <velocity>0.45</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>8.72 2.23 0.00</waypoint>
-          <waypoint>5.23 1.34 0.00</waypoint>
-          <waypoint>2.13 0.54 0.00</waypoint>
+          <waypoint>8.80 2.40 0.00</waypoint>
+          <waypoint>5.20 1.40 0.00</waypoint>
+          <waypoint>2.00 0.50 0.00</waypoint>
           <branch_point>
             <choice prob="0.45">
-              <waypoint>-5.23 -1.34 0.00</waypoint>
-              <waypoint>-8.72 -2.23 0.00</waypoint>
+              <waypoint>-5.20 -1.40 0.00</waypoint>
+              <waypoint>-8.80 -2.40 0.00</waypoint>
             </choice>
             <choice prob="0.30">
-              <waypoint>-1.53 6.01 0.00</waypoint>
-              <waypoint>-2.08 8.14 0.00</waypoint>
+              <waypoint>-1.80 -5.80 0.00</waypoint>
+              <waypoint>-2.70 -8.00 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>1.53 -6.01 0.00</waypoint>
-              <waypoint>2.08 -8.14 0.00</waypoint>
+              <waypoint>5.80 -3.20 0.00</waypoint>
+              <waypoint>8.00 -4.50 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 22: diagonal approach with cross/left/right intents. -->
+    <!-- Pedestrian 22: diagonal encounter outside the start exclusion zone.  Start-zone clearance >= 4.77 m. -->
     <model name="person22_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -830,28 +834,28 @@
         <velocity>0.52</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>6.07 7.31 0.00</waypoint>
-          <waypoint>3.45 4.16 0.00</waypoint>
-          <waypoint>1.40 1.69 0.00</waypoint>
+          <waypoint>6.50 -7.00 0.00</waypoint>
+          <waypoint>3.90 -4.20 0.00</waypoint>
+          <waypoint>1.40 -1.60 0.00</waypoint>
           <branch_point>
             <choice prob="0.45">
-              <waypoint>-3.45 -4.16 0.00</waypoint>
-              <waypoint>-5.75 -6.93 0.00</waypoint>
+              <waypoint>-3.90 4.20 0.00</waypoint>
+              <waypoint>-6.50 7.00 0.00</waypoint>
             </choice>
             <choice prob="0.30">
-              <waypoint>-4.77 3.96 0.00</waypoint>
-              <waypoint>-6.47 5.36 0.00</waypoint>
+              <waypoint>-5.80 -3.00 0.00</waypoint>
+              <waypoint>-8.00 -4.00 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>4.77 -3.96 0.00</waypoint>
-              <waypoint>6.47 -5.36 0.00</waypoint>
+              <waypoint>2.20 -6.20 0.00</waypoint>
+              <waypoint>3.00 -8.20 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 23: diagonal approach with cross/left/right intents. -->
+    <!-- Pedestrian 23: diagonal encounter outside the start exclusion zone.  Start-zone clearance >= 6.80 m. -->
     <model name="person23_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -869,28 +873,28 @@
         <velocity>0.59</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>0.58 8.98 0.00</waypoint>
-          <waypoint>0.35 5.39 0.00</waypoint>
-          <waypoint>0.14 2.20 0.00</waypoint>
+          <waypoint>-8.80 2.40 0.00</waypoint>
+          <waypoint>-5.20 1.40 0.00</waypoint>
+          <waypoint>-2.00 0.50 0.00</waypoint>
           <branch_point>
             <choice prob="0.45">
-              <waypoint>-0.35 -5.39 0.00</waypoint>
-              <waypoint>-0.58 -8.98 0.00</waypoint>
+              <waypoint>5.20 -1.40 0.00</waypoint>
+              <waypoint>8.80 -2.40 0.00</waypoint>
             </choice>
             <choice prob="0.30">
-              <waypoint>-6.19 0.40 0.00</waypoint>
-              <waypoint>-8.38 0.54 0.00</waypoint>
+              <waypoint>-5.80 -3.20 0.00</waypoint>
+              <waypoint>-8.00 -4.50 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>6.19 -0.40 0.00</waypoint>
-              <waypoint>8.38 -0.54 0.00</waypoint>
+              <waypoint>1.80 -5.80 0.00</waypoint>
+              <waypoint>2.70 -8.00 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 24: diagonal approach with cross/left/right intents. -->
+    <!-- Pedestrian 24: diagonal encounter outside the start exclusion zone.  Start-zone clearance >= 4.77 m. -->
     <model name="person24_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -908,28 +912,28 @@
         <velocity>0.66</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>-5.08 8.03 0.00</waypoint>
-          <waypoint>-2.89 4.56 0.00</waypoint>
-          <waypoint>-1.18 1.86 0.00</waypoint>
+          <waypoint>-6.50 -7.00 0.00</waypoint>
+          <waypoint>-3.90 -4.20 0.00</waypoint>
+          <waypoint>-1.40 -1.60 0.00</waypoint>
           <branch_point>
             <choice prob="0.45">
-              <waypoint>2.89 -4.56 0.00</waypoint>
-              <waypoint>4.81 -7.61 0.00</waypoint>
+              <waypoint>3.90 4.20 0.00</waypoint>
+              <waypoint>6.50 7.00 0.00</waypoint>
             </choice>
             <choice prob="0.30">
-              <waypoint>-5.24 -3.32 0.00</waypoint>
-              <waypoint>-7.10 -4.49 0.00</waypoint>
+              <waypoint>5.80 -3.00 0.00</waypoint>
+              <waypoint>8.00 -4.00 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>5.24 3.32 0.00</waypoint>
-              <waypoint>7.10 4.49 0.00</waypoint>
+              <waypoint>-2.20 -6.20 0.00</waypoint>
+              <waypoint>-3.00 -8.20 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- Pedestrian 25: diagonal approach with cross/left/right intents. -->
+    <!-- Pedestrian 25: diagonal encounter outside the start exclusion zone.  Start-zone clearance >= 6.40 m. -->
     <model name="person25_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -947,21 +951,21 @@
         <velocity>0.73</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>-8.36 3.32 0.00</waypoint>
-          <waypoint>-5.02 1.99 0.00</waypoint>
-          <waypoint>-2.04 0.81 0.00</waypoint>
+          <waypoint>8.20 -3.60 0.00</waypoint>
+          <waypoint>4.50 -2.00 0.00</waypoint>
+          <waypoint>1.80 -0.80 0.00</waypoint>
           <branch_point>
             <choice prob="0.45">
-              <waypoint>5.02 -1.99 0.00</waypoint>
-              <waypoint>8.36 -3.32 0.00</waypoint>
+              <waypoint>-4.50 2.00 0.00</waypoint>
+              <waypoint>-8.20 3.60 0.00</waypoint>
             </choice>
             <choice prob="0.30">
-              <waypoint>-2.29 -5.76 0.00</waypoint>
-              <waypoint>-3.10 -7.81 0.00</waypoint>
+              <waypoint>-2.40 -6.80 0.00</waypoint>
+              <waypoint>-3.60 -8.40 0.00</waypoint>
             </choice>
             <choice prob="0.25">
-              <waypoint>2.29 5.76 0.00</waypoint>
-              <waypoint>3.10 7.81 0.00</waypoint>
+              <waypoint>5.50 -6.00 0.00</waypoint>
+              <waypoint>7.60 -7.40 0.00</waypoint>
             </choice>
           </branch_point>
         </path>
