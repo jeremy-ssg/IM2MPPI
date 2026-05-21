@@ -1,0 +1,36 @@
+<launch>
+  <arg name="enable_rviz" default="false"/>
+  <arg name="nav_launch_prefix" default=""/>
+
+  <rosparam file="$(find tracking_controller)/cfg/controller_param.yaml"
+            ns="controller"/>
+  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/fake_detector_param.yaml"/>
+  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/flight_base.yaml"
+            ns="autonomous_flight"/>
+  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/mapping_param_no_static.yaml"
+            ns="/dynamic_map"/>
+  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/dynamic_detector_param.yaml"
+            ns="/onboard_detector"/>
+  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/predictor_param.yaml"
+            ns="/dynamic_predictor"/>
+  <rosparam file="$(find trajectory_planner)/cfg/im2_mppi.yaml"/>
+
+  <node pkg="tracking_controller"
+        type="tracking_controller_node"
+        name="tracking_controller_node"
+        output="screen"/>
+
+  <node pkg="autonomous_flight"
+        type="im2_mppi_navigation_node"
+        name="im2_mppi_navigation_node"
+        launch-prefix="$(arg nav_launch_prefix)"
+        output="screen"/>
+
+  <group if="$(arg enable_rviz)">
+    <node pkg="rviz"
+          type="rviz"
+          name="im2_mppi_rviz"
+          args="-d $(find autonomous_flight)/cfg/im2_mppi_navigation.rviz"
+          required="false"/>
+  </group>
+</launch>

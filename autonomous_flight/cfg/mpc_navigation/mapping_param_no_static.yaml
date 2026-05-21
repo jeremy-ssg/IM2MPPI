@@ -1,0 +1,44 @@
+sensor_input_mode: 0
+localization_mode: 1
+depth_image_topic: /no_topic
+pose_topic: /CERLAB/quadcopter/pose
+odom_topic: /CERLAB/quadcopter/odom
+
+robot_size: [0.5, 0.5, 0.3]
+
+depth_intrinsics: [554.254691191187, 554.254691191187, 320.5, 240.5]
+depth_scale_factor: 10
+depth_min_value: 0.5
+depth_max_value: 5.0
+depth_filter_margin: 2
+depth_skip_pixel: 2
+image_cols: 640
+image_rows: 480
+body_to_camera: [0.0,  0.0,  1.0,  0.09,
+                -1.0,  0.0,  0.0,  0.0,
+                 0.0, -1.0,  0.0,  0.095,
+                 0.0,  0.0,  0.0,  1.0]
+
+raycast_max_length: 5.0
+p_hit: 0.70
+p_miss: 0.35
+p_min: 0.12
+p_max: 0.97
+p_occ: 0.80
+
+map_resolution: 0.1
+ground_height: -0.1
+map_size: [80, 40, 5]
+local_update_range: [5, 5, 5]
+local_bound_inflation: 3.0
+clean_local_map: false
+
+local_map_size: [20, 20, 6]
+max_height_visualization: 2.5
+visualize_global_map: false
+verbose: false
+
+# Keep planner-side static occupancy empty for the intent-uncertain benchmark.
+# The map loader treats this as a non-existing PCD and therefore leaves the
+# occupancy grid empty; dynamic pedestrians still arrive via fake_detector.
+prebuilt_map_directory: "No"

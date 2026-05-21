@@ -69,6 +69,9 @@ mkdir -p "${LOG_DIR}"
 
 YAML_PLANNER="$(rospack find trajectory_planner)/cfg/im2_mppi.yaml"
 SCRIPT_DIR="$(rospack find trajectory_planner)/scripts"
+INTENT_MPC_LAUNCH="${INTENT_MPC_LAUNCH:-autonomous_flight intent_mpc_demo.launch}"
+IM2_MPPI_LAUNCH="${IM2_MPPI_LAUNCH:-autonomous_flight im2_mppi_demo.launch}"
+GAZEBO_GUI="${GAZEBO_GUI:-true}"
 
 # Back up the planner yaml so we always restore it on exit, even on Ctrl+C.
 cp "${YAML_PLANNER}" "${YAML_PLANNER}.batchbak"
@@ -79,14 +82,14 @@ trap 'echo "[batch] restoring yaml"; cp "${YAML_PLANNER}.batchbak" "${YAML_PLANN
 #    "N/A" entries are skipped (Intent-MPC has no MPPI yaml).
 # ────────────────────────────────────────────────────────────────────────────
 CONFIGS=(
-  "M0_intent_mpc|autonomous_flight intent_mpc_demo.launch|N/A|N/A|N/A"
-  "M1_vanilla|autonomous_flight im2_mppi_demo.launch|vanilla_mppi|soft|true"
-  "M2_mean_pred|autonomous_flight im2_mppi_demo.launch|mean_prediction_mppi|soft|true"
-  "M3_mode_aware|autonomous_flight im2_mppi_demo.launch|mode_aware_mppi|soft|false"
-  "M4_im2_full|autonomous_flight im2_mppi_demo.launch|cvar_mppi|adaptive|true"
-  "A1_no_cvar|autonomous_flight im2_mppi_demo.launch|mode_aware_mppi|adaptive|true"
-  "A2_no_fusion|autonomous_flight im2_mppi_demo.launch|cvar_mppi|soft|true"
-  "A3_no_cl|autonomous_flight im2_mppi_demo.launch|cvar_mppi|adaptive|false"
+  "M0_intent_mpc|${INTENT_MPC_LAUNCH}|N/A|N/A|N/A"
+  "M1_vanilla|${IM2_MPPI_LAUNCH}|vanilla_mppi|soft|true"
+  "M2_mean_pred|${IM2_MPPI_LAUNCH}|mean_prediction_mppi|soft|true"
+  "M3_mode_aware|${IM2_MPPI_LAUNCH}|mode_aware_mppi|soft|false"
+  "M4_im2_full|${IM2_MPPI_LAUNCH}|cvar_mppi|adaptive|true"
+  "A1_no_cvar|${IM2_MPPI_LAUNCH}|mode_aware_mppi|adaptive|true"
+  "A2_no_fusion|${IM2_MPPI_LAUNCH}|cvar_mppi|soft|true"
+  "A3_no_cl|${IM2_MPPI_LAUNCH}|cvar_mppi|adaptive|false"
 )
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -183,7 +186,7 @@ run_one() {
     fi
     OBS_BRANCH_SEED="${SEED}" \
     timeout --kill-after=10 $((DURATION + 90)) \
-        roslaunch uav_simulator start.launch ${LAUNCH_EXTRA} \
+        roslaunch uav_simulator start.launch gui:="${GAZEBO_GUI}" ${LAUNCH_EXTRA} \
         > "${LOG_DIR}/${TAG}_sim.log" 2>&1 &
     SIM_PID=$!
     sleep 10

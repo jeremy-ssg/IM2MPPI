@@ -1,29 +1,20 @@
 <sdf version='1.7'>
   <!--
-    Intent-uncertain benchmark world (3 pedestrians, 2 of them branching).
+    Intent-uncertain benchmark world.
 
-    Each launch of Gazebo, the obstaclePathPlugin samples ONE choice per
-    <branch_point> based on env OBS_BRANCH_SEED ⊕ hash(model_name).  Over
-    50 seeds the obstacles exercise the full intent distribution and the
-    drone never knows in advance which way they will go — this is the
-    test bed where CVaR, adaptive fusion, and closed-loop intent
-    correction earn their keep.
+    This file intentionally contains dynamic pedestrians only; the planner-side
+    static prebuilt map is disabled by the intent-uncertain launch files.
 
-    Geometry roughly mirrors simple_box_dynamic_3.world so that paper
-    comparisons against the deterministic baseline are apples-to-apples.
-
-    Pedestrians:
-      person1_branch    starts at (2.8, -2.0), commits at (2.8, 0.0)
-        60% : keep going straight to (2.8, 2.0)
-        40% : turn LEFT  to (0.8, 0.0)
-      person2_branch    starts at (5.0, -2.0), commits at (5.0, 0.0)
-        50% : keep going straight to (5.0, 2.0)
-        50% : turn RIGHT to (7.0, 0.0)
-      person3_static    deterministic control (no branching)
+    The filename is kept for backward compatibility with existing commands, but
+    the scene now has 8 pedestrians, matching the scale of the previous dynamic
+    benchmark.  Most pedestrians contain one branch point.  At Gazebo load time,
+    obstaclePathPlugin samples one branch per pedestrian using OBS_BRANCH_SEED
+    mixed with the model name hash, so every method sees the same sampled
+    motions for a given seed while different seeds cover different intents.
   -->
   <world name='default'>
 
-    <!-- ─────────────────────  Pedestrian 1 (branching)  ──────────────────── -->
+    <!-- Pedestrian 1: east-side vertical crossing, straight or left-turn. -->
     <model name="person1_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -33,9 +24,7 @@
         </collision>
         <visual name="visual">
           <pose>0 0 -0.02 0 0 1.57</pose>
-          <geometry>
-            <mesh><uri>model://person/meshes/walking.dae</uri></mesh>
-          </geometry>
+          <geometry><mesh><uri>model://person/meshes/walking.dae</uri></mesh></geometry>
         </visual>
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
@@ -43,10 +32,8 @@
         <velocity>0.5</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <!-- pre-branch approach -->
           <waypoint>2.8 -2.0 0.0</waypoint>
           <waypoint>2.8  0.0 0.0</waypoint>
-          <!-- decision point -->
           <branch_point>
             <choice prob="0.6">
               <waypoint>2.8 2.0 0.0</waypoint>
@@ -60,7 +47,7 @@
       </plugin>
     </model>
 
-    <!-- ─────────────────────  Pedestrian 2 (branching)  ──────────────────── -->
+    <!-- Pedestrian 2: east-side vertical crossing, straight or right-turn. -->
     <model name="person2_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
@@ -70,9 +57,7 @@
         </collision>
         <visual name="visual">
           <pose>0 0 -0.02 0 0 1.57</pose>
-          <geometry>
-            <mesh><uri>model://person/meshes/walking.dae</uri></mesh>
-          </geometry>
+          <geometry><mesh><uri>model://person/meshes/walking.dae</uri></mesh></geometry>
         </visual>
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
@@ -95,8 +80,8 @@
       </plugin>
     </model>
 
-    <!-- ─────────────────────  Pedestrian 3 (deterministic)  ─────────────── -->
-    <model name="person3_static_0.5_0.5_1.8">
+    <!-- Pedestrian 3: west-side vertical crossing, straight or right-turn. -->
+    <model name="person3_branch_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -105,9 +90,7 @@
         </collision>
         <visual name="visual">
           <pose>0 0 -0.02 0 0 1.57</pose>
-          <geometry>
-            <mesh><uri>model://person/meshes/walking.dae</uri></mesh>
-          </geometry>
+          <geometry><mesh><uri>model://person/meshes/walking.dae</uri></mesh></geometry>
         </visual>
       </link>
       <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
@@ -115,16 +98,187 @@
         <velocity>0.5</velocity>
         <angular_velocity>0.8</angular_velocity>
         <path>
-          <waypoint>7.5 0.0 0.0</waypoint>
-          <waypoint>7.5 2.0 0.0</waypoint>
+          <waypoint>-2.8 2.0 0.0</waypoint>
+          <waypoint>-2.8 0.0 0.0</waypoint>
+          <branch_point>
+            <choice prob="0.55">
+              <waypoint>-2.8 -2.0 0.0</waypoint>
+            </choice>
+            <choice prob="0.45">
+              <waypoint>-0.8 0.0 0.0</waypoint>
+              <waypoint>-0.8 -2.0 0.0</waypoint>
+            </choice>
+          </branch_point>
         </path>
       </plugin>
     </model>
 
-    <!-- ─────────────────────  Standard world environment  ──────────────── -->
+    <!-- Pedestrian 4: west-side vertical crossing, straight or outer turn. -->
+    <model name="person4_branch_0.5_0.5_1.8">
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="bottom">
+          <pose>0 0 0.01 0 0 1.57</pose>
+          <geometry><box><size>0.35 0.75 0.02</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <pose>0 0 -0.02 0 0 1.57</pose>
+          <geometry><mesh><uri>model://person/meshes/walking.dae</uri></mesh></geometry>
+        </visual>
+      </link>
+      <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+        <loop>0</loop>
+        <velocity>0.5</velocity>
+        <angular_velocity>0.8</angular_velocity>
+        <path>
+          <waypoint>-5.0 2.0 0.0</waypoint>
+          <waypoint>-5.0 0.0 0.0</waypoint>
+          <branch_point>
+            <choice prob="0.5">
+              <waypoint>-5.0 -2.0 0.0</waypoint>
+            </choice>
+            <choice prob="0.5">
+              <waypoint>-7.0 0.0 0.0</waypoint>
+              <waypoint>-7.0 -2.0 0.0</waypoint>
+            </choice>
+          </branch_point>
+        </path>
+      </plugin>
+    </model>
+
+    <!-- Pedestrian 5: upper corridor crossing near the circular route. -->
+    <model name="person5_branch_0.5_0.5_1.8">
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="bottom">
+          <pose>0 0 0.01 0 0 1.57</pose>
+          <geometry><box><size>0.35 0.75 0.02</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <pose>0 0 -0.02 0 0 1.57</pose>
+          <geometry><mesh><uri>model://person/meshes/walking.dae</uri></mesh></geometry>
+        </visual>
+      </link>
+      <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+        <loop>0</loop>
+        <velocity>0.5</velocity>
+        <angular_velocity>0.8</angular_velocity>
+        <path>
+          <waypoint>-2.0 5.0 0.0</waypoint>
+          <waypoint>0.0 5.0 0.0</waypoint>
+          <branch_point>
+            <choice prob="0.65">
+              <waypoint>2.0 5.0 0.0</waypoint>
+            </choice>
+            <choice prob="0.35">
+              <waypoint>0.0 6.8 0.0</waypoint>
+              <waypoint>2.0 6.8 0.0</waypoint>
+            </choice>
+          </branch_point>
+        </path>
+      </plugin>
+    </model>
+
+    <!-- Pedestrian 6: lower corridor crossing near the circular route. -->
+    <model name="person6_branch_0.5_0.5_1.8">
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="bottom">
+          <pose>0 0 0.01 0 0 1.57</pose>
+          <geometry><box><size>0.35 0.75 0.02</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <pose>0 0 -0.02 0 0 1.57</pose>
+          <geometry><mesh><uri>model://person/meshes/walking.dae</uri></mesh></geometry>
+        </visual>
+      </link>
+      <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+        <loop>0</loop>
+        <velocity>0.5</velocity>
+        <angular_velocity>0.8</angular_velocity>
+        <path>
+          <waypoint>2.0 -5.0 0.0</waypoint>
+          <waypoint>0.0 -5.0 0.0</waypoint>
+          <branch_point>
+            <choice prob="0.6">
+              <waypoint>-2.0 -5.0 0.0</waypoint>
+            </choice>
+            <choice prob="0.4">
+              <waypoint>0.0 -6.8 0.0</waypoint>
+              <waypoint>-2.0 -6.8 0.0</waypoint>
+            </choice>
+          </branch_point>
+        </path>
+      </plugin>
+    </model>
+
+    <!-- Pedestrian 7: upper-left diagonal, straight or inward turn. -->
+    <model name="person7_branch_0.5_0.5_1.8">
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="bottom">
+          <pose>0 0 0.01 0 0 1.57</pose>
+          <geometry><box><size>0.35 0.75 0.02</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <pose>0 0 -0.02 0 0 1.57</pose>
+          <geometry><mesh><uri>model://person/meshes/walking.dae</uri></mesh></geometry>
+        </visual>
+      </link>
+      <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+        <loop>0</loop>
+        <velocity>0.5</velocity>
+        <angular_velocity>0.8</angular_velocity>
+        <path>
+          <waypoint>-6.2 4.4 0.0</waypoint>
+          <waypoint>-4.6 3.0 0.0</waypoint>
+          <branch_point>
+            <choice prob="0.5">
+              <waypoint>-3.0 1.6 0.0</waypoint>
+            </choice>
+            <choice prob="0.5">
+              <waypoint>-6.0 1.6 0.0</waypoint>
+            </choice>
+          </branch_point>
+        </path>
+      </plugin>
+    </model>
+
+    <!-- Pedestrian 8: upper-right diagonal, straight or inward turn. -->
+    <model name="person8_branch_0.5_0.5_1.8">
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="bottom">
+          <pose>0 0 0.01 0 0 1.57</pose>
+          <geometry><box><size>0.35 0.75 0.02</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <pose>0 0 -0.02 0 0 1.57</pose>
+          <geometry><mesh><uri>model://person/meshes/walking.dae</uri></mesh></geometry>
+        </visual>
+      </link>
+      <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+        <loop>0</loop>
+        <velocity>0.5</velocity>
+        <angular_velocity>0.8</angular_velocity>
+        <path>
+          <waypoint>6.2 4.4 0.0</waypoint>
+          <waypoint>4.6 3.0 0.0</waypoint>
+          <branch_point>
+            <choice prob="0.5">
+              <waypoint>3.0 1.6 0.0</waypoint>
+            </choice>
+            <choice prob="0.5">
+              <waypoint>6.0 1.6 0.0</waypoint>
+            </choice>
+          </branch_point>
+        </path>
+      </plugin>
+    </model>
+
     <light name='sun' type='directional'>
       <cast_shadows>1</cast_shadows>
-      <pose>0 0 10 0 -0 0</pose>
+      <pose>0 0 10 0 0 0</pose>
       <diffuse>0.8 0.8 0.8 1</diffuse>
       <specular>0.2 0.2 0.2 1</specular>
       <attenuation>
@@ -134,11 +288,6 @@
         <quadratic>0.001</quadratic>
       </attenuation>
       <direction>-0.5 0.1 -0.9</direction>
-      <spot>
-        <inner_angle>0</inner_angle>
-        <outer_angle>0</outer_angle>
-        <falloff>0</falloff>
-      </spot>
     </light>
 
     <model name='ground_plane'>
@@ -163,9 +312,6 @@
             </script>
           </material>
         </visual>
-        <self_collide>0</self_collide>
-        <enable_wind>0</enable_wind>
-        <kinematic>0</kinematic>
       </link>
     </model>
 
