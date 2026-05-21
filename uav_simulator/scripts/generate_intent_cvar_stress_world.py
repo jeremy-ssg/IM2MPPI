@@ -19,9 +19,10 @@ def fmt_pt(pt):
 
 
 def person_block(name, velocity, waypoints, choices, note):
+    model_name = name if name.startswith("person") else f"person_{name}"
     lines = [
         f"    <!-- {note} -->",
-        f'    <model name="{name}_0.5_0.5_1.8">',
+        f'    <model name="{model_name}_0.5_0.5_1.8">',
         "      <pose>0 0 0 0 0 0</pose>",
         '      <link name="link">',
         '        <collision name="bottom">',

@@ -18,7 +18,7 @@
   <world name='default'>
 
     <!-- critical: low-probability branch cuts across left-upper arc -->
-    <model name="critical01_left_upper_0.5_0.5_1.8">
+    <model name="person_critical01_left_upper_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -56,7 +56,7 @@
     </model>
 
     <!-- critical: danger branch enters the circular corridor from the left -->
-    <model name="critical02_left_mid_0.5_0.5_1.8">
+    <model name="person_critical02_left_mid_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -94,7 +94,7 @@
     </model>
 
     <!-- critical: rare branch crosses lower-left arc -->
-    <model name="critical03_left_lower_0.5_0.5_1.8">
+    <model name="person_critical03_left_lower_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -132,7 +132,7 @@
     </model>
 
     <!-- critical: diagonal danger branch cuts into the lower arc -->
-    <model name="critical04_bottom_left_0.5_0.5_1.8">
+    <model name="person_critical04_bottom_left_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -170,7 +170,7 @@
     </model>
 
     <!-- critical: bottom branch creates a late crossing near the UAV path -->
-    <model name="critical05_bottom_0.5_0.5_1.8">
+    <model name="person_critical05_bottom_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -208,7 +208,7 @@
     </model>
 
     <!-- critical: mirrored lower-right crossing -->
-    <model name="critical06_bottom_right_0.5_0.5_1.8">
+    <model name="person_critical06_bottom_right_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -246,7 +246,7 @@
     </model>
 
     <!-- critical: rare branch enters from the right -->
-    <model name="critical07_right_mid_0.5_0.5_1.8">
+    <model name="person_critical07_right_mid_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -284,7 +284,7 @@
     </model>
 
     <!-- critical: right-upper danger branch crosses the path -->
-    <model name="critical08_right_upper_0.5_0.5_1.8">
+    <model name="person_critical08_right_upper_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -322,7 +322,7 @@
     </model>
 
     <!-- critical: top-right branch stays outside start exclusion but crosses later -->
-    <model name="critical09_top_right_0.5_0.5_1.8">
+    <model name="person_critical09_top_right_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -360,7 +360,7 @@
     </model>
 
     <!-- critical: top-left branch avoids takeoff but challenges the first lap -->
-    <model name="critical10_top_left_0.5_0.5_1.8">
+    <model name="person_critical10_top_left_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -398,7 +398,7 @@
     </model>
 
     <!-- critical: delayed top-side crossing outside the start exclusion -->
-    <model name="critical11_inner_left_0.5_0.5_1.8">
+    <model name="person_critical11_inner_left_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -436,7 +436,7 @@
     </model>
 
     <!-- critical: symmetric top-side low-probability crossing -->
-    <model name="critical12_inner_right_0.5_0.5_1.8">
+    <model name="person_critical12_inner_right_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -474,7 +474,7 @@
     </model>
 
     <!-- background: outside-density pedestrian -->
-    <model name="background01_0.5_0.5_1.8">
+    <model name="person_background01_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -511,7 +511,7 @@
     </model>
 
     <!-- background: outside-density pedestrian -->
-    <model name="background02_0.5_0.5_1.8">
+    <model name="person_background02_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -548,7 +548,7 @@
     </model>
 
     <!-- background: upper crowd flow -->
-    <model name="background03_0.5_0.5_1.8">
+    <model name="person_background03_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -585,7 +585,7 @@
     </model>
 
     <!-- background: lower crowd flow -->
-    <model name="background04_0.5_0.5_1.8">
+    <model name="person_background04_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -622,7 +622,7 @@
     </model>
 
     <!-- background: lateral traffic outside the circle -->
-    <model name="background05_0.5_0.5_1.8">
+    <model name="person_background05_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -659,7 +659,7 @@
     </model>
 
     <!-- background: lateral traffic outside the circle -->
-    <model name="background06_0.5_0.5_1.8">
+    <model name="person_background06_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -696,7 +696,7 @@
     </model>
 
     <!-- background: upper-left density away from takeoff -->
-    <model name="background07_0.5_0.5_1.8">
+    <model name="person_background07_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -733,7 +733,7 @@
     </model>
 
     <!-- background: lower-right density away from the circle -->
-    <model name="background08_0.5_0.5_1.8">
+    <model name="person_background08_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -770,7 +770,7 @@
     </model>
 
     <!-- background: bottom-left density -->
-    <model name="background09_0.5_0.5_1.8">
+    <model name="person_background09_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -807,7 +807,7 @@
     </model>
 
     <!-- background: top-right density outside start zone -->
-    <model name="background10_0.5_0.5_1.8">
+    <model name="person_background10_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -844,7 +844,7 @@
     </model>
 
     <!-- background: lower-left lateral flow -->
-    <model name="background11_0.5_0.5_1.8">
+    <model name="person_background11_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
@@ -881,7 +881,7 @@
     </model>
 
     <!-- background: upper-right lateral flow -->
-    <model name="background12_0.5_0.5_1.8">
+    <model name="person_background12_0.5_0.5_1.8">
       <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="bottom">
