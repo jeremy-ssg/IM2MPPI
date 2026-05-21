@@ -7,7 +7,7 @@
 #  It reuses run_all_experiments.sh, but overrides:
 #    * Gazebo world: intent_uncertain/intent_branch_3.world
 #    * Planner launch files: no-static-map variants
-#    * RViz/Gazebo GUI: disabled by default for faster benchmark runs
+#    * RViz/Gazebo GUI: enabled by default so the new scene can be inspected
 #
 #  Usage:
 #    ./run_intent_uncertain_experiments.sh [SEEDS] [DURATION_SEC] [GOAL_RADIUS]
@@ -18,8 +18,8 @@
 #
 #  Optional overrides:
 #    WORLD_FILE=/abs/path/to/world.world
-#    GAZEBO_GUI=true
-#    ENABLE_RVIZ=true
+#    GAZEBO_GUI=false
+#    ENABLE_RVIZ=false
 #    OUT_DIR_OVERRIDE=/home/user/IM2MPPI/results/intent_uncertain_resume
 # ============================================================================
 
@@ -29,8 +29,8 @@ SCRIPT_DIR="$(rospack find trajectory_planner)/scripts"
 WORLD_DEFAULT="$(rospack find uav_simulator)/worlds/intent_uncertain/intent_branch_3.world"
 
 export WORLD_FILE="${WORLD_FILE:-${WORLD_DEFAULT}}"
-export GAZEBO_GUI="${GAZEBO_GUI:-false}"
-ENABLE_RVIZ="${ENABLE_RVIZ:-false}"
+export GAZEBO_GUI="${GAZEBO_GUI:-true}"
+ENABLE_RVIZ="${ENABLE_RVIZ:-true}"
 
 export INTENT_MPC_LAUNCH="${INTENT_MPC_LAUNCH:-autonomous_flight intent_mpc_intent_uncertain.launch enable_rviz:=${ENABLE_RVIZ}}"
 export IM2_MPPI_LAUNCH="${IM2_MPPI_LAUNCH:-autonomous_flight im2_mppi_intent_uncertain.launch enable_rviz:=${ENABLE_RVIZ}}"
