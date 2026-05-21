@@ -84,6 +84,8 @@ struct IM2MPPIParams {
     //   ρ[i,m,j] = mean of the worst α fraction of those R losses.
     // Then S[i,m] = base_cost_with_dyn[i,m] + λ_r · Σ_j ρ[i,m,j].
     //
+    // The current planner also adds a discrete-intent CVaR premium across
+    // retained joint modes, so cvar_mppi protects branch-level tail risk too.
     // Only used when method_type == "cvar_mppi".
     double cvar_alpha                 = 0.20;   // tail fraction (α)
     int    cvar_num_obstacle_samples  = 16;     // R (≤ 32 recommended; GPU-bound at higher)

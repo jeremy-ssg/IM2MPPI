@@ -195,14 +195,26 @@ private:
         const std::vector<std::vector<RolloutResult>>& all_results);
 
     // ── CVaR aggregation (Phase 4) ───────────────────────────────────────────
-    // computeCVaR / computeRolloutCVaR: generic empirical CVaR utilities kept
-    // for the evaluator and unit tests. NOT used by the planner update loop.
+    // computeCVaR / computeRolloutCVaR: generic empirical CVaR utilities.
+    // In cvar_mppi, computeIntentCVaRRiskPremium uses them to penalize ego
+    // rollouts whose retained joint intent modes have a bad tail outcome.
     double computeCVaR(const std::vector<double>& costs,
                        const std::vector<double>& probs,
                        double alpha) const;
     std::vector<double> computeRolloutCVaR(
         const std::vector<JointMode>&                  modes,
         const std::vector<std::vector<RolloutResult>>& all_results) const;
+
+    std::vector<double> computeIntentCVaRRiskPremiumFromCosts(
+        const std::vector<JointMode>& modes,
+        const std::vector<double>&    costs_flat_m_major,
+        int N) const;
+    std::vector<double> computeIntentCVaRRiskPremium(
+        const std::vector<JointMode>&                  modes,
+        const std::vector<std::vector<RolloutResult>>& all_results) const;
+    void addIntentCVaRRiskPremium(
+        const std::vector<JointMode>&             modes,
+        std::vector<std::vector<RolloutResult>>&  all_results) const;
 
     // ── Mode fusion (Phase 4) ────────────────────────────────────────────────
     // Effective per-mode posterior π_eff[m] that goes into the MPPI weighted

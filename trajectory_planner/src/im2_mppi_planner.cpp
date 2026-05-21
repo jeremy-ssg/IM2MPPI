@@ -726,12 +726,16 @@ double IM2MPPIPlanner::computeCVaR(const std::vector<double>& costs,
     if (M != probs.size()) return std::numeric_limits<double>::infinity();
     alpha = std::max(1e-6, std::min(1.0, alpha));
 
-    // Filter finite (cost, prob) pairs and normalize probabilities.
+    // Filter probability mass and normalize probabilities. A non-finite cost
+    // with positive probability means the tail risk is non-finite too.
     std::vector<std::pair<double, double>> cp;
     cp.reserve(M);
     double psum = 0.0;
     for (size_t i = 0; i < M; ++i) {
-        if (!std::isfinite(costs[i]) || probs[i] <= 0.0) continue;
+        if (probs[i] <= 0.0) continue;
+        if (!std::isfinite(costs[i])) {
+            return std::numeric_limits<double>::infinity();
+        }
         cp.emplace_back(costs[i], probs[i]);
         psum += probs[i];
     }
@@ -801,6 +805,108 @@ std::vector<double> IM2MPPIPlanner::computeRolloutCVaR(
 //      soft/sharpened/adaptive we only need π (costs are unused).
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Intent-level CVaR over retained joint modes. This is the branch-risk layer:
+// it penalizes an ego rollout when the worst-probability tail of the discrete
+// intent modes is worse than the posterior mean cost for that same rollout.
+std::vector<double> IM2MPPIPlanner::computeIntentCVaRRiskPremiumFromCosts(
+    const std::vector<JointMode>& modes,
+    const std::vector<double>&    costs_flat_m_major,
+    int N) const
+{
+    const int M = static_cast<int>(modes.size());
+    std::vector<double> premium(N, 0.0);
+    if (M <= 1 || N <= 0) return premium;
+    if (static_cast<int>(costs_flat_m_major.size()) != M * N) return premium;
+
+    std::vector<double> costs(M, 0.0);
+    std::vector<double> probs(M, 0.0);
+    for (int m = 0; m < M; ++m) {
+        probs[m] = std::max(0.0, modes[m].probability);
+    }
+
+    for (int i = 0; i < N; ++i) {
+        double mean = 0.0;
+        double psum = 0.0;
+        bool nonfinite = false;
+
+        for (int m = 0; m < M; ++m) {
+            const double p = probs[m];
+            const double c = costs_flat_m_major[m * N + i];
+            costs[m] = c;
+            if (p <= 0.0) continue;
+            if (!std::isfinite(c)) {
+                nonfinite = true;
+                break;
+            }
+            mean += p * c;
+            psum += p;
+        }
+
+        if (nonfinite) {
+            premium[i] = std::numeric_limits<double>::infinity();
+            continue;
+        }
+        if (psum < 1e-12) continue;
+
+        mean /= psum;
+        const double tail = computeCVaR(costs, probs, params_.cvar_alpha);
+        if (!std::isfinite(tail)) {
+            premium[i] = std::numeric_limits<double>::infinity();
+        } else {
+            // Add only the risk premium over the posterior mean. This makes
+            // cvar_mppi protect the bad intent tail without double-counting
+            // the expected multi-modal cost that mode-aware MPPI already sees.
+            premium[i] = std::max(0.0, tail - mean);
+        }
+    }
+
+    return premium;
+}
+
+std::vector<double> IM2MPPIPlanner::computeIntentCVaRRiskPremium(
+    const std::vector<JointMode>&                  modes,
+    const std::vector<std::vector<RolloutResult>>& all_results) const
+{
+    const int M = static_cast<int>(modes.size());
+    const int N = params_.num_rollouts;
+    std::vector<double> costs_flat(static_cast<size_t>(M) * N,
+        std::numeric_limits<double>::infinity());
+    if (M == 0 || all_results.empty()) {
+        return std::vector<double>(N, 0.0);
+    }
+
+    for (int m = 0; m < M; ++m) {
+        if (m >= static_cast<int>(all_results.size())) continue;
+        const int Nm = std::min(N, static_cast<int>(all_results[m].size()));
+        for (int i = 0; i < Nm; ++i) {
+            costs_flat[m * N + i] = all_results[m][i].cost;
+        }
+    }
+
+    return computeIntentCVaRRiskPremiumFromCosts(modes, costs_flat, N);
+}
+
+void IM2MPPIPlanner::addIntentCVaRRiskPremium(
+    const std::vector<JointMode>&             modes,
+    std::vector<std::vector<RolloutResult>>&  all_results) const
+{
+    if (modes.size() <= 1 || all_results.empty()) return;
+
+    const std::vector<double> premium =
+        computeIntentCVaRRiskPremium(modes, all_results);
+
+    for (size_t m = 0; m < all_results.size(); ++m) {
+        for (size_t i = 0; i < all_results[m].size() && i < premium.size(); ++i) {
+            if (std::isfinite(premium[i])) {
+                all_results[m][i].cost += premium[i];
+            } else {
+                all_results[m][i].cost = std::numeric_limits<double>::infinity();
+            }
+        }
+    }
+}
+
+// Mode fusion for the final MPPI weighted update.
 std::vector<double> IM2MPPIPlanner::computeFusionWeights(
     const std::vector<JointMode>& modes,
     const std::vector<double>&    costs_flat,
@@ -1154,6 +1260,10 @@ bool IM2MPPIPlanner::planCPU()
     // 5c. Hard safety floor — reject rollouts that violate the minimum clearance.
     applyHardFloorFilter(joint_modes_, all_results);
 
+    if (is_cvar) {
+        addIntentCVaRRiskPremium(joint_modes_, all_results);
+    }
+
     // 6. MPPI update
     updateControlSequence(joint_modes_, all_results);
 
@@ -1488,6 +1598,24 @@ bool IM2MPPIPlanner::planGPU()
     for (int m = 0; m < M; ++m)
         for (int i = 0; i < N; ++i)
             costs_flat[m * N + i] = static_cast<double>(cost_at(i, m));
+
+    if (cvar_mode) {
+        const std::vector<double> premium =
+            computeIntentCVaRRiskPremiumFromCosts(joint_modes_, costs_flat, N);
+        for (int i = 0; i < N && i < static_cast<int>(premium.size()); ++i) {
+            for (int m = 0; m < M; ++m) {
+                const int dev_idx = i * M + m;
+                const int flat_idx = m * N + i;
+                if (std::isfinite(premium[i])) {
+                    h_costs[dev_idx] += static_cast<float>(premium[i]);
+                    costs_flat[flat_idx] += premium[i];
+                } else {
+                    h_costs[dev_idx] = std::numeric_limits<float>::infinity();
+                    costs_flat[flat_idx] = std::numeric_limits<double>::infinity();
+                }
+            }
+        }
+    }
 
     const std::vector<double> pi_eff = computeFusionWeights(joint_modes_, costs_flat, N);
 
