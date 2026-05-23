@@ -25,13 +25,16 @@ NAME_RE = re.compile(r"(?P<cfg>.+)_seed(?P<seed>\d+)_summary\.json$")
 # Tight headline table — collision EVENT counts are the primary safety metric.
 #
 # Synthetic paths (prefixed "__"):
-#   "__col_free__"  → 1.0 if this seed had NO strict-collision events, else 0.0.
-#                     Mean over seeds = collision-free success rate.
+#   "__col_free__"  -> 1.0 if this seed had NO strict-collision events, else 0.0.
+#                     Mean over seeds = collision-free rate.
+#   "__valid_*"     -> per-run value only when the seed completed one lap and
+#                     had no strict-collision events. This prevents crashed or
+#                     colliding runs from looking artificially short/fast.
 METRICS = [
     ("task.success",                       "SR",         ".0%", False),
     ("__col_free__",                       "ColFree",    ".0%", False),
-    ("task.mission_time_s",                "Time",       ".1f", True ),
-    ("task.completed_path_length_m",       "Length",     ".1f", True ),
+    ("__valid_mission_time_s__",           "Time",       ".1f", True ),
+    ("__valid_completed_path_length_m__",  "Length",     ".1f", True ),
     ("task.lap_progress_fraction",         "Progress",   ".0%", False),
     ("safety.collision_strict_events",     "CR#",        ".1f", True ),
     ("safety.collision_near_miss_events",  "CR_nm#",     ".1f", True ),
@@ -67,15 +70,39 @@ def coerce(v):
         return None
 
 
+def strict_collision_events(data):
+    cr = coerce(nested_get(data, "safety.collision_strict_events"))
+    if cr is not None:
+        return cr
+    # Compatibility with older summaries that only had per-sample counters.
+    return coerce(nested_get(data, "safety.collision_strict_samples"))
+
+
+def successful_and_collision_free(data):
+    success = coerce(nested_get(data, "task.success"))
+    cr = strict_collision_events(data)
+    if success is None or cr is None:
+        return False
+    return success > 0.5 and cr == 0.0
+
+
 def extract_metric(data, path):
     """Extract a metric value from a single-seed summary, handling synthetic
     paths (prefixed "__") that don't map directly to a JSON key."""
     if path == "__col_free__":
         # Collision-free seed indicator: 1 if zero strict-collision events.
-        cr = coerce(nested_get(data, "safety.collision_strict_events"))
+        cr = strict_collision_events(data)
         if cr is None:
             return None
         return 1.0 if cr == 0.0 else 0.0
+    if path == "__valid_mission_time_s__":
+        if not successful_and_collision_free(data):
+            return None
+        return coerce(nested_get(data, "task.mission_time_s"))
+    if path == "__valid_completed_path_length_m__":
+        if not successful_and_collision_free(data):
+            return None
+        return coerce(nested_get(data, "task.completed_path_length_m"))
     return coerce(nested_get(data, path))
 
 
@@ -186,8 +213,8 @@ def print_legend():
     print("Metric legend (mean ± std across seeds):")
     print("  SR        = one-lap completion rate                       (higher better)")
     print("  ColFree   = collision-free seed rate (CR_events==0)        (higher better)")
-    print("  Time      = one-lap completion time (s)                   (lower  better)")
-    print("  Length    = executed path length after one completed lap  (lower  better)")
+    print("  Time      = one-lap time over successful collision-free runs only (lower better)")
+    print("  Length    = one-lap path length over successful collision-free runs only (lower better)")
     print("  Progress  = final reference-lap progress before timeout   (higher better)")
     print("  CR#       = strict collision events <0.15m (count)       (lower  better)")
     print("  CR_nm#    = near-miss events <0.30m (count)              (lower  better)")
