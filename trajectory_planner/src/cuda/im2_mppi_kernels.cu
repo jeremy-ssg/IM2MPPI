@@ -214,7 +214,7 @@ __global__ void costKernel(
     if (idx >= total) return;
 
     const int i = idx / M;
-    (void)joint_mode_idx;
+    const int m = idx % M;
 
     const int s_stride = (H + 1) * 6;
     const int c_stride = H * 3;
