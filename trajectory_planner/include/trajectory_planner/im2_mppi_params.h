@@ -96,7 +96,7 @@ struct IM2MPPIParams {
     double dra_cp_threshold           = 0.05;
     double dra_hard_penalty           = 5.0e4;
     double dra_robot_radius           = 0.35;
-    double dra_sigma_floor            = 0.05;
+    double dra_sigma_floor            = 0.25;
     bool   dra_use_z_probability      = true;
 
     // ── Mode fusion (Phase 4) ────────────────────────────────────────────────

@@ -734,6 +734,29 @@ void IM2MPPIPlanner::updateControlSequence(
     std::vector<Eigen::Vector3d> weighted_a(H, Eigen::Vector3d::Zero());
     double total_weight = 0.0;
 
+    if (params_.method_type == "dra_mppi") {
+        const RolloutResult* best = nullptr;
+        double best_cost = std::numeric_limits<double>::infinity();
+        for (const auto& mode_results : all_results) {
+            for (const auto& r : mode_results) {
+                if (std::isfinite(r.cost) && r.cost < best_cost) {
+                    best_cost = r.cost;
+                    best = &r;
+                }
+            }
+        }
+
+        if (!best) {
+            ROS_WARN("[IM2-MPPI/DRA] No finite rollout cost; keeping previous nominal.");
+            return;
+        }
+
+        for (int k = 0; k < H && k < static_cast<int>(best->controls.size()); ++k) {
+            u_nominal_[k] = clampControl(best->controls[k]);
+        }
+        return;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     //  Mode-fused MPPI free-energy update:
     //      w_{m,i} = π_eff_m · exp(-(S_{m,i} - S_min) / λ)
@@ -1999,6 +2022,31 @@ bool IM2MPPIPlanner::planGPU()
         return false;
     }
 
+    if (dra_mode) {
+        int best_i = -1;
+        double best_cost = std::numeric_limits<double>::infinity();
+        for (int m = 0; m < M; ++m) {
+            for (int i = 0; i < N; ++i) {
+                const double c = static_cast<double>(cost_at(i, m));
+                if (std::isfinite(c) && c < best_cost) {
+                    best_cost = c;
+                    best_i = i;
+                }
+            }
+        }
+
+        if (best_i < 0) {
+            ROS_WARN("[IM2-MPPI/GPU/DRA] No finite rollout cost.");
+            return false;
+        }
+
+        for (int k = 0; k < H; ++k) {
+            const int o = best_i * H * 3 + k * 3;
+            Control u;
+            u.a = Eigen::Vector3d(h_controls[o + 0], h_controls[o + 1], h_controls[o + 2]);
+            u_nominal_[k] = clampControl(u);
+        }
+    } else {
     std::vector<Eigen::Vector3d> wa(H, Eigen::Vector3d::Zero());
     double tw = 0.0;
     for (int m = 0; m < M; ++m) {
@@ -2025,6 +2073,7 @@ bool IM2MPPIPlanner::planGPU()
             u.a = wa[k] / tw;
             u_nominal_[k] = clampControl(u);
         }
+    }
     }
 
     // 6. Build planned trajectory from updated nominal controls (CPU rollout
