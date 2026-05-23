@@ -3,7 +3,7 @@
 #  run_intent_cvar_stress_experiments.sh
 # ----------------------------------------------------------------------------
 #  Explicit opt-in runner for the CVaR intent stress scene. The standard
-#  run_intent_uncertain_experiments.sh remains on the validated 25-person
+#  run_intent_uncertain_experiments.sh remains on the default 45-person
 #  benchmark by default.
 # ============================================================================
 
