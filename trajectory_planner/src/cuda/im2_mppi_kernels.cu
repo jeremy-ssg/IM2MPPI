@@ -47,6 +47,7 @@ struct DeviceContext {
     float* d_static_boxes = nullptr;   // [Ns*6]
     float* d_dyn_mus      = nullptr;   // [J*K*H*3]
     float* d_dyn_sigmas   = nullptr;   // [J*K*H*3]  (Phase-4 CVaR)
+    float* d_dyn_pis      = nullptr;   // [J*K]       (DRA-MPPI MoG weights)
     float* d_dyn_sizes    = nullptr;   // [J*3]
     int*   d_joint_mode_idx = nullptr; // [M*J]
     float* d_delta_S      = nullptr;   // [N*M]      (Phase-4 CVaR output)
@@ -92,7 +93,8 @@ __global__ void rolloutKernel(
     float*       __restrict__ states,
     float*       __restrict__ controls,
     int N, int H, float dt,
-    float a_max, float v_max)
+    float a_max, float v_max,
+    int brake_first_rollout)
 {
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
@@ -110,10 +112,18 @@ __global__ void rolloutKernel(
     const float dt2 = 0.5f * dt * dt;
 
     for (int k = 0; k < H; ++k) {
-        // u = u_nominal[k] + noise[i, k]
-        float ax = u_nominal[k * 3 + 0] + noise[i * c_stride + k * 3 + 0];
-        float ay = u_nominal[k * 3 + 1] + noise[i * c_stride + k * 3 + 1];
-        float az = u_nominal[k * 3 + 2] + noise[i * c_stride + k * 3 + 2];
+        float ax, ay, az;
+        if (brake_first_rollout && i == 0) {
+            const float inv_dt = 1.0f / fmaxf(dt, 1e-6f);
+            ax = -vx * inv_dt;
+            ay = -vy * inv_dt;
+            az = -vz * inv_dt;
+        } else {
+            // u = u_nominal[k] + noise[i, k]
+            ax = u_nominal[k * 3 + 0] + noise[i * c_stride + k * 3 + 0];
+            ay = u_nominal[k * 3 + 1] + noise[i * c_stride + k * 3 + 1];
+            az = u_nominal[k * 3 + 2] + noise[i * c_stride + k * 3 + 2];
+        }
 
         // Clamp ||a|| <= a_max
         float an = sqrtf(ax * ax + ay * ay + az * az);
@@ -204,7 +214,7 @@ __global__ void costKernel(
     if (idx >= total) return;
 
     const int i = idx / M;
-    const int m = idx % M;
+    (void)joint_mode_idx;
 
     const int s_stride = (H + 1) * 6;
     const int c_stride = H * 3;
@@ -464,6 +474,7 @@ __global__ void draCollisionRiskKernel(
     const float* __restrict__ states,
     const float* __restrict__ dyn_mus,
     const float* __restrict__ dyn_sigmas,
+    const float* __restrict__ dyn_pis,
     const float* __restrict__ dyn_sizes,
     const int*   __restrict__ joint_mode_idx,
     int N, int M, int J, int K, int H, int R,
@@ -481,7 +492,7 @@ __global__ void draCollisionRiskKernel(
     const int m = idx % M;
     const int s_stride = (H + 1) * 6;
 
-    float no_collision_traj = 1.0f;
+    float risk_cost = 0.0f;
 
     for (int k = 1; k <= H; ++k) {
         const int eo = i * s_stride + k * 6;
@@ -492,16 +503,11 @@ __global__ void draCollisionRiskKernel(
         float no_collision_step = 1.0f;
 
         for (int j = 0; j < J; ++j) {
-            const int mode_idx = joint_mode_idx[m * J + j];
-            if (mode_idx < 0 || mode_idx >= K) continue;
-
-            const int mu_off = ((j * K + mode_idx) * H + (k - 1)) * 3;
-            const float mx = dyn_mus[mu_off + 0];
-            const float my = dyn_mus[mu_off + 1];
-            const float mz = dyn_mus[mu_off + 2];
-            const float sx = fmaxf(sigma_floor, dyn_sigmas[mu_off + 0]);
-            const float sy = fmaxf(sigma_floor, dyn_sigmas[mu_off + 1]);
-            const float sz = fmaxf(sigma_floor, dyn_sigmas[mu_off + 2]);
+            float pi_sum = 0.0f;
+            for (int mode_idx = 0; mode_idx < K; ++mode_idx) {
+                pi_sum += fmaxf(0.0f, dyn_pis[j * K + mode_idx]);
+            }
+            if (pi_sum <= 1e-8f) continue;
 
             const int sz_off = j * 3;
             const float obs_x = fmaxf(0.0f, dyn_sizes[sz_off + 0]);
@@ -530,25 +536,40 @@ __global__ void draCollisionRiskKernel(
                 const float theta = 6.283185307179586f * v;
                 const float qx = ex + rho * cosf(theta);
                 const float qy = ey + rho * sinf(theta);
-                pdf_sum += gaussianPdf2DDev(qx, qy, mx, my, sx, sy);
+
+                float mixture_pdf = 0.0f;
+                for (int mode_idx = 0; mode_idx < K; ++mode_idx) {
+                    const float weight = fmaxf(0.0f, dyn_pis[j * K + mode_idx]) / pi_sum;
+                    if (weight <= 0.0f) continue;
+
+                    const int mu_off = ((j * K + mode_idx) * H + (k - 1)) * 3;
+                    const float mx = dyn_mus[mu_off + 0];
+                    const float my = dyn_mus[mu_off + 1];
+                    const float mz = dyn_mus[mu_off + 2];
+                    const float sx = fmaxf(sigma_floor, dyn_sigmas[mu_off + 0]);
+                    const float sy = fmaxf(sigma_floor, dyn_sigmas[mu_off + 1]);
+                    const float sz = fmaxf(sigma_floor, dyn_sigmas[mu_off + 2]);
+
+                    float pdf = gaussianPdf2DDev(qx, qy, mx, my, sx, sy);
+                    if (use_z_probability) {
+                        const float z_half = 0.5f * fmaxf(0.0f, dyn_sizes[sz_off + 2]) + d_safe;
+                        pdf *= gaussianIntervalProbabilityDev(ez, z_half, mz, sz);
+                    }
+                    mixture_pdf += weight * pdf;
+                }
+                pdf_sum += mixture_pdf;
             }
 
             float cp_j = area * pdf_sum / (float)R;
-            if (use_z_probability) {
-                const float z_half = 0.5f * fmaxf(0.0f, dyn_sizes[sz_off + 2]) + d_safe;
-                cp_j *= gaussianIntervalProbabilityDev(ez, z_half, mz, sz);
-            }
             cp_j = clamp01Dev(cp_j);
             no_collision_step *= (1.0f - cp_j);
         }
 
         const float cp_step = clamp01Dev(1.0f - no_collision_step);
-        no_collision_traj *= (1.0f - cp_step);
+        risk_cost += cp_lambda * cp_step;
+        if (cp_step > cp_threshold) risk_cost += hard_penalty;
     }
 
-    const float cp_traj = clamp01Dev(1.0f - no_collision_traj);
-    float risk_cost = cp_lambda * cp_traj;
-    if (cp_traj > cp_threshold) risk_cost += hard_penalty;
     delta_S_out[idx] = risk_cost;
 }
 
@@ -599,6 +620,7 @@ DeviceContext* createContext(int N, int H,
     if (J_max > 0) {
         if (!cudaAlloc(&ctx->d_dyn_mus,    static_cast<size_t>(J_max) * K_max * H * 3)) return fail("dyn_mus");
         if (!cudaAlloc(&ctx->d_dyn_sigmas, static_cast<size_t>(J_max) * K_max * H * 3)) return fail("dyn_sigmas");
+        if (!cudaAlloc(&ctx->d_dyn_pis,    static_cast<size_t>(J_max) * K_max)) return fail("dyn_pis");
         if (!cudaAlloc(&ctx->d_dyn_sizes,  static_cast<size_t>(J_max) * 3)) return fail("dyn_sizes");
         if (!cudaAllocInt(&ctx->d_joint_mode_idx,
                           static_cast<size_t>(M_max) * J_max)) return fail("joint_mode_idx");
@@ -622,6 +644,7 @@ void destroyContext(DeviceContext* ctx)
     cudaFree(ctx->d_static_boxes);
     cudaFree(ctx->d_dyn_mus);
     cudaFree(ctx->d_dyn_sigmas);
+    cudaFree(ctx->d_dyn_pis);
     cudaFree(ctx->d_dyn_sizes);
     cudaFree(ctx->d_joint_mode_idx);
     cudaFree(ctx->d_delta_S);
@@ -640,6 +663,7 @@ bool runRolloutAndCost(
     float dt, float a_max, float v_max, float d_safe,
     float w_goal, float w_path, float w_vel,
     float w_acc,  float w_jerk, float w_static, float w_dyn,
+    int   brake_first_rollout,
     int   skip_dyn_cost,
     float* costs_out, float* controls_out, float* states_out_optional)
 {
@@ -681,7 +705,7 @@ bool runRolloutAndCost(
         rolloutKernel<<<blocks, threads>>>(
             ctx->d_x0, ctx->d_u_nominal, ctx->d_noise,
             ctx->d_states, ctx->d_controls,
-            N, H, dt, a_max, v_max);
+            N, H, dt, a_max, v_max, brake_first_rollout);
         CUDA_CHECK(cudaGetLastError());
     }
 
@@ -773,6 +797,7 @@ bool runObstacleCVaR(
 
 bool runDRACollisionRisk(
     DeviceContext* ctx,
+    const float* dyn_pis,
     const float* dyn_sigmas,
     int J, int K_per_obs, int M,
     int N, int H, int R,
@@ -799,6 +824,9 @@ bool runDRACollisionRisk(
         return false;
     }
 
+    CUDA_CHECK(cudaMemcpy(ctx->d_dyn_pis, dyn_pis,
+                          static_cast<size_t>(J) * K_per_obs * sizeof(float),
+                          cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(ctx->d_dyn_sigmas, dyn_sigmas,
                           static_cast<size_t>(J) * K_per_obs * H * 3 * sizeof(float),
                           cudaMemcpyHostToDevice));
@@ -807,7 +835,7 @@ bool runDRACollisionRisk(
     const int threads = 128;
     const int blocks = (total + threads - 1) / threads;
     draCollisionRiskKernel<<<blocks, threads>>>(
-        ctx->d_states, ctx->d_dyn_mus, ctx->d_dyn_sigmas, ctx->d_dyn_sizes,
+        ctx->d_states, ctx->d_dyn_mus, ctx->d_dyn_sigmas, ctx->d_dyn_pis, ctx->d_dyn_sizes,
         ctx->d_joint_mode_idx,
         N, M, J, K_per_obs, H, R,
         d_safe, robot_radius, sigma_floor,

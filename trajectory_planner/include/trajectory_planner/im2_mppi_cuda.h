@@ -91,6 +91,7 @@ bool runRolloutAndCost(
     float dt, float a_max, float v_max, float d_safe,
     float w_goal, float w_path, float w_vel,
     float w_acc,  float w_jerk, float w_static, float w_dyn,
+    int   brake_first_rollout, // 1 = force rollout 0 to brake to zero velocity
     int   skip_dyn_cost,   // 1 = omit deterministic dynamic-obstacle cost
 
     float* costs_out,
@@ -126,6 +127,7 @@ bool runObstacleCVaR(
 
 bool runDRACollisionRisk(
     DeviceContext* ctx,
+    const float* dyn_pis,
     const float* dyn_sigmas,
     int J, int K_per_obs, int M,
     int N, int H, int R,

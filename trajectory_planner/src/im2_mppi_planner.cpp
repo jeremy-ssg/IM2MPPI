@@ -345,10 +345,15 @@ std::vector<RolloutResult> IM2MPPIPlanner::rolloutDynamics(
         r.states.resize(H + 1);
         r.controls.resize(H);
         r.states[0] = current_state_;
+        const bool brake_sample = (params_.method_type == "dra_mppi" && i == 0);
 
         for (int k = 0; k < H; ++k) {
             Control u;
-            u.a = u_nominal_[k].a + noise[i][k].a;
+            if (brake_sample) {
+                u.a = -r.states[k].v / std::max(params_.dt, 1e-6);
+            } else {
+                u.a = u_nominal_[k].a + noise[i][k].a;
+            }
             u   = clampControl(u);
             r.controls[k]    = u;
             r.states[k + 1]  = clampVelocity(propagate(r.states[k], u));
@@ -455,7 +460,9 @@ double IM2MPPIPlanner::computeMapObstacleCost(const RolloutResult& r) const
     // deterministic dynamic obstacle cost.
     double cost = 0.0;
     const bool   dra_mode          = (params_.method_type == "dra_mppi");
-    const double collision_penalty = dra_mode ? 3.0 : 1.0;
+    const double collision_penalty = dra_mode
+        ? (params_.dra_hard_penalty / std::max(1.0, params_.w_static))
+        : 1.0;
     const int    H                 = params_.horizon_steps;
     const int    MAP_STRIDE        = dra_mode ? std::max(1, H / 12)
                                               : std::max(1, H / 6);
@@ -573,6 +580,18 @@ void IM2MPPIPlanner::pruneJointModes(std::vector<JointMode>& modes) const
 void IM2MPPIPlanner::buildJointModes()
 {
     joint_modes_.clear();
+
+    // DRA-MPPI evaluates the full Mixture-of-Gaussians distribution directly
+    // in its collision-probability integral, so it should not enumerate or
+    // prune one discrete intent branch per obstacle.
+    if (params_.method_type == "dra_mppi") {
+        JointMode jm;
+        jm.probability      = 1.0;
+        jm.preliminary_risk = 0.0;
+        jm.score            = 1.0;
+        joint_modes_.push_back(jm);
+        return;
+    }
 
     // vanilla_mppi OR no predictions → trivial single mode with no dyn cost
     if (params_.method_type == "vanilla_mppi" || dyn_predictions_.empty()) {
@@ -958,35 +977,29 @@ void IM2MPPIPlanner::computeDRACollisionProbabilityCost(
     if (N == 0 || M == 0 || J == 0 || R <= 0) return;
 
     for (int m = 0; m < M; ++m) {
-        const auto& jm = modes[m];
         for (int i = 0; i < N; ++i) {
             const auto& states = base_rollouts[i].states;
             if (static_cast<int>(states.size()) <= H) continue;
 
-            double no_collision_traj = 1.0;
+            double risk_cost = 0.0;
 
             for (int k = 1; k <= H; ++k) {
                 const Eigen::Vector3d& ego = states[k].p;
                 double no_collision_step = 1.0;
 
                 for (int j = 0; j < J; ++j) {
-                    if (j >= static_cast<int>(jm.obstacle_mode_indices.size())) continue;
-
                     const auto& pred = dyn_predictions_[j];
-                    const int mode_idx = jm.obstacle_mode_indices[j];
-                    if (mode_idx < 0 || mode_idx >= static_cast<int>(pred.modes.size())) continue;
+                    if (pred.modes.empty()) continue;
 
-                    const auto& mode = pred.modes[mode_idx];
-                    if (mode.mu_seq.empty()) continue;
-
-                    const int pk = std::min(k - 1, static_cast<int>(mode.mu_seq.size()) - 1);
-                    const Eigen::Vector3d& mu = mode.mu_seq[pk];
-                    Eigen::Vector3d sigma(params_.dra_sigma_floor,
-                                          params_.dra_sigma_floor,
-                                          params_.dra_sigma_floor);
-                    if (pk < static_cast<int>(mode.sigma_diag_seq.size())) {
-                        sigma = mode.sigma_diag_seq[pk].cwiseMax(sigma);
+                    double pi_sum = 0.0;
+                    int valid_modes = 0;
+                    for (const auto& mode : pred.modes) {
+                        if (mode.mu_seq.empty()) continue;
+                        pi_sum += std::max(0.0, mode.pi);
+                        ++valid_modes;
                     }
+                    if (valid_modes == 0) continue;
+                    const bool uniform_modes = (pi_sum < 1e-9);
 
                     const double obs_radius =
                         0.5 * std::hypot(std::max(0.0, pred.size.x()),
@@ -1017,27 +1030,48 @@ void IM2MPPIPlanner::computeDRACollisionProbabilityCost(
                         const double theta = 2.0 * kPi * v;
                         const Eigen::Vector2d q(ego.x() + rho * std::cos(theta),
                                                 ego.y() + rho * std::sin(theta));
-                        const Eigen::Vector2d mu_xy(mu.x(), mu.y());
-                        pdf_sum += gaussianPdf2D(q, mu_xy, sigma.x(), sigma.y());
+
+                        double mixture_pdf = 0.0;
+                        for (const auto& mode : pred.modes) {
+                            if (mode.mu_seq.empty()) continue;
+                            const double w = uniform_modes
+                                ? (1.0 / static_cast<double>(valid_modes))
+                                : (std::max(0.0, mode.pi) / pi_sum);
+                            if (w <= 0.0) continue;
+
+                            const int pk =
+                                std::min(k - 1, static_cast<int>(mode.mu_seq.size()) - 1);
+                            const Eigen::Vector3d& mu = mode.mu_seq[pk];
+                            Eigen::Vector3d sigma(params_.dra_sigma_floor,
+                                                  params_.dra_sigma_floor,
+                                                  params_.dra_sigma_floor);
+                            if (pk < static_cast<int>(mode.sigma_diag_seq.size())) {
+                                sigma = mode.sigma_diag_seq[pk].cwiseMax(sigma);
+                            }
+
+                            const Eigen::Vector2d mu_xy(mu.x(), mu.y());
+                            double pdf = gaussianPdf2D(q, mu_xy, sigma.x(), sigma.y());
+                            if (params_.dra_use_z_probability) {
+                                const double z_half =
+                                    0.5 * std::max(0.0, pred.size.z()) + params_.d_safe;
+                                pdf *= gaussianIntervalProbability(
+                                    ego.z(), z_half, mu.z(), sigma.z());
+                            }
+                            mixture_pdf += w * pdf;
+                        }
+                        pdf_sum += mixture_pdf;
                     }
 
                     double cp_j = area * pdf_sum / static_cast<double>(R);
-                    if (params_.dra_use_z_probability) {
-                        const double z_half = 0.5 * std::max(0.0, pred.size.z()) + params_.d_safe;
-                        cp_j *= gaussianIntervalProbability(ego.z(), z_half, mu.z(), sigma.z());
-                    }
                     cp_j = clamp01(cp_j);
                     no_collision_step *= (1.0 - cp_j);
                 }
 
                 const double cp_step = clamp01(1.0 - no_collision_step);
-                no_collision_traj *= (1.0 - cp_step);
-            }
-
-            const double cp_traj = clamp01(1.0 - no_collision_traj);
-            double risk_cost = params_.dra_cp_lambda * cp_traj;
-            if (cp_traj > params_.dra_cp_threshold) {
-                risk_cost += params_.dra_hard_penalty;
+                risk_cost += params_.dra_cp_lambda * cp_step;
+                if (cp_step > params_.dra_cp_threshold) {
+                    risk_cost += params_.dra_hard_penalty;
+                }
             }
             delta_S[m][i] = risk_cost;
         }
@@ -1669,6 +1703,7 @@ bool IM2MPPIPlanner::planGPU()
     // buildJointModes limits indices to existing modes per obstacle).
     std::vector<float> h_dyn_mus   (static_cast<size_t>(J) * K * H * 3, 0.0f);
     std::vector<float> h_dyn_sigmas(static_cast<size_t>(J) * K * H * 3, 0.05f);
+    std::vector<float> h_dyn_pis   (static_cast<size_t>(J) * K, 0.0f);
     std::vector<float> h_dyn_sizes (static_cast<size_t>(J) * 3, 0.0f);
     for (int j = 0; j < J; ++j) {
         const auto& pred = dyn_predictions_[j];
@@ -1676,8 +1711,24 @@ bool IM2MPPIPlanner::planGPU()
         h_dyn_sizes[j * 3 + 1] = static_cast<float>(pred.size.y());
         h_dyn_sizes[j * 3 + 2] = static_cast<float>(pred.size.z());
         const int Km = std::min(K, static_cast<int>(pred.modes.size()));
+
+        double pi_sum = 0.0;
+        int valid_modes = 0;
         for (int m = 0; m < Km; ++m) {
             const auto& mode = pred.modes[m];
+            if (mode.mu_seq.empty()) continue;
+            pi_sum += std::max(0.0, mode.pi);
+            ++valid_modes;
+        }
+
+        for (int m = 0; m < Km; ++m) {
+            const auto& mode = pred.modes[m];
+            if (!mode.mu_seq.empty() && valid_modes > 0) {
+                h_dyn_pis[j * K + m] = static_cast<float>(
+                    (pi_sum > 1e-9)
+                        ? (std::max(0.0, mode.pi) / pi_sum)
+                        : (1.0 / static_cast<double>(valid_modes)));
+            }
             const int Hm = std::min(H, static_cast<int>(mode.mu_seq.size()));
             const int Hs = std::min(H, static_cast<int>(mode.sigma_diag_seq.size()));
             for (int k = 0; k < Hm; ++k) {
@@ -1739,6 +1790,7 @@ bool IM2MPPIPlanner::planGPU()
         static_cast<float>(params_.w_jerk),  static_cast<float>(params_.w_static),
         static_cast<float>(params_.w_dyn),
         dra_mode ? 1 : 0,
+        dra_mode ? 1 : 0,
         h_costs.data(), h_controls.data(), h_states_out);
 
     if (!ok) {
@@ -1760,7 +1812,9 @@ bool IM2MPPIPlanner::planGPU()
     //       reduces this to ~6 checks / rollout — the line-collision check
     //       between sampled steps catches anything in between.
     if (map_ && !h_states.empty()) {
-        const double collision_penalty = dra_mode ? 3.0 : 1.0;
+        const double collision_penalty = dra_mode
+            ? (params_.dra_hard_penalty / std::max(1.0, params_.w_static))
+            : 1.0;
         const int    s_stride          = (H + 1) * 6;
         const int    MAP_STRIDE        = dra_mode ? std::max(1, H / 12)
                                                   : std::max(1, H / 6);
@@ -1832,7 +1886,7 @@ bool IM2MPPIPlanner::planGPU()
             static_cast<unsigned int>(ros::Time::now().toNSec() & 0xFFFFFFFFu);
 
         const bool dra_ok = cuda::runDRACollisionRisk(
-            cuda_ctx_, h_dyn_sigmas.data(),
+            cuda_ctx_, h_dyn_pis.data(), h_dyn_sigmas.data(),
             J, K, M, N, H,
             params_.dra_num_mc_samples,
             static_cast<float>(params_.d_safe),

@@ -91,9 +91,9 @@ struct IM2MPPIParams {
     double cvar_alpha                 = 0.20;   // tail fraction (α)
     int    cvar_num_obstacle_samples  = 16;     // R (≤ 32 recommended; GPU-bound at higher)
     double cvar_lambda_r              = 5.0;    // weight applied to Σ_j ρ in the cost
-    int    dra_num_mc_samples         = 96;
+    int    dra_num_mc_samples         = 128;
     double dra_cp_lambda              = 200.0;
-    double dra_cp_threshold           = 0.08;
+    double dra_cp_threshold           = 0.05;
     double dra_hard_penalty           = 5.0e4;
     double dra_robot_radius           = 0.35;
     double dra_sigma_floor            = 0.05;
