@@ -1,0 +1,2955 @@
+
+            <sdf version='1.7'>
+            <world name='default'>
+                <!-- Generated benchmark scenario: Dense-Fast. Dynamic cylinders: 80; speed range: 0.8-1.1 m/s. -->
+
+                <light name='sun' type='directional'>
+                <cast_shadows>1</cast_shadows>
+                <pose>0 0 10 0 -0 0</pose>
+                <diffuse>0.8 0.8 0.8 1</diffuse>
+                <specular>0.2 0.2 0.2 1</specular>
+                <attenuation>
+                    <range>1000</range>
+                    <constant>0.9</constant>
+                    <linear>0.01</linear>
+                    <quadratic>0.001</quadratic>
+                </attenuation>
+                <direction>-0.5 0.1 -0.9</direction>
+                <spot>
+                    <inner_angle>0</inner_angle>
+                    <outer_angle>0</outer_angle>
+                    <falloff>0</falloff>
+                </spot>
+                </light>
+                <model name='ground_plane'>
+                <static>1</static>
+                <link name='link'>
+                    <collision name='collision'>
+                    <geometry>
+                        <plane>
+                        <normal>0 0 1</normal>
+                        <size>100 100</size>
+                        </plane>
+                    </geometry>
+                    <surface>
+                        <contact>
+                        <collide_bitmask>65535</collide_bitmask>
+                        <ode/>
+                        </contact>
+                        <friction>
+                        <ode>
+                            <mu>100</mu>
+                            <mu2>50</mu2>
+                        </ode>
+                        <torsional>
+                            <ode/>
+                        </torsional>
+                        </friction>
+                        <bounce/>
+                    </surface>
+                    <max_contacts>10</max_contacts>
+                    </collision>
+                    <visual name='visual'>
+                    <cast_shadows>0</cast_shadows>
+                    <geometry>
+                        <plane>
+                        <normal>0 0 1</normal>
+                        <size>100 100</size>
+                        </plane>
+                    </geometry>
+                    <material>
+                        <script>
+                        <uri>file://media/materials/scripts/gazebo.material</uri>
+                        <name>Gazebo/Grey</name>
+                        </script>
+                    </material>
+                    </visual>
+                    <self_collide>0</self_collide>
+                    <enable_wind>0</enable_wind>
+                    <kinematic>0</kinematic>
+                </link>
+                </model>
+                <gravity>0 0 -9.8</gravity>
+                <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
+                <atmosphere type='adiabatic'/>
+                <physics type='ode'>
+                <max_step_size>0.001</max_step_size>
+                <real_time_factor>1</real_time_factor>
+                <real_time_update_rate>1000</real_time_update_rate>
+                </physics>
+                <scene>
+                <ambient>0.4 0.4 0.4 1</ambient>
+                <background>0.7 0.7 0.7 1</background>
+                <shadows>1</shadows>
+                </scene>
+                <wind/>
+                <spherical_coordinates>
+                <surface_model>EARTH_WGS84</surface_model>
+                <latitude_deg>0</latitude_deg>
+                <longitude_deg>0</longitude_deg>
+                <elevation>0</elevation>
+                <heading_deg>0</heading_deg>
+                </spherical_coordinates>
+
+                            <model name='cylinder_0_0.7_0.7_2.1'>
+                            <static>true</static>
+                            <pose>0.9762700785464951 4.30378732744839 1.0448831829968968 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3270964398016714</radius>
+                                        <length>2.0897663659937935</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_1_0.6_0.6_2.9'>
+                            <static>true</static>
+                            <pose>2.917882261333123 -1.2482557747461502 1.4636627605010293 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3150324556477333</radius>
+                                        <length>2.9273255210020586</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_2_0.4_0.4_2.9'>
+                            <static>true</static>
+                            <pose>5.834500761653292 0.5778983950580887 1.425596638292661 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.2213108174593661</radius>
+                                        <length>2.851193276585322</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_3_0.9_0.9_2.6'>
+                            <static>true</static>
+                            <pose>-8.257414005969185 -9.595632051193485 1.2781567509498504 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.46100364447404574</radius>
+                                        <length>2.5563135018997007</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_4_0.5_0.5_2.6'>
+                            <static>true</static>
+                            <pose>9.572366844655281 5.983171284334471 1.2805291762864555 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.23548232776067998</radius>
+                                        <length>2.561058352572911</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_5_0.6_0.6_2.0'>
+                            <static>true</static>
+                            <pose>2.798420426550477 -7.132934251819072 1.0218483217500718 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3243985819971571</radius>
+                                        <length>2.0436966435001436</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_6_0.4_0.4_2.1'>
+                            <static>true</static>
+                            <pose>-4.70888775790746 5.484673788684333 1.0684339488686485 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.20563694013090655</radius>
+                                        <length>2.136867897737297</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_7_0.8_0.8_2.9'>
+                            <static>true</static>
+                            <pose>2.352709941517542 2.2419144544484286 1.4437480785146242 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.404546089731045</radius>
+                                        <length>2.8874961570292483</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_8_0.8_0.8_1.1'>
+                            <static>true</static>
+                            <pose>-2.80984198852428 -1.259360924013171 0.5602254716292698 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.4000300146337003</radius>
+                                        <length>1.1204509432585397</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_9_0.5_0.5_3.0'>
+                            <static>true</static>
+                            <pose>-2.725784581147548 1.4039354083575937 1.4883738380592262 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.23061344322440844</radius>
+                                        <length>2.9767476761184524</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_10_0.7_0.7_1.5'>
+                            <static>true</static>
+                            <pose>-5.822464878103306 -6.773809642300074 0.7532916025397821 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3398932318568919</radius>
+                                        <length>1.5065832050795642</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_11_0.7_0.7_3.0'>
+                            <static>true</static>
+                            <pose>-8.057974484138775 6.758898149976076 1.4764594650133958 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3405953604943105</radius>
+                                        <length>2.9529189300267915</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_12_0.6_0.6_1.1'>
+                            <static>true</static>
+                            <pose>9.535221763806742 2.0969103949009202 0.5391877922543207 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.2848420887729229</radius>
+                                        <length>1.0783755845086413</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_13_0.6_0.6_1.6'>
+                            <static>true</static>
+                            <pose>-7.596068775736622 -4.077196049557101 0.817983179393976 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.324278898354401</radius>
+                                        <length>1.635966358787952</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_14_0.7_0.7_1.5'>
+                            <static>true</static>
+                            <pose>-8.717050073024312 3.849442387400398 0.7653894909394454 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3569744160400099</radius>
+                                        <length>1.5307789818788908</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_15_0.8_0.8_1.6'>
+                            <static>true</static>
+                            <pose>-8.121189784831166 1.5189299111235854 0.8185689524513237 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.4002231139891045</radius>
+                                        <length>1.6371379049026473</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_16_0.8_0.8_1.0'>
+                            <static>true</static>
+                            <pose>1.7302586962016626 -9.597849076250128 0.5046954761925471 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.4033449610388691</radius>
+                                        <length>1.0093909523850941</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_17_0.6_0.6_2.4'>
+                            <static>true</static>
+                            <pose>9.054980230339702 -1.0574924276474533 1.1994792753175043 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.2892310852565401</radius>
+                                        <length>2.3989585506350086</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_18_0.9_0.9_2.2'>
+                            <static>true</static>
+                            <pose>6.275956394049544 -2.0698851830603076 1.0812728726358587 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.4645206085564558</radius>
+                                        <length>2.1625457452717174</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='cylinder_19_0.8_0.8_2.9'>
+                            <static>true</static>
+                            <pose>3.850631801555318 4.50508559639281 1.4560836347232238 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <cylinder>
+                                        <radius>0.3931970597688912</radius>
+                                        <length>2.9121672694464475</length>
+                                    </cylinder>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_0_0.2_0.3_1.9'>
+                            <static>true</static>
+                            <pose>3.2034707498537003 -4.198447855791119 0.9287687009457661 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.2 0.3 1.9</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_1_0.2_0.5_2.4'>
+                            <static>true</static>
+                            <pose>-1.2827014946874638 7.838467100313441 1.2038885835403663 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.2 0.5 2.4</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_2_0.2_0.4_2.7'>
+                            <static>true</static>
+                            <pose>4.2848259909822275 9.976940131357331 1.3681260573682144 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.2 0.4 2.7</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_3_0.4_0.5_1.9'>
+                            <static>true</static>
+                            <pose>-1.8563340554800067 -8.61666009089724 0.9535426826780689 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.5 1.9</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_4_0.3_0.5_1.4'>
+                            <static>true</static>
+                            <pose>-6.000069502071998 -9.62956411078772 0.7239246880603801 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.5 1.4</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_5_0.4_0.3_2.2'>
+                            <static>true</static>
+                            <pose>4.088288038470655 -9.363221409373843 1.1214784014997634 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.3 2.2</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_6_0.3_0.3_2.0'>
+                            <static>true</static>
+                            <pose>-6.276139882393277 8.887447799678672 0.9904588086175671 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.3 2.0</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_7_0.3_0.3_2.4'>
+                            <static>true</static>
+                            <pose>-8.839416793522489 -1.3116674888375854 1.1963434888154594 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.3 2.4</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_8_0.4_0.3_1.4'>
+                            <static>true</static>
+                            <pose>0.731584222174444 7.933425860806842 0.7168969843984739 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.3 1.4</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_9_0.3_0.4_1.9'>
+                            <static>true</static>
+                            <pose>-5.850598491177812 -1.5062906249698749 0.9635754243648107 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.4 1.9</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_10_0.4_0.3_1.3'>
+                            <static>true</static>
+                            <pose>7.277112118464629 -7.649362880759338 0.6320681063451533 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.3 1.3</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_11_0.2_0.5_1.2'>
+                            <static>true</static>
+                            <pose>9.23872757094458 -4.157049464149023 0.6002939422654978 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.2 0.5 1.2</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_12_0.5_0.4_2.9'>
+                            <static>true</static>
+                            <pose>-3.236820963263087 9.231403090829971 1.4493188224156814 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.5 0.4 2.9</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_13_0.5_0.5_2.7'>
+                            <static>true</static>
+                            <pose>0.22637965092912005 -5.513659420505215 1.3621915174216834 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.5 0.5 2.7</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_14_0.4_0.2_1.1'>
+                            <static>true</static>
+                            <pose>-1.8551765717238524 -5.355317156581146 0.5534271817868253 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.2 1.1</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_15_0.2_0.3_1.3'>
+                            <static>true</static>
+                            <pose>7.211023476575875 4.540885254226566 0.6314827992911276 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.2 0.3 1.3</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_16_0.4_0.5_1.3'>
+                            <static>true</static>
+                            <pose>5.135572854737784 2.721221108942826 0.6605388224852564 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.5 1.3</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_17_0.2_0.3_1.7'>
+                            <static>true</static>
+                            <pose>-9.333907469066077 9.17965443726947 0.8567068904025429 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.2 0.3 1.7</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_18_0.4_0.3_1.3'>
+                            <static>true</static>
+                            <pose>9.485124256361004 9.806900031217879 0.6629544260466054 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.4 0.3 1.3</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='box_19_0.3_0.4_1.6'>
+                            <static>true</static>
+                            <pose>9.78819554568863 -8.693915856964395 0.7883984973314939 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                <geometry>
+                                    <box>
+                                        <size>0.3 0.4 1.6</size> <!-- Width, Depth, Height -->
+                                    </box>
+                                </geometry>
+                                </visual>
+                            </link>
+                            </model>
+
+                            <model name='dynamic_cylinder_0_0.3_0.3_1.6'>
+                            <static>true</static>
+                            <pose>-6.094483560216853 3.9806188214205047 0.7826298825091915 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.13605455604858924</radius>
+                                            <length>1.565259765018383</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.851515</velocity>
+                                <path>
+                                <waypoint>-6.094483560216853 3.9806188214205047 0.7826298825091915</waypoint>
+                                <waypoint>-1.8218642775396177 1.3125074078740546 0.7826298825091915</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_1_0.4_0.4_1.8'>
+                            <static>true</static>
+                            <pose>7.887765949337705 10.199205886876612 0.894196571057319 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.1904948345549927</radius>
+                                            <length>1.788393142114638</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.963636</velocity>
+                                <path>
+                                <waypoint>7.887765949337705 10.199205886876612 0.894196571057319</waypoint>
+                                <waypoint>-6.416952172085628 -3.6355351321784823 0.894196571057319</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_2_0.3_0.3_1.6'>
+                            <static>true</static>
+                            <pose>-4.882649638463283 11.808269841947379 0.7759073060311001 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.17307090991274762</radius>
+                                            <length>1.5518146120622003</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.075758</velocity>
+                                <path>
+                                <waypoint>-4.882649638463283 11.808269841947379 0.7759073060311001</waypoint>
+                                <waypoint>-9.458252282826427 10.82286266532946 0.7759073060311001</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_3_0.3_0.3_1.1'>
+                            <static>true</static>
+                            <pose>9.16128509601215 -5.4615145088169 0.5687412396190572 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.13044684073773197</radius>
+                                            <length>1.1374824792381144</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.884848</velocity>
+                                <path>
+                                <waypoint>9.16128509601215 -5.4615145088169 0.5687412396190572</waypoint>
+                                <waypoint>-3.0168916002980133 5.970918180963196 0.5687412396190572</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_4_0.2_0.2_1.1'>
+                            <static>true</static>
+                            <pose>4.789801445394033 11.23117359850145 0.5609418822750922 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.11312893284732561</radius>
+                                            <length>1.1218837645501845</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.996970</velocity>
+                                <path>
+                                <waypoint>4.789801445394033 11.23117359850145 0.5609418822750922</waypoint>
+                                <waypoint>-1.1562796159257687 -10.299125323578998 0.5609418822750922</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_5_0.3_0.3_1.5'>
+                            <static>true</static>
+                            <pose>2.498827296501169 -2.812606580211501 0.7368921675047347 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.14067333458357484</radius>
+                                            <length>1.4737843350094695</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.806061</velocity>
+                                <path>
+                                <waypoint>2.498827296501169 -2.812606580211501 0.7368921675047347</waypoint>
+                                <waypoint>11.227072123164046 1.125237640066132 0.7368921675047347</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_6_0.3_0.3_1.2'>
+                            <static>true</static>
+                            <pose>1.2498786406072995 -5.480333577452499 0.6241523303919245 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.15249704422542643</radius>
+                                            <length>1.248304660783849</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.918182</velocity>
+                                <path>
+                                <waypoint>1.2498786406072995 -5.480333577452499 0.6241523303919245</waypoint>
+                                <waypoint>-2.3588751508896326 -6.0380768380086955 0.6241523303919245</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_7_0.3_0.3_1.4'>
+                            <static>true</static>
+                            <pose>6.014280550295702 -3.995820821009392 0.6784542050636808 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.1348475989033497</radius>
+                                            <length>1.3569084101273616</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.030303</velocity>
+                                <path>
+                                <waypoint>6.014280550295702 -3.995820821009392 0.6784542050636808</waypoint>
+                                <waypoint>8.695645124061656 -10.831432896587316 0.6784542050636808</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_8_0.3_0.3_1.5'>
+                            <static>true</static>
+                            <pose>5.762340614824382 4.332347547427823 0.7704969929109852 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.15436780538280953</radius>
+                                            <length>1.5409939858219703</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.839394</velocity>
+                                <path>
+                                <waypoint>5.762340614824382 4.332347547427823 0.7704969929109852</waypoint>
+                                <waypoint>5.052681665336294 -7.081831512967158 0.7704969929109852</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_9_0.3_0.3_1.7'>
+                            <static>true</static>
+                            <pose>-5.215208377307121 -11.274353807856418 0.8688445847068773 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.14059423219682837</radius>
+                                            <length>1.7376891694137546</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.951515</velocity>
+                                <path>
+                                <waypoint>-5.215208377307121 -11.274353807856418 0.8688445847068773</waypoint>
+                                <waypoint>-11.81078151579743 -3.0557023242961066 0.8688445847068773</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_10_0.3_0.3_1.5'>
+                            <static>true</static>
+                            <pose>-11.416483206956213 -3.7773363758018323 0.7308560976081367 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.16719571405958222</radius>
+                                            <length>1.4617121952162735</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.063636</velocity>
+                                <path>
+                                <waypoint>-11.416483206956213 -3.7773363758018323 0.7308560976081367</waypoint>
+                                <waypoint>-5.302369242513639 -6.966001208264758 0.7308560976081367</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_11_0.4_0.4_1.0'>
+                            <static>true</static>
+                            <pose>10.772664497292176 -11.935122866555936 0.5067486693480159 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.18136786497018637</radius>
+                                            <length>1.0134973386960318</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.872727</velocity>
+                                <path>
+                                <waypoint>10.772664497292176 -11.935122866555936 0.5067486693480159</waypoint>
+                                <waypoint>2.4094136903433494 2.1297506392869163 0.5067486693480159</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_12_0.3_0.3_1.8'>
+                            <static>true</static>
+                            <pose>-6.533771963091337 -2.152762495436985 0.892232053114913 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.15027207611453242</radius>
+                                            <length>1.784464106229826</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.984848</velocity>
+                                <path>
+                                <waypoint>-6.533771963091337 -2.152762495436985 0.892232053114913</waypoint>
+                                <waypoint>9.28705874921802 2.8518280377930356 0.892232053114913</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_13_0.3_0.3_1.0'>
+                            <static>true</static>
+                            <pose>10.136351563119192 0.9931390501712585 0.5144135269714278 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.1389134677101186</radius>
+                                            <length>1.0288270539428557</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.096970</velocity>
+                                <path>
+                                <waypoint>10.136351563119192 0.9931390501712585 0.5144135269714278</waypoint>
+                                <waypoint>7.917536846480235 11.238873847063136 0.5144135269714278</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_14_0.3_0.3_1.0'>
+                            <static>true</static>
+                            <pose>-1.4336699320921973 -10.16431754327315 0.524431414826715 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.1739883917829101</radius>
+                                            <length>1.04886282965343</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.906061</velocity>
+                                <path>
+                                <waypoint>-1.4336699320921973 -10.16431754327315 0.524431414826715</waypoint>
+                                <waypoint>-6.062429867060311 -11.049227458091575 0.524431414826715</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_15_0.4_0.4_1.4'>
+                            <static>true</static>
+                            <pose>9.553496573129642 4.141975471116513 0.6882595796855638 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.19795269293354587</radius>
+                                            <length>1.3765191593711277</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.018182</velocity>
+                                <path>
+                                <waypoint>9.553496573129642 4.141975471116513 0.6882595796855638</waypoint>
+                                <waypoint>-4.693287255662922 11.95109403188816 0.6882595796855638</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_16_0.3_0.3_1.2'>
+                            <static>true</static>
+                            <pose>-7.808198750519861 -4.128287978206088 0.6135999907048404 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.15145127432987568</radius>
+                                            <length>1.2271999814096808</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.827273</velocity>
+                                <path>
+                                <waypoint>-7.808198750519861 -4.128287978206088 0.6135999907048404</waypoint>
+                                <waypoint>-10.483017159872865 2.573984976276984 0.6135999907048404</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_17_0.3_0.3_1.3'>
+                            <static>true</static>
+                            <pose>-3.169738067111009 -1.0435226096962715 0.6373566915163664 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.16591764718500285</radius>
+                                            <length>1.2747133830327328</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.939394</velocity>
+                                <path>
+                                <waypoint>-3.169738067111009 -1.0435226096962715 0.6373566915163664</waypoint>
+                                <waypoint>11.291848646303464 -8.797453638105504 0.6373566915163664</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_18_0.4_0.4_1.8'>
+                            <static>true</static>
+                            <pose>-2.465838067966992 11.982671854132107 0.8904902653815281 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.17645619743577087</radius>
+                                            <length>1.7809805307630562</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.051515</velocity>
+                                <path>
+                                <waypoint>-2.465838067966992 11.982671854132107 0.8904902653815281</waypoint>
+                                <waypoint>5.313760031038861 3.3019846687390277 0.8904902653815281</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_19_0.3_0.3_1.7'>
+                            <static>true</static>
+                            <pose>11.00978215335823 -9.184308470764535 0.8743328320867154 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.1399801692224526</radius>
+                                            <length>1.7486656641734308</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.860606</velocity>
+                                <path>
+                                <waypoint>11.00978215335823 -9.184308470764535 0.8743328320867154</waypoint>
+                                <waypoint>2.152673352325218 5.889553774735031 0.8743328320867154</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_20_0.2_0.2_1.4'>
+                            <static>true</static>
+                            <pose>-2.871955595338246 -8.452591759265463 0.6991107631301368 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.12415570400399184</radius>
+                                            <length>1.3982215262602735</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.972727</velocity>
+                                <path>
+                                <waypoint>-2.871955595338246 -8.452591759265463 0.6991107631301368</waypoint>
+                                <waypoint>3.7622870025800896 8.689502300428973 0.6991107631301368</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_21_0.4_0.4_1.8'>
+                            <static>true</static>
+                            <pose>-7.943390252900129 8.629940074070916 0.8919849305369237 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.18571249175045673</radius>
+                                            <length>1.7839698610738475</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.084848</velocity>
+                                <path>
+                                <waypoint>-7.943390252900129 8.629940074070916 0.8919849305369237</waypoint>
+                                <waypoint>-0.705098305966251 -9.219983968778752 0.8919849305369237</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_22_0.3_0.3_1.1'>
+                            <static>true</static>
+                            <pose>-9.348549336198126 -2.279145280873202 0.5439137832250003 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.1703217496467216</radius>
+                                            <length>1.0878275664500006</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.893939</velocity>
+                                <path>
+                                <waypoint>-9.348549336198126 -2.279145280873202 0.5439137832250003</waypoint>
+                                <waypoint>-4.294968238962794 -11.281192202286014 0.5439137832250003</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_23_0.3_0.3_1.7'>
+                            <static>true</static>
+                            <pose>-9.95253784515112 -6.686485288973467 0.8425104718491128 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.15596824058234482</radius>
+                                            <length>1.6850209436982255</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.006061</velocity>
+                                <path>
+                                <waypoint>-9.95253784515112 -6.686485288973467 0.8425104718491128</waypoint>
+                                <waypoint>-5.639047239252431 -10.412412909193087 0.8425104718491128</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_24_0.4_0.4_1.3'>
+                            <static>true</static>
+                            <pose>6.562933066776733 -1.0461704318624 0.6397761168194139 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.17510216488563984</radius>
+                                            <length>1.2795522336388279</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.815152</velocity>
+                                <path>
+                                <waypoint>6.562933066776733 -1.0461704318624 0.6397761168194139</waypoint>
+                                <waypoint>-7.209692589117256 -1.6083790492516634 0.6397761168194139</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_25_0.2_0.2_1.1'>
+                            <static>true</static>
+                            <pose>0.5851154658532796 -9.182872939906627 0.5714319872230625 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.10813695988533054</radius>
+                                            <length>1.142863974446125</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.927273</velocity>
+                                <path>
+                                <waypoint>0.5851154658532796 -9.182872939906627 0.5714319872230625</waypoint>
+                                <waypoint>-10.87664748690747 11.297554626495188 0.5714319872230625</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_26_0.3_0.3_1.7'>
+                            <static>true</static>
+                            <pose>-5.5870312353043525 9.05757094017887 0.8435109872927609 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.14445872878113009</radius>
+                                            <length>1.6870219745855217</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.039394</velocity>
+                                <path>
+                                <waypoint>-5.5870312353043525 9.05757094017887 0.8435109872927609</waypoint>
+                                <waypoint>-11.966799600024022 -6.055559460184417 0.8435109872927609</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_27_0.4_0.4_1.4'>
+                            <static>true</static>
+                            <pose>-6.122652493917614 -6.805025737338965 0.6975831335948894 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.18442349615530243</radius>
+                                            <length>1.3951662671897789</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.848485</velocity>
+                                <path>
+                                <waypoint>-6.122652493917614 -6.805025737338965 0.6975831335948894</waypoint>
+                                <waypoint>10.146158645408768 -4.942160102804014 0.6975831335948894</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_28_0.4_0.4_1.3'>
+                            <static>true</static>
+                            <pose>-2.596873474448021 -6.187713740973949 0.663321163335898 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.18093649714891985</radius>
+                                            <length>1.326642326671796</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.960606</velocity>
+                                <path>
+                                <waypoint>-2.596873474448021 -6.187713740973949 0.663321163335898</waypoint>
+                                <waypoint>-0.3985551551425921 -11.040172754382793 0.663321163335898</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_29_0.2_0.2_1.4'>
+                            <static>true</static>
+                            <pose>8.985598009796217 -9.30174438690453 0.7107629796208721 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.10005459648969957</radius>
+                                            <length>1.4215259592417442</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.072727</velocity>
+                                <path>
+                                <waypoint>8.985598009796217 -9.30174438690453 0.7107629796208721</waypoint>
+                                <waypoint>-7.607200990081893 -2.3273759422970723 0.7107629796208721</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_30_0.4_0.4_1.7'>
+                            <static>true</static>
+                            <pose>-5.2119155477740104 -3.84885494001122 0.8494227309163086 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.18989610922270317</radius>
+                                            <length>1.6988454618326172</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.881818</velocity>
+                                <path>
+                                <waypoint>-5.2119155477740104 -3.84885494001122 0.8494227309163086</waypoint>
+                                <waypoint>11.116735086249122 -8.452767982430629 0.8494227309163086</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_31_0.3_0.3_1.3'>
+                            <static>true</static>
+                            <pose>-7.54757045944377 0.7840460993126577 0.6429387518711818 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.1731744185432893</radius>
+                                            <length>1.2858775037423635</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.993939</velocity>
+                                <path>
+                                <waypoint>-7.54757045944377 0.7840460993126577 0.6429387518711818</waypoint>
+                                <waypoint>-4.402978562580575 -1.2749528652912208 0.6429387518711818</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_32_0.4_0.4_1.6'>
+                            <static>true</static>
+                            <pose>3.7756539988114035 0.41582600438592365 0.7902294136405958 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.17731100525054194</radius>
+                                            <length>1.5804588272811917</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.803030</velocity>
+                                <path>
+                                <waypoint>3.7756539988114035 0.41582600438592365 0.7902294136405958</waypoint>
+                                <waypoint>9.627892095579877 1.3114814068862302 0.7902294136405958</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_33_0.3_0.3_1.8'>
+                            <static>true</static>
+                            <pose>-4.539840548560416 5.2470333681876475 0.8895274787383933 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.12908409066567428</radius>
+                                            <length>1.7790549574767867</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.915152</velocity>
+                                <path>
+                                <waypoint>-4.539840548560416 5.2470333681876475 0.8895274787383933</waypoint>
+                                <waypoint>5.466510557146034 7.564785487543524 0.8895274787383933</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_34_0.3_0.3_1.4'>
+                            <static>true</static>
+                            <pose>5.635530591133467 -7.764014666662557 0.7139632793532805 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.13041735573892466</radius>
+                                            <length>1.427926558706561</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.027273</velocity>
+                                <path>
+                                <waypoint>5.635530591133467 -7.764014666662557 0.7139632793532805</waypoint>
+                                <waypoint>0.15149337656132644 11.995405874807169 0.7139632793532805</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_35_0.4_0.4_1.4'>
+                            <static>true</static>
+                            <pose>2.1855691400157653 10.121257604899998 0.6969445626763536 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.18339816438766318</radius>
+                                            <length>1.3938891253527073</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.836364</velocity>
+                                <path>
+                                <waypoint>2.1855691400157653 10.121257604899998 0.6969445626763536</waypoint>
+                                <waypoint>5.374593564031819 1.420170770440853 0.6969445626763536</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_36_0.3_0.3_1.6'>
+                            <static>true</static>
+                            <pose>-6.867951676761923 6.509411111181844 0.7947412646723142 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.15149222019367686</radius>
+                                            <length>1.5894825293446284</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.948485</velocity>
+                                <path>
+                                <waypoint>-6.867951676761923 6.509411111181844 0.7947412646723142</waypoint>
+                                <waypoint>-4.2520910988458995 -6.490381327393205 0.7947412646723142</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_37_0.2_0.2_1.1'>
+                            <static>true</static>
+                            <pose>2.8919976067197055 3.3509338311297974 0.5741394347917531 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.11293557610386996</radius>
+                                            <length>1.1482788695835062</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.060606</velocity>
+                                <path>
+                                <waypoint>2.8919976067197055 3.3509338311297974 0.5741394347917531</waypoint>
+                                <waypoint>6.678628015114651 8.360286474960144 0.5741394347917531</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_38_0.4_0.4_1.4'>
+                            <static>true</static>
+                            <pose>3.6509902762113366 8.477903427804307 0.6935011458806944 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.18237176720231696</radius>
+                                            <length>1.387002291761389</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.869697</velocity>
+                                <path>
+                                <waypoint>3.6509902762113366 8.477903427804307 0.6935011458806944</waypoint>
+                                <waypoint>11.260940921224446 -5.6248188590052655 0.6935011458806944</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_cylinder_39_0.4_0.4_1.1'>
+                            <static>true</static>
+                            <pose>-11.727476915707378 0.2693229017684793 0.5608108908838279 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <cylinder>
+                                            <radius>0.19416677953897565</radius>
+                                            <length>1.1216217817676557</length>
+                                        </cylinder>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.981818</velocity>
+                                <path>
+                                <waypoint>-11.727476915707378 0.2693229017684793 0.5608108908838279</waypoint>
+                                <waypoint>-10.774188475937837 11.17239933929936 0.5608108908838279</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_0_0.3_0.2_1.0'>
+                            <static>true</static>
+                            <pose>-2.4499532439614953 6.588022917220847 0.5312582238133927 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.2826568681770961 0.20491541349572517 1.0343249523220466</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.093939</velocity>
+                                <path>
+                                <waypoint>-2.4499532439614953 6.588022917220847 0.5312582238133927</waypoint>
+                                <waypoint>11.216107248887571 8.66695219357888 0.5789281744179476</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_1_0.2_0.3_1.8'>
+                            <static>true</static>
+                            <pose>-11.95044874621388 -7.226127967995369 0.9747410708006319 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.16593023151628253 0.25835228423607415 1.7582575096892716</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.903030</velocity>
+                                <path>
+                                <waypoint>-11.95044874621388 -7.226127967995369 0.9747410708006319</waypoint>
+                                <waypoint>-4.069426257531747 3.321362538646765 0.9072147043078601</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_2_0.2_0.2_1.2'>
+                            <static>true</static>
+                            <pose>-9.514116877239069 -11.565687403164596 0.6787199957223198 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.19725441726586296 0.21763029208705986 1.239322915635053</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.015152</velocity>
+                                <path>
+                                <waypoint>-9.514116877239069 -11.565687403164596 0.6787199957223198</waypoint>
+                                <waypoint>-1.547243027257597 7.168541973213664 0.7120070116379371</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_3_0.2_0.2_1.6'>
+                            <static>true</static>
+                            <pose>11.612491912358802 4.735926019921237 0.8270611917364601 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.23293311730688773 0.18461088803322423 1.5762126820038065</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.824242</velocity>
+                                <path>
+                                <waypoint>11.612491912358802 4.735926019921237 0.8270611917364601</waypoint>
+                                <waypoint>-5.669575525188909 10.67101724213098 0.8016611843127539</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_4_0.1_0.1_1.5'>
+                            <static>true</static>
+                            <pose>-9.633351150652535 7.225797126127311 0.7549822637175555 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.13396390063434294 0.12967578753547512 1.5017285691694866</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.936364</velocity>
+                                <path>
+                                <waypoint>-9.633351150652535 7.225797126127311 0.7549822637175555</waypoint>
+                                <waypoint>7.594104749144538 7.381531299836965 0.7559650154676189</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_5_0.2_0.3_1.8'>
+                            <static>true</static>
+                            <pose>6.558219025608558 1.6246259720842566 0.9736023682772382 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.19164245195172241 0.25148131116434513 1.75060490957117</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.048485</velocity>
+                                <path>
+                                <waypoint>6.558219025608558 1.6246259720842566 0.9736023682772382</waypoint>
+                                <waypoint>11.57394665492026 11.824007843142393 0.8871640066221615</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_6_0.3_0.2_1.8'>
+                            <static>true</static>
+                            <pose>8.283698087897289 -2.8136587381734834 0.9009054142079997 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.27342290831873256 0.1588532328259378 1.7968570168081497</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.857576</velocity>
+                                <path>
+                                <waypoint>8.283698087897289 -2.8136587381734834 0.9009054142079997</waypoint>
+                                <waypoint>7.944746735889076 3.852868251468964 0.9136649567692058</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_7_0.3_0.3_1.7'>
+                            <static>true</static>
+                            <pose>5.084890821439728 -10.710394863510352 0.8928533133938285 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.2549495228384997 0.2988466166441524 1.7064620778553081</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.969697</velocity>
+                                <path>
+                                <waypoint>5.084890821439728 -10.710394863510352 0.8928533133938285</waypoint>
+                                <waypoint>-7.981540332971059 7.725693801788857 0.9232839012094404</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_8_0.1_0.3_1.8'>
+                            <static>true</static>
+                            <pose>2.754477267463173 -11.108889506605252 0.8857501630441007 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.10891422219753283 0.28265671927340674 1.7686500230581423</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.081818</velocity>
+                                <path>
+                                <waypoint>2.754477267463173 -11.108889506605252 0.8857501630441007</waypoint>
+                                <waypoint>-3.789506995109072 7.763321257620891 0.9709384821615443</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_9_0.1_0.2_1.6'>
+                            <static>true</static>
+                            <pose>-4.678879239291322 1.391697614631184 0.9055223540851829 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.14750462759726995 0.15426122025169325 1.6145557315702237</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.890909</velocity>
+                                <path>
+                                <waypoint>-4.678879239291322 1.391697614631184 0.9055223540851829</waypoint>
+                                <waypoint>-2.3892351663378406 3.980913559436157 0.8473658221483104</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_10_0.1_0.2_1.5'>
+                            <static>true</static>
+                            <pose>-2.0692747234016142 4.473125520011351 0.7606252336550268 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.11564921993809377 0.17425738885649986 1.462072072034679</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.003030</velocity>
+                                <path>
+                                <waypoint>-2.0692747234016142 4.473125520011351 0.7606252336550268</waypoint>
+                                <waypoint>-4.720993885928014 -3.458660288619164 0.8120662441716627</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_11_0.1_0.1_1.8'>
+                            <static>true</static>
+                            <pose>9.294795629644462 6.3616787797953585 0.927506470030102 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.12366988680389382 0.10503805785810123 1.7922948177116638</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.812121</velocity>
+                                <path>
+                                <waypoint>9.294795629644462 6.3616787797953585 0.927506470030102</waypoint>
+                                <waypoint>-3.227063325166167 -7.169597621739229 0.9448622215475694</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_12_0.2_0.2_1.1'>
+                            <static>true</static>
+                            <pose>-6.963348627116593 -8.82466380352649 0.5729930844787706 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.15975006217038817 0.1510127570633279 1.10733891046263</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.924242</velocity>
+                                <path>
+                                <waypoint>-6.963348627116593 -8.82466380352649 0.5729930844787706</waypoint>
+                                <waypoint>4.4512115019148055 -10.812006137734375 0.5638549167561367</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_13_0.2_0.2_1.4'>
+                            <static>true</static>
+                            <pose>-0.15823290505972487 3.7690482459941563 0.7419789868610605 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.17940273335552667 0.24088030788023473 1.3917479298916393</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.036364</velocity>
+                                <path>
+                                <waypoint>-0.15823290505972487 3.7690482459941563 0.7419789868610605</waypoint>
+                                <waypoint>10.443852289867813 9.234355735185119 0.7660717244624393</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_14_0.2_0.3_1.3'>
+                            <static>true</static>
+                            <pose>11.60241547762983 9.651149155301571 0.673805844614612 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.23430553935315163 0.26859465928021686 1.2558671115065234</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.845455</velocity>
+                                <path>
+                                <waypoint>11.60241547762983 9.651149155301571 0.673805844614612</waypoint>
+                                <waypoint>7.61887832683599 6.457127863683375 0.6957230527151138</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_15_0.2_0.3_1.4'>
+                            <static>true</static>
+                            <pose>-11.609933071743129 3.4272810074042894 0.7501941440762958 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.24257846053978127 0.2660952690241919 1.4118136832281492</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.957576</velocity>
+                                <path>
+                                <waypoint>-11.609933071743129 3.4272810074042894 0.7501941440762958</waypoint>
+                                <waypoint>9.554106123047607 -4.284649659499074 0.7533253228404367</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_16_0.1_0.1_1.8'>
+                            <static>true</static>
+                            <pose>-3.01406438688624 -3.508343218256618 0.9311367277305754 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.1387246580804993 0.1224499985174772 1.7866198920401244</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.069697</velocity>
+                                <path>
+                                <waypoint>-3.01406438688624 -3.508343218256618 0.9311367277305754</waypoint>
+                                <waypoint>3.788691209434276 -3.373124375480348 0.9833466911804848</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_17_0.1_0.3_1.3'>
+                            <static>true</static>
+                            <pose>1.3425045314065613 5.798474571655767 0.748405811403979 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.12101893884979985 0.2965147777361825 1.342702810484685</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.878788</velocity>
+                                <path>
+                                <waypoint>1.3425045314065613 5.798474571655767 0.748405811403979</waypoint>
+                                <waypoint>9.797961101629895 -8.391605835087113 0.7271797476592673</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_18_0.1_0.2_1.1'>
+                            <static>true</static>
+                            <pose>-3.6320352547591757 8.371992614505842 0.6314873975634193 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.1119515835920788 0.17005424146897083 1.1019991054159908</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.990909</velocity>
+                                <path>
+                                <waypoint>-3.6320352547591757 8.371992614505842 0.6314873975634193</waypoint>
+                                <waypoint>11.960517050382467 8.335384520009637 0.5924452061885633</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_19_0.1_0.1_1.4'>
+                            <static>true</static>
+                            <pose>10.073711538510572 11.058395362682418 0.7828037308746583 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.11371936695077688 0.1457815199448788 1.437494543045073</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.800000</velocity>
+                                <path>
+                                <waypoint>10.073711538510572 11.058395362682418 0.7828037308746583</waypoint>
+                                <waypoint>4.527559607609124 -10.98109227058746 0.7701953056314913</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_20_0.1_0.1_1.2'>
+                            <static>true</static>
+                            <pose>5.571413259352834 9.36267699325937 0.7219216594104638 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.10855262758955977 0.10007346875029158 1.2460256313749696</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.912121</velocity>
+                                <path>
+                                <waypoint>5.571413259352834 9.36267699325937 0.7219216594104638</waypoint>
+                                <waypoint>3.9085554853708757 8.288748448026311 0.7008167003799547</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_21_0.1_0.1_1.6'>
+                            <static>true</static>
+                            <pose>0.47963975887943455 -1.1566315659724644 0.901957221952498 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.147194077048314 0.13061937936714457 1.6439484577273018</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.024242</velocity>
+                                <path>
+                                <waypoint>0.47963975887943455 -1.1566315659724644 0.901957221952498</waypoint>
+                                <waypoint>11.052537554863939 7.174875936196319 0.8297735106512334</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_22_0.2_0.3_1.5'>
+                            <static>true</static>
+                            <pose>-9.97892964688362 11.37343977537287 0.8188162910218003 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.1938768710290306 0.25189005029152856 1.497505913115492</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.833333</velocity>
+                                <path>
+                                <waypoint>-9.97892964688362 11.37343977537287 0.8188162910218003</waypoint>
+                                <waypoint>8.203577745722047 1.600064144712828 0.796433092950632</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_23_0.2_0.2_1.2'>
+                            <static>true</static>
+                            <pose>11.492567544553346 -2.491570560112308 0.6556899061195909 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.2373566735286578 0.15751507657151428 1.1909910726165593</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.945455</velocity>
+                                <path>
+                                <waypoint>11.492567544553346 -2.491570560112308 0.6556899061195909</waypoint>
+                                <waypoint>-10.47914389082764 -2.1634212022238692 0.6677455450592719</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_24_0.2_0.2_1.2'>
+                            <static>true</static>
+                            <pose>-1.7232322158112297 9.145598704236207 0.6000387282019926 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.1636805869221175 0.24578953922868457 1.19862125361576</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.057576</velocity>
+                                <path>
+                                <waypoint>-1.7232322158112297 9.145598704236207 0.6000387282019926</waypoint>
+                                <waypoint>-11.198224977237118 2.1667181214916056 0.6304555663621001</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_25_0.2_0.1_1.8'>
+                            <static>true</static>
+                            <pose>-3.8483754275391657 3.311245073776824 0.936758422335512 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.22287350235366285 0.1135711635407551 1.7527602639025108</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.866667</velocity>
+                                <path>
+                                <waypoint>-3.8483754275391657 3.311245073776824 0.936758422335512</waypoint>
+                                <waypoint>-2.7401287261792397 0.7576253338175647 0.9408939853084214</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_26_0.2_0.2_1.3'>
+                            <static>true</static>
+                            <pose>0.7001824731037587 1.0273552500675258 0.7339143772698361 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.15670275645860687 0.15261575605931693 1.325017997524895</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.978788</velocity>
+                                <path>
+                                <waypoint>0.7001824731037587 1.0273552500675258 0.7339143772698361</waypoint>
+                                <waypoint>0.39734258638070585 -8.80617623558001 0.7398544659146388</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_27_0.2_0.2_1.5'>
+                            <static>true</static>
+                            <pose>-0.2776058895400091 11.523816898583817 0.8151916390081284 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.23428550922512406 0.1844814989537329 1.545861263250047</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.090909</velocity>
+                                <path>
+                                <waypoint>-0.2776058895400091 11.523816898583817 0.8151916390081284</waypoint>
+                                <waypoint>-4.1607544889758135 7.720126426309633 0.8277213015608267</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_28_0.2_0.3_1.4'>
+                            <static>true</static>
+                            <pose>9.211810714669394 8.482784000374973 0.7239181797358826 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.24004075374698725 0.2716955137203708 1.3765857239641852</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.900000</velocity>
+                                <path>
+                                <waypoint>9.211810714669394 8.482784000374973 0.7239181797358826</waypoint>
+                                <waypoint>6.1711146674175765 11.671897512038132 0.7409250231772258</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_29_0.3_0.3_1.4'>
+                            <static>true</static>
+                            <pose>7.0213240159307055 6.559973288877288 0.7124456953123308 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.29302326498389397 0.2593024511477507 1.4064354710919893</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.012121</velocity>
+                                <path>
+                                <waypoint>7.0213240159307055 6.559973288877288 0.7124456953123308</waypoint>
+                                <waypoint>4.4523052570986295 5.184574101205847 0.7894343622501974</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_30_0.2_0.2_1.1'>
+                            <static>true</static>
+                            <pose>-8.206566393571382 3.9619589794087986 0.6283571781405991 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.22041510443895962 0.2180842950060527 1.1090338680781149</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.821212</velocity>
+                                <path>
+                                <waypoint>-8.206566393571382 3.9619589794087986 0.6283571781405991</waypoint>
+                                <waypoint>2.1168426498920496 11.587280375230236 0.6044630829497148</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_31_0.3_0.2_1.6'>
+                            <static>true</static>
+                            <pose>0.7672162577560329 7.778514625516692 0.820477900756187 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.2892831017815437 0.19364429884362716 1.6054124847291225</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.933333</velocity>
+                                <path>
+                                <waypoint>0.7672162577560329 7.778514625516692 0.820477900756187</waypoint>
+                                <waypoint>-0.8418679512561038 2.6179035848572028 0.82118369984829</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_32_0.3_0.3_1.3'>
+                            <static>true</static>
+                            <pose>4.575685046188443 -2.3842221194434927 0.6844583483640265 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.25044216509984757 0.28998285338940055 1.3108713676962684</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.045455</velocity>
+                                <path>
+                                <waypoint>4.575685046188443 -2.3842221194434927 0.6844583483640265</waypoint>
+                                <waypoint>11.270963250104387 -3.632802480760976 0.666220651974203</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_33_0.2_0.3_1.5'>
+                            <static>true</static>
+                            <pose>-9.807988843949396 1.5902845027207917 0.7457827751672768 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.2439704055542384 0.2534721723941974 1.475718145146434</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.854545</velocity>
+                                <path>
+                                <waypoint>-9.807988843949396 1.5902845027207917 0.7457827751672768</waypoint>
+                                <waypoint>-11.563847537370293 -3.5376932366962617 0.761913564479607</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_34_0.2_0.2_1.3'>
+                            <static>true</static>
+                            <pose>3.514533417533954 -7.53377444858155 0.6509720319909811 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.2265834224553159 0.19532875550856366 1.294467121776233</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.966667</velocity>
+                                <path>
+                                <waypoint>3.514533417533954 -7.53377444858155 0.6509720319909811</waypoint>
+                                <waypoint>1.9296304045671473 -0.8958454780892744 0.6672039537080197</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_35_0.2_0.2_1.3'>
+                            <static>true</static>
+                            <pose>11.812260160749169 2.1389668918010933 0.7589307413077777 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.18577961851130362 0.2425993392709971 1.3331730959179569</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.078788</velocity>
+                                <path>
+                                <waypoint>11.812260160749169 2.1389668918010933 0.7589307413077777</waypoint>
+                                <waypoint>-11.706947528077874 -8.291049108583078 0.7350284524341374</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_36_0.3_0.1_1.2'>
+                            <static>true</static>
+                            <pose>0.0797351832927653 -11.544168275761951 0.7039519802399951 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.26606073719499895 0.13958152058286483 1.2151104400783013</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.887879</velocity>
+                                <path>
+                                <waypoint>0.0797351832927653 -11.544168275761951 0.7039519802399951</waypoint>
+                                <waypoint>0.45513183382970723 -10.738283659094664 0.6757606040753266</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_37_0.2_0.1_1.0'>
+                            <static>true</static>
+                            <pose>-11.956332125267298 7.9180167646917425 0.5763083635398908 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.17520346699430062 0.11702118162271442 1.0232910382661715</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>1.000000</velocity>
+                                <path>
+                                <waypoint>-11.956332125267298 7.9180167646917425 0.5763083635398908</waypoint>
+                                <waypoint>6.478130849565382 -0.7050432013247274 0.6036648679971722</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_38_0.3_0.2_1.6'>
+                            <static>true</static>
+                            <pose>7.3399398193317325 -10.91832414262798 0.7830924295797292 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.26103327799125275 0.23249736012238673 1.552903108865706</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.809091</velocity>
+                                <path>
+                                <waypoint>7.3399398193317325 -10.91832414262798 0.7830924295797292</waypoint>
+                                <waypoint>-4.859549293095213 -10.862376608750479 0.8760228228220835</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+                            <model name='dynamic_box_39_0.3_0.1_1.6'>
+                            <static>true</static>
+                            <pose>4.315121765422262 -5.5985533628157365 0.884127369878231 0 0 0</pose> <!-- X, Y, Z, Roll, Pitch, Yaw -->
+                            <link name='link'>
+                                <visual name='visual'>
+                                    <geometry>
+                                        <box>
+                                            <size>0.26733036497742124 0.10836212023066027 1.6383224879587872</size> <!-- Width, Depth, Height -->
+                                        </box>
+                                    </geometry>
+                                    <material>
+                                        <ambient>1 0 0 1</ambient> <!-- Red color -->
+                                        <diffuse>1 0 0 1</diffuse> <!-- Red color -->
+                                        <specular>0.5 0.5 0.5 1</specular> <!-- Specular highlight -->
+                                    </material>
+                                </visual>
+                            </link>
+                            <plugin name="obstacle_motion" filename="libobstaclePathPlugin.so">
+                                <orientation>false</orientation>
+                                <loop>0</loop>
+                                <velocity>0.921212</velocity>
+                                <path>
+                                <waypoint>4.315121765422262 -5.5985533628157365 0.884127369878231</waypoint>
+                                <waypoint>-0.6031799975293897 -2.266996689274123 0.9094413999381441</waypoint>
+                                </path>
+                            </plugin>
+                            </model>
+
+            </world>
+            </sdf>
