@@ -91,8 +91,18 @@ im2_mppi:
   # penalty; keep it large enough that any kernel-level violation drives the
   # MPPI weight exp(-S/λ) to ~0 (1e8 ≈ effective +∞ for λ=5).
   dra_hard_penalty: 1.0e8
-  dra_robot_radius: 0.30
-  dra_sigma_floor: 0.15
+  # ↓ Tighter physical+uncertainty model:
+  # - dra_robot_radius 0.30→0.25: quadrotor effective radius matches the
+  #   true mechanical footprint more closely (~50 cm wide quadrotor ≈ 0.25 m).
+  # - dra_sigma_floor 0.15→0.10: lets the predictor's confident steps produce
+  #   a sharper CP distribution, so far-field (>1 m) trajectories generate
+  #   near-zero CP and aren't penalised. Trade-off: drone trusts the
+  #   prediction more, so it's slightly more vulnerable when the predictor
+  #   is genuinely wrong. Combined with the threshold 0.30 (loose), this
+  #   should shorten Time / Length toward M4 levels without raising
+  #   collision risk.
+  dra_robot_radius: 0.25
+  dra_sigma_floor: 0.10
   dra_use_z_probability: true
 
   # ── Mode fusion (Phase 4) ───────────────────────────────────────────
