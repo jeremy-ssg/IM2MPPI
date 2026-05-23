@@ -177,6 +177,8 @@ class Evaluator:
             self.goal_radius if lap_completion_radius <= 0.0 else lap_completion_radius)
         self.lap_finish_fraction = float(
             rospy.get_param("~lap_finish_fraction", 0.98))
+        self.lap_min_path_fraction = float(
+            rospy.get_param("~lap_min_path_fraction", 0.85))
         self.lap_progress_max_deviation = float(
             rospy.get_param("~lap_progress_max_deviation", 3.0))
 
@@ -261,6 +263,8 @@ class Evaluator:
         self.finish_requested = False
         self.outputs_written = False
         self.completed_path_length = None
+        self.executed_path_length_live = 0.0
+        self.last_odom_position_for_length = None
         self.lap_progress_m = 0.0
         self.lap_progress_fraction = None
         self.lap_nearest_distance = None
@@ -501,9 +505,12 @@ class Evaluator:
             self.update_lap_progress_locked(t, pos)
             if self.lap_progress_fraction is None:
                 return False, None
+            min_path_len = self.lap_min_path_fraction * self.lap_reference_length
+            path_len_ok = self.executed_path_length_live >= min_path_len
             if (self.lap_progress_fraction >= self.lap_finish_fraction and
                     self.lap_nearest_distance is not None and
-                    self.lap_nearest_distance <= self.lap_completion_radius):
+                    self.lap_nearest_distance <= self.lap_completion_radius and
+                    path_len_ok):
                 return True, "lap_complete"
             return False, None
 
@@ -534,6 +541,12 @@ class Evaluator:
             vel = (odom.twist.twist.linear.x,
                    odom.twist.twist.linear.y,
                    odom.twist.twist.linear.z)
+
+            if self.last_odom_position_for_length is not None:
+                step_len = dist3(pos, self.last_odom_position_for_length)
+                if math.isfinite(step_len):
+                    self.executed_path_length_live += step_len
+            self.last_odom_position_for_length = pos
 
             target_error = None
             target_age = None
@@ -591,6 +604,7 @@ class Evaluator:
                 "target_age_s": target_age,
                 "obstacle_clearance": clearance,
                 "goal_distance": goal_dist,
+                "executed_path_length_m": self.executed_path_length_live,
                 "lap_progress_m": self.lap_progress_m,
                 "lap_progress_fraction": self.lap_progress_fraction,
                 "lap_nearest_distance": self.lap_nearest_distance,
@@ -705,6 +719,8 @@ class Evaluator:
                 "lap_reference_length_m": self.lap_reference_length,
                 "lap_completion_radius_m": self.lap_completion_radius,
                 "lap_finish_fraction": self.lap_finish_fraction,
+                "lap_min_path_fraction": self.lap_min_path_fraction,
+                "lap_min_path_length_m": self.lap_min_path_fraction * self.lap_reference_length,
                 "lap_started": self.lap_started,
                 "lap_start_time_s": self.lap_start_time,
                 "lap_progress_m": self.lap_progress_m,
@@ -892,6 +908,16 @@ class Evaluator:
         if first_err_gt_5 is not None and verdict == "no_clear_single_cause":
             verdict = "tracking_diverged_without_obvious_timing_spike"
 
+        task = summary["task"]
+        if (not task["success"] and
+                task["lap_progress_fraction"] is not None and
+                task["lap_progress_fraction"] >= task["lap_finish_fraction"] and
+                task["executed_path_length_m"] is not None and
+                task["executed_path_length_m"] < task["lap_min_path_length_m"]):
+            add_event(last_odom_t, "lap_completion_blocked_by_short_path",
+                      task["executed_path_length_m"], task["lap_min_path_length_m"],
+                      "reference progress reached the finish band but actual path length was too short for one lap")
+
         diagnostics = {
             "verdict": verdict,
             "plan_latency": {
@@ -954,6 +980,7 @@ class Evaluator:
                 fields = ["t", "x", "y", "z", "vx", "vy", "vz", "speed",
                           "target_error", "target_age_s",
                           "obstacle_clearance", "goal_distance",
+                          "executed_path_length_m",
                           "lap_progress_m", "lap_progress_fraction",
                           "lap_nearest_distance"]
                 writer = csv.DictWriter(f, fieldnames=fields)
