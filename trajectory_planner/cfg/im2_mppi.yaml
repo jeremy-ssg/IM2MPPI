@@ -80,11 +80,12 @@ im2_mppi:
   dra_cp_lambda: 80.0
   # Trajectory-level joint CP threshold σ (Eq.14). Paper uses 0.05 with H=20,
   # dt=0.2 → 4 s trajectory. Our H=38, dt=0.05 → 1.9 s; per-second risk-equiv
-  # threshold scales accordingly. 0.30 lets the drone accept reasonably close
-  # passes (P_traj ≤ 30% over the next 2 s) while still hard-rejecting
-  # genuine collision courses. Lower toward 0.15 if collisions reappear,
-  # raise toward 0.40 if the drone is still detouring too much.
-  dra_cp_threshold: 0.30
+  # threshold scales accordingly. 0.40 lets the drone accept fairly close
+  # passes (P_traj ≤ 40% over the next 2 s). At this level we are still
+  # rejecting genuine collision courses (P_traj → 1) but allowing tight
+  # glancing passes. Approaching the practical ceiling 0.50; beyond that
+  # DRA-MPPI degenerates into vanilla MPPI without meaningful risk control.
+  dra_cp_threshold: 0.40
   # dra_hard_penalty is now legacy: the CPU path uses +∞ rejection when the
   # trajectory-level joint CP exceeds dra_cp_threshold (matches Trevisan IROS
   # 2025 Eq.14 semantically). The GPU kernel still uses this as a per-step
@@ -101,8 +102,8 @@ im2_mppi:
   #   is genuinely wrong. Combined with the threshold 0.30 (loose), this
   #   should shorten Time / Length toward M4 levels without raising
   #   collision risk.
-  dra_robot_radius: 0.25
-  dra_sigma_floor: 0.10
+  dra_robot_radius: 0.22
+  dra_sigma_floor: 0.08
   dra_use_z_probability: true
 
   # ── Mode fusion (Phase 4) ───────────────────────────────────────────
