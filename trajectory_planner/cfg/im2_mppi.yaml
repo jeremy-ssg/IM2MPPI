@@ -70,7 +70,8 @@ im2_mppi:
 
   # DRA-MPPI baseline (Trevisan et al., IROS 2025 style).
   # Used only when method_type == "dra_mppi".
-  dra_num_mc_samples: 128
+  # Legacy knob kept for compatibility; light DRA uses analytic interval probability.
+  dra_num_mc_samples: 1
   dra_cp_lambda: 200.0
   dra_cp_threshold: 0.05
   dra_hard_penalty: 50000.0

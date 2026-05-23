@@ -52,43 +52,9 @@ inline double aabbSDF(const Eigen::Vector3d& p,
     return outside + inside;
 }
 
-constexpr double kPi = 3.1415926535897932384626433832795;
-
 inline double clamp01(double x)
 {
     return std::max(0.0, std::min(1.0, x));
-}
-
-inline double radicalInverseBase2(unsigned int bits)
-{
-    bits = (bits << 16u) | (bits >> 16u);
-    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
-    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
-    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
-    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
-    return static_cast<double>(bits) * 2.3283064365386963e-10;
-}
-
-inline double hashToUnit(unsigned int x)
-{
-    x ^= x >> 16u;
-    x *= 0x7feb352du;
-    x ^= x >> 15u;
-    x *= 0x846ca68bu;
-    x ^= x >> 16u;
-    return static_cast<double>(x & 0x00FFFFFFu) / 16777216.0;
-}
-
-inline double gaussianPdf2D(const Eigen::Vector2d& x,
-                            const Eigen::Vector2d& mu,
-                            double sx,
-                            double sy)
-{
-    sx = std::max(1e-4, sx);
-    sy = std::max(1e-4, sy);
-    const double dx = (x.x() - mu.x()) / sx;
-    const double dy = (x.y() - mu.y()) / sy;
-    return std::exp(-0.5 * (dx * dx + dy * dy)) / (2.0 * kPi * sx * sy);
 }
 
 inline double normalCdf(double z)
@@ -105,6 +71,21 @@ inline double gaussianIntervalProbability(double center,
     const double lo = (center - half_width - mu) / sigma;
     const double hi = (center + half_width - mu) / sigma;
     return clamp01(normalCdf(hi) - normalCdf(lo));
+}
+
+inline double gaussianDiskProbabilityApprox2D(const Eigen::Vector2d& center,
+                                              const Eigen::Vector2d& mu,
+                                              double sx,
+                                              double sy,
+                                              double radius)
+{
+    // Equal-area square approximation of a circular collision region.
+    // This replaces the old per-rollout Monte Carlo disk integral and keeps
+    // DRA real-time: O(N*H*J*K) instead of O(N*H*J*K*R).
+    const double half_width = 0.8862269254527580 * std::max(0.0, radius);
+    const double px = gaussianIntervalProbability(center.x(), half_width, mu.x(), sx);
+    const double py = gaussianIntervalProbability(center.y(), half_width, mu.y(), sy);
+    return clamp01(px * py);
 }
 } // anonymous
 
@@ -994,10 +975,9 @@ void IM2MPPIPlanner::computeDRACollisionProbabilityCost(
     const int M = static_cast<int>(modes.size());
     const int J = static_cast<int>(dyn_predictions_.size());
     const int H = params_.horizon_steps;
-    const int R = params_.dra_num_mc_samples;
 
     delta_S.assign(M, std::vector<double>(N, 0.0));
-    if (N == 0 || M == 0 || J == 0 || R <= 0) return;
+    if (N == 0 || M == 0 || J == 0) return;
 
     for (int m = 0; m < M; ++m) {
         for (int i = 0; i < N; ++i) {
@@ -1029,63 +1009,37 @@ void IM2MPPIPlanner::computeDRACollisionProbabilityCost(
                                          std::max(0.0, pred.size.y()));
                     const double collision_radius =
                         std::max(1e-4, params_.dra_robot_radius + obs_radius + params_.d_safe);
-                    const double area = kPi * collision_radius * collision_radius;
 
-                    const unsigned int hash_base =
-                        static_cast<unsigned int>(params_.random_seed)
-                        ^ static_cast<unsigned int>((i + 1) * 73856093u)
-                        ^ static_cast<unsigned int>((m + 1) * 19349663u)
-                        ^ static_cast<unsigned int>((j + 1) * 83492791u)
-                        ^ static_cast<unsigned int>((k + 1) * 2654435761u);
-                    const double shift_u = hashToUnit(hash_base);
-                    const double shift_v = hashToUnit(hash_base ^ 0x9e3779b9u);
+                    double cp_j = 0.0;
+                    for (const auto& mode : pred.modes) {
+                        if (mode.mu_seq.empty()) continue;
+                        const double w = uniform_modes
+                            ? (1.0 / static_cast<double>(valid_modes))
+                            : (std::max(0.0, mode.pi) / pi_sum);
+                        if (w <= 0.0) continue;
 
-                    double pdf_sum = 0.0;
-                    for (int r = 0; r < R; ++r) {
-                        double u = (static_cast<double>(r) + 0.5) / static_cast<double>(R);
-                        u += shift_u;
-                        u -= std::floor(u);
-                        double v = radicalInverseBase2(static_cast<unsigned int>(r + 1));
-                        v += shift_v;
-                        v -= std::floor(v);
-
-                        const double rho = collision_radius * std::sqrt(u);
-                        const double theta = 2.0 * kPi * v;
-                        const Eigen::Vector2d q(ego.x() + rho * std::cos(theta),
-                                                ego.y() + rho * std::sin(theta));
-
-                        double mixture_pdf = 0.0;
-                        for (const auto& mode : pred.modes) {
-                            if (mode.mu_seq.empty()) continue;
-                            const double w = uniform_modes
-                                ? (1.0 / static_cast<double>(valid_modes))
-                                : (std::max(0.0, mode.pi) / pi_sum);
-                            if (w <= 0.0) continue;
-
-                            const int pk =
-                                std::min(k - 1, static_cast<int>(mode.mu_seq.size()) - 1);
-                            const Eigen::Vector3d& mu = mode.mu_seq[pk];
-                            Eigen::Vector3d sigma(params_.dra_sigma_floor,
-                                                  params_.dra_sigma_floor,
-                                                  params_.dra_sigma_floor);
-                            if (pk < static_cast<int>(mode.sigma_diag_seq.size())) {
-                                sigma = mode.sigma_diag_seq[pk].cwiseMax(sigma);
-                            }
-
-                            const Eigen::Vector2d mu_xy(mu.x(), mu.y());
-                            double pdf = gaussianPdf2D(q, mu_xy, sigma.x(), sigma.y());
-                            if (params_.dra_use_z_probability) {
-                                const double z_half =
-                                    0.5 * std::max(0.0, pred.size.z()) + params_.d_safe;
-                                pdf *= gaussianIntervalProbability(
-                                    ego.z(), z_half, mu.z(), sigma.z());
-                            }
-                            mixture_pdf += w * pdf;
+                        const int pk =
+                            std::min(k - 1, static_cast<int>(mode.mu_seq.size()) - 1);
+                        const Eigen::Vector3d& mu = mode.mu_seq[pk];
+                        Eigen::Vector3d sigma(params_.dra_sigma_floor,
+                                              params_.dra_sigma_floor,
+                                              params_.dra_sigma_floor);
+                        if (pk < static_cast<int>(mode.sigma_diag_seq.size())) {
+                            sigma = mode.sigma_diag_seq[pk].cwiseMax(sigma);
                         }
-                        pdf_sum += mixture_pdf;
-                    }
 
-                    double cp_j = area * pdf_sum / static_cast<double>(R);
+                        double p_mode = gaussianDiskProbabilityApprox2D(
+                            Eigen::Vector2d(ego.x(), ego.y()),
+                            Eigen::Vector2d(mu.x(), mu.y()),
+                            sigma.x(), sigma.y(), collision_radius);
+                        if (params_.dra_use_z_probability) {
+                            const double z_half =
+                                0.5 * std::max(0.0, pred.size.z()) + params_.d_safe;
+                            p_mode *= gaussianIntervalProbability(
+                                ego.z(), z_half, mu.z(), sigma.z());
+                        }
+                        cp_j += w * p_mode;
+                    }
                     cp_j = clamp01(cp_j);
                     no_collision_step *= (1.0 - cp_j);
                 }

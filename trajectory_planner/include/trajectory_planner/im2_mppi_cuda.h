@@ -130,7 +130,7 @@ bool runDRACollisionRisk(
     const float* dyn_pis,
     const float* dyn_sigmas,
     int J, int K_per_obs, int M,
-    int N, int H, int R,
+    int N, int H, int R,          // R is legacy/ignored by light analytic DRA.
     float d_safe, float robot_radius, float sigma_floor,
     float cp_lambda, float cp_threshold, float hard_penalty,
     int use_z_probability,

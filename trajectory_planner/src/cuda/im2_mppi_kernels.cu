@@ -425,37 +425,6 @@ __device__ inline float clamp01Dev(float x)
     return fminf(1.0f, fmaxf(0.0f, x));
 }
 
-__device__ inline float radicalInverseBase2Dev(unsigned int bits)
-{
-    bits = (bits << 16u) | (bits >> 16u);
-    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
-    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
-    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
-    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
-    return (float)bits * 2.3283064365386963e-10f;
-}
-
-__device__ inline float hashToUnitDev(unsigned int x)
-{
-    x ^= x >> 16u;
-    x *= 0x7feb352du;
-    x ^= x >> 15u;
-    x *= 0x846ca68bu;
-    x ^= x >> 16u;
-    return (float)(x & 0x00FFFFFFu) / 16777216.0f;
-}
-
-__device__ inline float gaussianPdf2DDev(
-    float x, float y, float mx, float my, float sx, float sy)
-{
-    sx = fmaxf(1e-4f, sx);
-    sy = fmaxf(1e-4f, sy);
-    const float dx = (x - mx) / sx;
-    const float dy = (y - my) / sy;
-    return expf(-0.5f * (dx * dx + dy * dy)) /
-           (6.283185307179586f * sx * sy);
-}
-
 __device__ inline float normalCdfDev(float z)
 {
     return 0.5f * (1.0f + erff(z * 0.7071067811865475f));
@@ -468,6 +437,17 @@ __device__ inline float gaussianIntervalProbabilityDev(
     const float lo = (center - half_width - mu) / sigma;
     const float hi = (center + half_width - mu) / sigma;
     return clamp01Dev(normalCdfDev(hi) - normalCdfDev(lo));
+}
+
+__device__ inline float gaussianDiskProbabilityApprox2DDev(
+    float cx, float cy, float mx, float my, float sx, float sy, float radius)
+{
+    // Equal-area square approximation of a circular collision region.
+    // This is the light DRA path: O(N*H*J*K), no per-rollout MC loop.
+    const float half_width = 0.8862269254527580f * fmaxf(0.0f, radius);
+    const float px = gaussianIntervalProbabilityDev(cx, half_width, mx, sx);
+    const float py = gaussianIntervalProbabilityDev(cy, half_width, my, sy);
+    return clamp01Dev(px * py);
 }
 
 __global__ void draCollisionRiskKernel(
@@ -484,12 +464,14 @@ __global__ void draCollisionRiskKernel(
     unsigned int seed_base,
     float* __restrict__ delta_S_out)
 {
+    (void)R;
+    (void)seed_base;
+    (void)joint_mode_idx;
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const int total = N * M;
     if (idx >= total) return;
 
     const int i = idx / M;
-    const int m = idx % M;
     const int s_stride = (H + 1) * 6;
 
     float risk_cost = 0.0f;
@@ -514,53 +496,29 @@ __global__ void draCollisionRiskKernel(
             const float obs_y = fmaxf(0.0f, dyn_sizes[sz_off + 1]);
             const float obs_radius = 0.5f * sqrtf(obs_x * obs_x + obs_y * obs_y);
             const float collision_radius = fmaxf(1e-4f, robot_radius + obs_radius + d_safe);
-            const float area = 3.141592653589793f * collision_radius * collision_radius;
 
-            const unsigned int hash_base =
-                seed_base
-                ^ (unsigned int)((i + 1) * 73856093u)
-                ^ (unsigned int)((m + 1) * 19349663u)
-                ^ (unsigned int)((j + 1) * 83492791u)
-                ^ (unsigned int)((k + 1) * 2654435761u);
-            const float shift_u = hashToUnitDev(hash_base);
-            const float shift_v = hashToUnitDev(hash_base ^ 0x9e3779b9u);
+            float cp_j = 0.0f;
+            for (int mode_idx = 0; mode_idx < K; ++mode_idx) {
+                const float weight = fmaxf(0.0f, dyn_pis[j * K + mode_idx]) / pi_sum;
+                if (weight <= 0.0f) continue;
 
-            float pdf_sum = 0.0f;
-            for (int r = 0; r < R; ++r) {
-                float u = ((float)r + 0.5f) / (float)R + shift_u;
-                u -= floorf(u);
-                float v = radicalInverseBase2Dev((unsigned int)(r + 1)) + shift_v;
-                v -= floorf(v);
+                const int mu_off = ((j * K + mode_idx) * H + (k - 1)) * 3;
+                const float mx = dyn_mus[mu_off + 0];
+                const float my = dyn_mus[mu_off + 1];
+                const float mz = dyn_mus[mu_off + 2];
+                const float sx = fmaxf(sigma_floor, dyn_sigmas[mu_off + 0]);
+                const float sy = fmaxf(sigma_floor, dyn_sigmas[mu_off + 1]);
+                const float sz = fmaxf(sigma_floor, dyn_sigmas[mu_off + 2]);
 
-                const float rho = collision_radius * sqrtf(u);
-                const float theta = 6.283185307179586f * v;
-                const float qx = ex + rho * cosf(theta);
-                const float qy = ey + rho * sinf(theta);
-
-                float mixture_pdf = 0.0f;
-                for (int mode_idx = 0; mode_idx < K; ++mode_idx) {
-                    const float weight = fmaxf(0.0f, dyn_pis[j * K + mode_idx]) / pi_sum;
-                    if (weight <= 0.0f) continue;
-
-                    const int mu_off = ((j * K + mode_idx) * H + (k - 1)) * 3;
-                    const float mx = dyn_mus[mu_off + 0];
-                    const float my = dyn_mus[mu_off + 1];
-                    const float mz = dyn_mus[mu_off + 2];
-                    const float sx = fmaxf(sigma_floor, dyn_sigmas[mu_off + 0]);
-                    const float sy = fmaxf(sigma_floor, dyn_sigmas[mu_off + 1]);
-                    const float sz = fmaxf(sigma_floor, dyn_sigmas[mu_off + 2]);
-
-                    float pdf = gaussianPdf2DDev(qx, qy, mx, my, sx, sy);
-                    if (use_z_probability) {
-                        const float z_half = 0.5f * fmaxf(0.0f, dyn_sizes[sz_off + 2]) + d_safe;
-                        pdf *= gaussianIntervalProbabilityDev(ez, z_half, mz, sz);
-                    }
-                    mixture_pdf += weight * pdf;
+                float p_mode = gaussianDiskProbabilityApprox2DDev(
+                    ex, ey, mx, my, sx, sy, collision_radius);
+                if (use_z_probability) {
+                    const float z_half = 0.5f * fmaxf(0.0f, dyn_sizes[sz_off + 2]) + d_safe;
+                    p_mode *= gaussianIntervalProbabilityDev(ez, z_half, mz, sz);
                 }
-                pdf_sum += mixture_pdf;
+                cp_j += weight * p_mode;
             }
 
-            float cp_j = area * pdf_sum / (float)R;
             cp_j = clamp01Dev(cp_j);
             no_collision_step *= (1.0f - cp_j);
         }
@@ -808,15 +766,14 @@ bool runDRACollisionRisk(
     float* delta_S_out)
 {
     if (!ctx) return false;
-    if (J == 0 || M == 0 || N == 0 || R == 0) {
+    (void)R;
+    // R is a legacy parameter from the old Monte Carlo implementation. The
+    // current light DRA risk uses analytic interval probabilities.
+    if (J == 0 || M == 0 || N == 0) {
         if (delta_S_out) {
             for (int i = 0; i < N * M; ++i) delta_S_out[i] = 0.0f;
         }
         return true;
-    }
-    if (R > 256) {
-        std::fprintf(stderr, "[IM2-MPPI/CUDA] runDRACollisionRisk: R=%d > 256 not supported.\n", R);
-        return false;
     }
     if (N > ctx->N_cap || H > ctx->H_cap || J > ctx->J_cap ||
         M > ctx->M_cap || K_per_obs > ctx->K_cap) {
