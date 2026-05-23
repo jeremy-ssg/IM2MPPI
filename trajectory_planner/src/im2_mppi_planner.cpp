@@ -715,28 +715,14 @@ void IM2MPPIPlanner::updateControlSequence(
     std::vector<Eigen::Vector3d> weighted_a(H, Eigen::Vector3d::Zero());
     double total_weight = 0.0;
 
-    if (params_.method_type == "dra_mppi") {
-        const RolloutResult* best = nullptr;
-        double best_cost = std::numeric_limits<double>::infinity();
-        for (const auto& mode_results : all_results) {
-            for (const auto& r : mode_results) {
-                if (std::isfinite(r.cost) && r.cost < best_cost) {
-                    best_cost = r.cost;
-                    best = &r;
-                }
-            }
-        }
-
-        if (!best) {
-            ROS_WARN("[IM2-MPPI/DRA] No finite rollout cost; keeping previous nominal.");
-            return;
-        }
-
-        for (int k = 0; k < H && k < static_cast<int>(best->controls.size()); ++k) {
-            u_nominal_[k] = clampControl(best->controls[k]);
-        }
-        return;
-    }
+    // Note: DRA-MPPI used to take a single argmax rollout here. That was the
+    // root cause of frequent collisions: a single low-cost rollout might
+    // marginally satisfy the per-step CP threshold by luck, and committing
+    // u_nominal_ to it both (a) loses MPPI's variance-averaging smoothness
+    // and (b) lets a high-collision-probability sample be selected as long
+    // as its "other" cost terms (goal/path) are lowest. The paper's
+    // DRA-MPPI uses the standard MPPI exponentiated weighted update with
+    // hard rejection (cost = +inf for violating rollouts) — the path below.
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Mode-fused MPPI free-energy update:
@@ -979,12 +965,26 @@ void IM2MPPIPlanner::computeDRACollisionProbabilityCost(
     delta_S.assign(M, std::vector<double>(N, 0.0));
     if (N == 0 || M == 0 || J == 0) return;
 
+    // DRA-MPPI cost ingredients (faithful to Trevisan et al. IROS 2025):
+    //   soft_cost  =  ω_soft · Σ_t  P_t            (per-step CP penalty)
+    //   if P_traj > σ_thresh:  cost = +∞           (hard rejection)
+    //
+    // where P_t is the joint CP across all obstacles at step t (1 - ∏_j (1 - P_t^j))
+    // and P_traj = 1 - ∏_t (1 - P_t) is the trajectory-level joint CP.
+    //
+    // This replaces the previous per-step hard penalty that was BOTH too loose
+    // (a slow drift with per-step P_t = 0.04 < 0.05 evades rejection while
+    // P_traj reaches 0.79) AND too noisy (per-step ω_hard accumulates linearly
+    // and inverts the relationship between rollouts).  Trajectory-level
+    // rejection with +∞ guarantees the MPPI exp(-S/λ) weight is exactly 0 for
+    // any sample whose end-to-end collision probability exceeds the threshold.
     for (int m = 0; m < M; ++m) {
         for (int i = 0; i < N; ++i) {
             const auto& states = base_rollouts[i].states;
             if (static_cast<int>(states.size()) <= H) continue;
 
-            double risk_cost = 0.0;
+            double soft_cost          = 0.0;
+            double no_collision_traj  = 1.0;  // ∏_t (1 - P_t)
 
             for (int k = 1; k <= H; ++k) {
                 const Eigen::Vector3d& ego = states[k].p;
@@ -1045,12 +1045,23 @@ void IM2MPPIPlanner::computeDRACollisionProbabilityCost(
                 }
 
                 const double cp_step = clamp01(1.0 - no_collision_step);
-                risk_cost += params_.dra_cp_lambda * cp_step;
-                if (cp_step > params_.dra_cp_threshold) {
-                    risk_cost += params_.dra_hard_penalty;
-                }
+
+                // Soft per-step penalty (Eq. 14, ω_soft term)
+                soft_cost += params_.dra_cp_lambda * cp_step;
+
+                // Accumulate trajectory-level "no-collision-anywhere" probability
+                no_collision_traj *= (1.0 - cp_step);
             }
-            delta_S[m][i] = risk_cost;
+
+            const double cp_traj = clamp01(1.0 - no_collision_traj);
+
+            if (cp_traj > params_.dra_cp_threshold) {
+                // Hard rejection (Eq. 14, ω_hard·1_σ term but at trajectory level).
+                // +∞ → MPPI weight exp(-S/λ) = 0 → sample cannot influence u_nominal.
+                delta_S[m][i] = std::numeric_limits<double>::infinity();
+            } else {
+                delta_S[m][i] = soft_cost;
+            }
         }
     }
 }
@@ -1976,31 +1987,12 @@ bool IM2MPPIPlanner::planGPU()
         return false;
     }
 
-    if (dra_mode) {
-        int best_i = -1;
-        double best_cost = std::numeric_limits<double>::infinity();
-        for (int m = 0; m < M; ++m) {
-            for (int i = 0; i < N; ++i) {
-                const double c = static_cast<double>(cost_at(i, m));
-                if (std::isfinite(c) && c < best_cost) {
-                    best_cost = c;
-                    best_i = i;
-                }
-            }
-        }
-
-        if (best_i < 0) {
-            ROS_WARN("[IM2-MPPI/GPU/DRA] No finite rollout cost.");
-            return false;
-        }
-
-        for (int k = 0; k < H; ++k) {
-            const int o = best_i * H * 3 + k * 3;
-            Control u;
-            u.a = Eigen::Vector3d(h_controls[o + 0], h_controls[o + 1], h_controls[o + 2]);
-            u_nominal_[k] = clampControl(u);
-        }
-    } else {
+    // (Removed DRA-specific argmax branch — see CPU updateControlSequence()
+    // for the rationale. DRA-MPPI now follows the same standard MPPI
+    // exponentiated weighted update as the other methods; +inf costs from
+    // the trajectory-level CP rejection naturally drive the corresponding
+    // exp weight to zero.)
+    {
     std::vector<Eigen::Vector3d> wa(H, Eigen::Vector3d::Zero());
     double tw = 0.0;
     for (int m = 0; m < M; ++m) {

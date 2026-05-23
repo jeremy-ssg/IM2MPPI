@@ -72,9 +72,14 @@ im2_mppi:
   # Used only when method_type == "dra_mppi".
   # Legacy knob kept for compatibility; light DRA uses analytic interval probability.
   dra_num_mc_samples: 1
-  dra_cp_lambda: 200.0
-  dra_cp_threshold: 0.05
-  dra_hard_penalty: 50000.0
+  dra_cp_lambda: 200.0       # soft per-step CP penalty weight ω_soft (Eq.14)
+  dra_cp_threshold: 0.05     # trajectory-level joint CP threshold σ (Eq.14)
+  # dra_hard_penalty is now legacy: the CPU path uses +∞ rejection when the
+  # trajectory-level joint CP exceeds dra_cp_threshold (matches Trevisan IROS
+  # 2025 Eq.14 semantically). The GPU kernel still uses this as a per-step
+  # penalty; keep it large enough that any kernel-level violation drives the
+  # MPPI weight exp(-S/λ) to ~0 (1e8 ≈ effective +∞ for λ=5).
+  dra_hard_penalty: 1.0e8
   dra_robot_radius: 0.30
   dra_sigma_floor: 0.15
   dra_use_z_probability: true
