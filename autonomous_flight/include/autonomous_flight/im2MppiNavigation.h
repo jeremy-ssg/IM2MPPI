@@ -158,6 +158,11 @@ private:
     std::vector<im2mppi::DynamicObstaclePrediction> compressToMeanPrediction(
         const std::vector<im2mppi::DynamicObstaclePrediction>& preds) const;
 
+    // For DRA-MPPI baseline: collapse explicit intent branches into one
+    // marginal Gaussian per obstacle, preserving mixture variance.
+    std::vector<im2mppi::DynamicObstaclePrediction> compressToMomentMatchedPrediction(
+        const std::vector<im2mppi::DynamicObstaclePrediction>& preds) const;
+
     // Bayesian intent posterior update: π_corrected ∝ π_prior · likelihood,
     // where likelihood_m = N(observed_now; μ_m_predicted_for_now, σ_m).
     // Modifies newPred in place. Falls back to the predictor's prior when

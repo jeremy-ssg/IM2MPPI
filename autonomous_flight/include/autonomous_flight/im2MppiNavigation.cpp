@@ -438,6 +438,8 @@ void im2MppiNavigation::predCB(const ros::TimerEvent&)
         this->convertPredictions(predOb);
     if (method == "mean_prediction_mppi") {
         dynPreds = this->compressToMeanPrediction(dynPreds);
+    } else if (method == "dra_mppi") {
+        dynPreds = this->compressToMomentMatchedPrediction(dynPreds);
     }
 
     {
@@ -630,25 +632,94 @@ im2MppiNavigation::compressToMeanPrediction(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Closed-loop intent correction (Phase 4 / innovation #5)
-//
-//      π_corrected[m] ∝ π_predictor[m] · likelihood_m
-//
-//  where the likelihood is the Gaussian density of the actual observation
-//  under each mode's prediction from the previous predCB tick:
-//
-//      likelihood_m = N(o_observed; μ_m_predicted_for_now, diag(σ_m²))
-//
-//  μ_m_predicted_for_now is read at predictor-step offset = round(dt / dt_pred)
-//  from the previous tick's posPred[m]. The likelihood width is a small fixed
-//  position-noise proxy, not sizePred. sizePred is physical obstacle size only.
-//
-//  Modes for which the previous prediction was a good match get upweighted;
-//  modes whose prediction missed the actual trajectory get downweighted.
-//  This is independent of whether the underlying predictor is the MDP one or
-//  a learned Transformer (innovation #1).
+//  DRA-MPPI prediction compression: no explicit intent branches, just the
+//  moment-matched marginal Gaussian used by the chance constraint baseline.
 // ─────────────────────────────────────────────────────────────────────────────
 
+std::vector<im2mppi::DynamicObstaclePrediction>
+im2MppiNavigation::compressToMomentMatchedPrediction(
+    const std::vector<im2mppi::DynamicObstaclePrediction>& preds) const
+{
+    std::vector<im2mppi::DynamicObstaclePrediction> compressed;
+    compressed.reserve(preds.size());
+
+    for (const auto& pred : preds) {
+        im2mppi::DynamicObstaclePrediction cp;
+        cp.id   = pred.id;
+        cp.size = pred.size;
+
+        std::vector<int> valid_modes;
+        valid_modes.reserve(pred.modes.size());
+        int H = 0;
+        for (size_t idx = 0; idx < pred.modes.size(); ++idx) {
+            const auto& mode = pred.modes[idx];
+            if (mode.mu_seq.empty()) continue;
+            valid_modes.push_back(static_cast<int>(idx));
+            H = std::max(H, static_cast<int>(mode.mu_seq.size()));
+        }
+
+        if (valid_modes.empty() || H <= 0) {
+            compressed.push_back(std::move(cp));
+            continue;
+        }
+
+        std::vector<double> weights(pred.modes.size(), 0.0);
+        double pi_sum = 0.0;
+        for (const int idx : valid_modes) {
+            pi_sum += std::max(0.0, pred.modes[idx].pi);
+        }
+        if (pi_sum < 1e-9) {
+            const double uniform = 1.0 / static_cast<double>(valid_modes.size());
+            for (const int idx : valid_modes) weights[idx] = uniform;
+        } else {
+            for (const int idx : valid_modes) {
+                weights[idx] = std::max(0.0, pred.modes[idx].pi) / pi_sum;
+            }
+        }
+
+        im2mppi::ObstacleMode marginal;
+        marginal.pi = 1.0;
+        marginal.mu_seq.assign(H, Eigen::Vector3d::Zero());
+        marginal.sigma_diag_seq.assign(H, Eigen::Vector3d::Zero());
+
+        for (const int idx : valid_modes) {
+            const auto& mode = pred.modes[idx];
+            const double w = weights[idx];
+            for (int k = 0; k < H; ++k) {
+                const int mk = std::min(k, static_cast<int>(mode.mu_seq.size()) - 1);
+                marginal.mu_seq[k] += w * mode.mu_seq[mk];
+            }
+        }
+
+        for (int k = 0; k < H; ++k) {
+            Eigen::Vector3d var = Eigen::Vector3d::Zero();
+            for (const int idx : valid_modes) {
+                const auto& mode = pred.modes[idx];
+                const double w = weights[idx];
+                const int mk = std::min(k, static_cast<int>(mode.mu_seq.size()) - 1);
+                const Eigen::Vector3d diff = mode.mu_seq[mk] - marginal.mu_seq[k];
+
+                Eigen::Vector3d sigma = Eigen::Vector3d::Zero();
+                if (!mode.sigma_diag_seq.empty()) {
+                    const int sk = std::min(k, static_cast<int>(mode.sigma_diag_seq.size()) - 1);
+                    sigma = mode.sigma_diag_seq[sk].cwiseMax(Eigen::Vector3d::Zero());
+                }
+
+                var += w * (sigma.array().square() + diff.array().square()).matrix();
+            }
+            marginal.sigma_diag_seq[k] =
+                var.cwiseMax(Eigen::Vector3d::Constant(1e-8)).cwiseSqrt();
+        }
+
+        cp.modes.push_back(std::move(marginal));
+        compressed.push_back(std::move(cp));
+    }
+
+    return compressed;
+}
+
+// Closed-loop intent correction: reweight mode probabilities by how well the
+// previous prediction explained the newly observed obstacle position.
 void im2MppiNavigation::applyClosedLoopIntentCorrection(
     std::vector<dynamicPredictor::obstacle>& newPred,
     double dt_since_last) const

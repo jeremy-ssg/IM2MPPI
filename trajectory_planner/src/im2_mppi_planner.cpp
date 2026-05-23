@@ -454,9 +454,11 @@ double IM2MPPIPlanner::computeMapObstacleCost(const RolloutResult& r) const
     // and caused drift; 1.0 keeps map cost comparable to the per-step
     // deterministic dynamic obstacle cost.
     double cost = 0.0;
-    const double collision_penalty = 1.0;
+    const bool   dra_mode          = (params_.method_type == "dra_mppi");
+    const double collision_penalty = dra_mode ? 3.0 : 1.0;
     const int    H                 = params_.horizon_steps;
-    const int    MAP_STRIDE        = std::max(1, H / 6);   // ~6 checks / rollout
+    const int    MAP_STRIDE        = dra_mode ? std::max(1, H / 12)
+                                              : std::max(1, H / 6);
 
     int prev_check_k = 0;
     for (int k = MAP_STRIDE; k <= H; k += MAP_STRIDE) {
@@ -1758,9 +1760,10 @@ bool IM2MPPIPlanner::planGPU()
     //       reduces this to ~6 checks / rollout — the line-collision check
     //       between sampled steps catches anything in between.
     if (map_ && !h_states.empty()) {
-        const double collision_penalty = 1.0;
+        const double collision_penalty = dra_mode ? 3.0 : 1.0;
         const int    s_stride          = (H + 1) * 6;
-        const int    MAP_STRIDE        = std::max(1, H / 6);   // ~6 checks per rollout
+        const int    MAP_STRIDE        = dra_mode ? std::max(1, H / 12)
+                                                  : std::max(1, H / 6);
 
         for (int i = 0; i < N; ++i) {
             double map_cost      = 0.0;
@@ -1846,7 +1849,8 @@ bool IM2MPPIPlanner::planGPU()
             const int NM = N * M;
             for (int idx = 0; idx < NM; ++idx) h_costs[idx] += h_delta_S[idx];
         } else {
-            ROS_WARN_THROTTLE(1.0, "[IM2-MPPI/GPU/DRA] kernel failed; using base cost only this frame.");
+            ROS_ERROR_THROTTLE(1.0, "[IM2-MPPI/GPU/DRA] risk kernel failed; rejecting this plan instead of ignoring dynamic risk.");
+            return false;
         }
     }
 

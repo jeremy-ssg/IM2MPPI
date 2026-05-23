@@ -70,11 +70,11 @@ im2_mppi:
 
   # DRA-MPPI baseline (Trevisan et al., IROS 2025 style).
   # Used only when method_type == "dra_mppi".
-  dra_num_mc_samples: 64
-  dra_cp_lambda: 80.0
-  dra_cp_threshold: 0.20
-  dra_hard_penalty: 10000.0
-  dra_robot_radius: 0.25
+  dra_num_mc_samples: 96
+  dra_cp_lambda: 200.0
+  dra_cp_threshold: 0.08
+  dra_hard_penalty: 50000.0
+  dra_robot_radius: 0.35
   dra_sigma_floor: 0.05
   dra_use_z_probability: true
 
