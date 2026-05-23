@@ -1004,11 +1004,20 @@ void IM2MPPIPlanner::computeDRACollisionProbabilityCost(
                     if (valid_modes == 0) continue;
                     const bool uniform_modes = (pi_sum < 1e-9);
 
+                    // Physical collision radius only (Trevisan Eq.3): drone radius
+                    // + obstacle radius. Do NOT add d_safe — d_safe represents the
+                    // soft-cost clearance margin in the deterministic dyn cost; in
+                    // the chance-constrained CP formulation it must NOT inflate the
+                    // physical collision region. The safety buffer is expressed via
+                    // the threshold σ_thresh (dra_cp_threshold) and the sigma-floor
+                    // on the Gaussian; making the collision disk artificially wider
+                    // would reject almost every rollout, leaving MPPI to average
+                    // over a handful of bizarre survivors → erratic flight.
                     const double obs_radius =
                         0.5 * std::hypot(std::max(0.0, pred.size.x()),
                                          std::max(0.0, pred.size.y()));
                     const double collision_radius =
-                        std::max(1e-4, params_.dra_robot_radius + obs_radius + params_.d_safe);
+                        std::max(1e-4, params_.dra_robot_radius + obs_radius);
 
                     double cp_j = 0.0;
                     for (const auto& mode : pred.modes) {
@@ -1033,8 +1042,10 @@ void IM2MPPIPlanner::computeDRACollisionProbabilityCost(
                             Eigen::Vector2d(mu.x(), mu.y()),
                             sigma.x(), sigma.y(), collision_radius);
                         if (params_.dra_use_z_probability) {
+                            // Z half-extent uses physical obstacle height only,
+                            // no d_safe buffer (matches the 2D collision radius logic).
                             const double z_half =
-                                0.5 * std::max(0.0, pred.size.z()) + params_.d_safe;
+                                0.5 * std::max(0.0, pred.size.z());
                             p_mode *= gaussianIntervalProbability(
                                 ego.z(), z_half, mu.z(), sigma.z());
                         }
@@ -1873,11 +1884,15 @@ bool IM2MPPIPlanner::planGPU()
             static_cast<unsigned int>(params_.random_seed) ^
             static_cast<unsigned int>(ros::Time::now().toNSec() & 0xFFFFFFFFu);
 
+        // d_safe is passed as 0.0f for the DRA kernel: in the chance-constrained
+        // collision-probability formulation the physical collision radius must
+        // not include a safety buffer (see CPU computeDRACollisionProbabilityCost
+        // for full rationale). Safety margin is expressed via the threshold σ.
         const bool dra_ok = cuda::runDRACollisionRisk(
             cuda_ctx_, h_dyn_pis.data(), h_dyn_sigmas.data(),
             J, K, M, N, H,
             params_.dra_num_mc_samples,
-            static_cast<float>(params_.d_safe),
+            0.0f,
             static_cast<float>(params_.dra_robot_radius),
             static_cast<float>(params_.dra_sigma_floor),
             static_cast<float>(params_.dra_cp_lambda),

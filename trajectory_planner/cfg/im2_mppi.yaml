@@ -73,7 +73,12 @@ im2_mppi:
   # Legacy knob kept for compatibility; light DRA uses analytic interval probability.
   dra_num_mc_samples: 1
   dra_cp_lambda: 200.0       # soft per-step CP penalty weight ω_soft (Eq.14)
-  dra_cp_threshold: 0.05     # trajectory-level joint CP threshold σ (Eq.14)
+  # Trajectory-level joint CP threshold σ (Eq.14). Paper uses 0.05 with H=20,
+  # dt=0.2. Our H=38, dt=0.05 means more accumulation steps for the same
+  # physical 2s, so we slightly relax. If drone still flies erratically (most
+  # rollouts hitting +∞), raise this further; if drone clips obstacles,
+  # lower it back toward 0.05.
+  dra_cp_threshold: 0.15
   # dra_hard_penalty is now legacy: the CPU path uses +∞ rejection when the
   # trajectory-level joint CP exceeds dra_cp_threshold (matches Trevisan IROS
   # 2025 Eq.14 semantically). The GPU kernel still uses this as a per-step
