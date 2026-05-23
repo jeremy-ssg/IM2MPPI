@@ -74,8 +74,8 @@ im2_mppi:
   dra_cp_lambda: 200.0
   dra_cp_threshold: 0.05
   dra_hard_penalty: 50000.0
-  dra_robot_radius: 0.35
-  dra_sigma_floor: 0.25
+  dra_robot_radius: 0.30
+  dra_sigma_floor: 0.15
   dra_use_z_probability: true
 
   # ── Mode fusion (Phase 4) ───────────────────────────────────────────
