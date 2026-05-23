@@ -124,6 +124,17 @@ bool runObstacleCVaR(
     float* delta_S_out              // [N*M] — to be ADDED to costs_out
 );
 
+bool runDRACollisionRisk(
+    DeviceContext* ctx,
+    const float* dyn_sigmas,
+    int J, int K_per_obs, int M,
+    int N, int H, int R,
+    float d_safe, float robot_radius, float sigma_floor,
+    float cp_lambda, float cp_threshold, float hard_penalty,
+    int use_z_probability,
+    unsigned int seed_base,
+    float* delta_S_out);
+
 } // namespace cuda
 } // namespace im2mppi
 #endif // IM2_MPPI_CUDA_H

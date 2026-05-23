@@ -51,6 +51,61 @@ inline double aabbSDF(const Eigen::Vector3d& p,
     const double inside        = std::min(q.maxCoeff(), 0.0);
     return outside + inside;
 }
+
+constexpr double kPi = 3.1415926535897932384626433832795;
+
+inline double clamp01(double x)
+{
+    return std::max(0.0, std::min(1.0, x));
+}
+
+inline double radicalInverseBase2(unsigned int bits)
+{
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return static_cast<double>(bits) * 2.3283064365386963e-10;
+}
+
+inline double hashToUnit(unsigned int x)
+{
+    x ^= x >> 16u;
+    x *= 0x7feb352du;
+    x ^= x >> 15u;
+    x *= 0x846ca68bu;
+    x ^= x >> 16u;
+    return static_cast<double>(x & 0x00FFFFFFu) / 16777216.0;
+}
+
+inline double gaussianPdf2D(const Eigen::Vector2d& x,
+                            const Eigen::Vector2d& mu,
+                            double sx,
+                            double sy)
+{
+    sx = std::max(1e-4, sx);
+    sy = std::max(1e-4, sy);
+    const double dx = (x.x() - mu.x()) / sx;
+    const double dy = (x.y() - mu.y()) / sy;
+    return std::exp(-0.5 * (dx * dx + dy * dy)) / (2.0 * kPi * sx * sy);
+}
+
+inline double normalCdf(double z)
+{
+    return 0.5 * (1.0 + std::erf(z / std::sqrt(2.0)));
+}
+
+inline double gaussianIntervalProbability(double center,
+                                          double half_width,
+                                          double mu,
+                                          double sigma)
+{
+    sigma = std::max(1e-4, sigma);
+    const double lo = (center - half_width - mu) / sigma;
+    const double hi = (center + half_width - mu) / sigma;
+    return clamp01(normalCdf(hi) - normalCdf(lo));
+}
 } // anonymous
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -886,6 +941,107 @@ std::vector<double> IM2MPPIPlanner::computeIntentCVaRRiskPremium(
     return computeIntentCVaRRiskPremiumFromCosts(modes, costs_flat, N);
 }
 
+void IM2MPPIPlanner::computeDRACollisionProbabilityCost(
+    const std::vector<RolloutResult>& base_rollouts,
+    const std::vector<JointMode>&     modes,
+    std::vector<std::vector<double>>& delta_S) const
+{
+    const int N = static_cast<int>(base_rollouts.size());
+    const int M = static_cast<int>(modes.size());
+    const int J = static_cast<int>(dyn_predictions_.size());
+    const int H = params_.horizon_steps;
+    const int R = params_.dra_num_mc_samples;
+
+    delta_S.assign(M, std::vector<double>(N, 0.0));
+    if (N == 0 || M == 0 || J == 0 || R <= 0) return;
+
+    for (int m = 0; m < M; ++m) {
+        const auto& jm = modes[m];
+        for (int i = 0; i < N; ++i) {
+            const auto& states = base_rollouts[i].states;
+            if (static_cast<int>(states.size()) <= H) continue;
+
+            double no_collision_traj = 1.0;
+
+            for (int k = 1; k <= H; ++k) {
+                const Eigen::Vector3d& ego = states[k].p;
+                double no_collision_step = 1.0;
+
+                for (int j = 0; j < J; ++j) {
+                    if (j >= static_cast<int>(jm.obstacle_mode_indices.size())) continue;
+
+                    const auto& pred = dyn_predictions_[j];
+                    const int mode_idx = jm.obstacle_mode_indices[j];
+                    if (mode_idx < 0 || mode_idx >= static_cast<int>(pred.modes.size())) continue;
+
+                    const auto& mode = pred.modes[mode_idx];
+                    if (mode.mu_seq.empty()) continue;
+
+                    const int pk = std::min(k - 1, static_cast<int>(mode.mu_seq.size()) - 1);
+                    const Eigen::Vector3d& mu = mode.mu_seq[pk];
+                    Eigen::Vector3d sigma(params_.dra_sigma_floor,
+                                          params_.dra_sigma_floor,
+                                          params_.dra_sigma_floor);
+                    if (pk < static_cast<int>(mode.sigma_diag_seq.size())) {
+                        sigma = mode.sigma_diag_seq[pk].cwiseMax(sigma);
+                    }
+
+                    const double obs_radius =
+                        0.5 * std::hypot(std::max(0.0, pred.size.x()),
+                                         std::max(0.0, pred.size.y()));
+                    const double collision_radius =
+                        std::max(1e-4, params_.dra_robot_radius + obs_radius + params_.d_safe);
+                    const double area = kPi * collision_radius * collision_radius;
+
+                    const unsigned int hash_base =
+                        static_cast<unsigned int>(params_.random_seed)
+                        ^ static_cast<unsigned int>((i + 1) * 73856093u)
+                        ^ static_cast<unsigned int>((m + 1) * 19349663u)
+                        ^ static_cast<unsigned int>((j + 1) * 83492791u)
+                        ^ static_cast<unsigned int>((k + 1) * 2654435761u);
+                    const double shift_u = hashToUnit(hash_base);
+                    const double shift_v = hashToUnit(hash_base ^ 0x9e3779b9u);
+
+                    double pdf_sum = 0.0;
+                    for (int r = 0; r < R; ++r) {
+                        double u = (static_cast<double>(r) + 0.5) / static_cast<double>(R);
+                        u += shift_u;
+                        u -= std::floor(u);
+                        double v = radicalInverseBase2(static_cast<unsigned int>(r + 1));
+                        v += shift_v;
+                        v -= std::floor(v);
+
+                        const double rho = collision_radius * std::sqrt(u);
+                        const double theta = 2.0 * kPi * v;
+                        const Eigen::Vector2d q(ego.x() + rho * std::cos(theta),
+                                                ego.y() + rho * std::sin(theta));
+                        const Eigen::Vector2d mu_xy(mu.x(), mu.y());
+                        pdf_sum += gaussianPdf2D(q, mu_xy, sigma.x(), sigma.y());
+                    }
+
+                    double cp_j = area * pdf_sum / static_cast<double>(R);
+                    if (params_.dra_use_z_probability) {
+                        const double z_half = 0.5 * std::max(0.0, pred.size.z()) + params_.d_safe;
+                        cp_j *= gaussianIntervalProbability(ego.z(), z_half, mu.z(), sigma.z());
+                    }
+                    cp_j = clamp01(cp_j);
+                    no_collision_step *= (1.0 - cp_j);
+                }
+
+                const double cp_step = clamp01(1.0 - no_collision_step);
+                no_collision_traj *= (1.0 - cp_step);
+            }
+
+            const double cp_traj = clamp01(1.0 - no_collision_traj);
+            double risk_cost = params_.dra_cp_lambda * cp_traj;
+            if (cp_traj > params_.dra_cp_threshold) {
+                risk_cost += params_.dra_hard_penalty;
+            }
+            delta_S[m][i] = risk_cost;
+        }
+    }
+}
+
 void IM2MPPIPlanner::addIntentCVaRRiskPremium(
     const std::vector<JointMode>&             modes,
     std::vector<std::vector<RolloutResult>>&  all_results) const
@@ -1343,6 +1499,7 @@ bool IM2MPPIPlanner::planCPU()
     // 5. Per-mode cost evaluation. In cvar_mppi the deterministic dynamic
     //    obstacle penalty remains active; CVaR is added as an extra risk term.
     const bool is_cvar = (params_.method_type == "cvar_mppi");
+    const bool is_dra  = (params_.method_type == "dra_mppi");
 
     std::vector<std::vector<RolloutResult>> all_results;
     all_results.reserve(joint_modes_.size());
@@ -1355,7 +1512,9 @@ bool IM2MPPIPlanner::planCPU()
             c += computeSmoothnessCost(r);
             c += computeStaticObstacleCost(r);
             c += computeMapObstacleCost(r);
-            c += computeDynamicObstacleCost(r, jm);
+            if (!is_dra) {
+                c += computeDynamicObstacleCost(r, jm);
+            }
             r.cost = c;
         }
         all_results.push_back(std::move(mode_results));
@@ -1375,6 +1534,16 @@ bool IM2MPPIPlanner::planCPU()
     }
 
     // 5c. Hard safety floor — reject rollouts that violate the minimum clearance.
+    if (is_dra) {
+        std::vector<std::vector<double>> delta_S;
+        computeDRACollisionProbabilityCost(base_rollouts, joint_modes_, delta_S);
+        for (size_t m = 0; m < all_results.size() && m < delta_S.size(); ++m) {
+            for (size_t i = 0; i < all_results[m].size() && i < delta_S[m].size(); ++i) {
+                all_results[m][i].cost += delta_S[m][i];
+            }
+        }
+    }
+
     applyHardFloorFilter(joint_modes_, all_results);
 
     if (is_cvar) {
@@ -1537,6 +1706,7 @@ bool IM2MPPIPlanner::planGPU()
     }
 
     const bool cvar_mode = (params_.method_type == "cvar_mppi");
+    const bool dra_mode  = (params_.method_type == "dra_mppi");
 
     // 4a. Main rollout + cost kernel. CVaR mode keeps deterministic dynamic
     //     obstacle cost; the uncertainty CVaR term is added afterwards.
@@ -1566,7 +1736,7 @@ bool IM2MPPIPlanner::planGPU()
         static_cast<float>(params_.w_vel),   static_cast<float>(params_.w_acc),
         static_cast<float>(params_.w_jerk),  static_cast<float>(params_.w_static),
         static_cast<float>(params_.w_dyn),
-        0,
+        dra_mode ? 1 : 0,
         h_costs.data(), h_controls.data(), h_states_out);
 
     if (!ok) {
@@ -1649,6 +1819,34 @@ bool IM2MPPIPlanner::planGPU()
             for (int idx = 0; idx < NM; ++idx) h_costs[idx] += h_delta_S[idx];
         } else {
             ROS_WARN_THROTTLE(1.0, "[IM2-MPPI/GPU/CVaR] kernel failed; using base cost only this frame.");
+        }
+    }
+
+    if (dra_mode && J > 0) {
+        std::vector<float> h_delta_S(static_cast<size_t>(N) * M, 0.0f);
+        const unsigned int seed_base =
+            static_cast<unsigned int>(params_.random_seed) ^
+            static_cast<unsigned int>(ros::Time::now().toNSec() & 0xFFFFFFFFu);
+
+        const bool dra_ok = cuda::runDRACollisionRisk(
+            cuda_ctx_, h_dyn_sigmas.data(),
+            J, K, M, N, H,
+            params_.dra_num_mc_samples,
+            static_cast<float>(params_.d_safe),
+            static_cast<float>(params_.dra_robot_radius),
+            static_cast<float>(params_.dra_sigma_floor),
+            static_cast<float>(params_.dra_cp_lambda),
+            static_cast<float>(params_.dra_cp_threshold),
+            static_cast<float>(params_.dra_hard_penalty),
+            params_.dra_use_z_probability ? 1 : 0,
+            seed_base,
+            h_delta_S.data());
+
+        if (dra_ok) {
+            const int NM = N * M;
+            for (int idx = 0; idx < NM; ++idx) h_costs[idx] += h_delta_S[idx];
+        } else {
+            ROS_WARN_THROTTLE(1.0, "[IM2-MPPI/GPU/DRA] kernel failed; using base cost only this frame.");
         }
     }
 

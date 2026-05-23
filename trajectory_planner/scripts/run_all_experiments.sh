@@ -20,12 +20,12 @@
 #  Usage:
 #    ./run_all_experiments.sh [SEEDS] [DURATION_SEC] [GOAL_RADIUS]
 #
-#    SEEDS         — number of random seeds per config (default 24 = 3 × 8)
+#    SEEDS         — number of random seeds per config
 #    DURATION_SEC  — max evaluator timeout per run (default 90)
 #    GOAL_RADIUS   — success threshold in metres (default 0.8)
 #
 #  Examples:
-#    ./run_all_experiments.sh             # default (24 seeds × 8 configs, ~7 h)
+#    ./run_all_experiments.sh             # default (24 seeds across all configs, overnight run)
 #    ./run_all_experiments.sh 3 90        # quick sanity sweep, ~25 min
 #    ./run_all_experiments.sh 10 120      # mid-size paper run, ~4 h
 #
@@ -36,7 +36,7 @@
 #    Any (config, seed) whose summary.json already exists is skipped.
 #    (round-robin order means all configs get exposed first, then deepened.)
 #
-#  Total wall clock ≈ SEEDS × 8 configs × (DURATION + 40 s overhead).
+#  Total wall clock ≈ SEEDS × number_of_configs × (DURATION + 40 s overhead).
 #
 #  Per-run raw artefacts saved under results/<stamp>/:
 #    <CFG>_seed<N>_summary.json         — aggregated metrics
@@ -87,6 +87,7 @@ CONFIGS=(
   "M2_mean_pred|${IM2_MPPI_LAUNCH}|mean_prediction_mppi|soft|true"
   "M3_mode_aware|${IM2_MPPI_LAUNCH}|mode_aware_mppi|soft|false"
   "M4_im2_full|${IM2_MPPI_LAUNCH}|cvar_mppi|adaptive|true"
+  "M5_dra_mppi|${IM2_MPPI_LAUNCH}|dra_mppi|soft|false"
   "A1_no_cvar|${IM2_MPPI_LAUNCH}|mode_aware_mppi|adaptive|true"
   "A2_no_fusion|${IM2_MPPI_LAUNCH}|cvar_mppi|soft|true"
   "A3_no_cl|${IM2_MPPI_LAUNCH}|cvar_mppi|adaptive|false"

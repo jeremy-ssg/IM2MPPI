@@ -51,6 +51,7 @@ im2_mppi:
   #   mean_prediction_mppi : nav layer compresses K modes -> 1 mean per obstacle
   #   mode_aware_mppi      : full multi-modal (Cartesian product + prune)
   #   cvar_mppi            : multi-modal + CVaR tail aggregation (Phase 4)
+  #   dra_mppi             : DRA-MPPI-style joint collision probability baseline
   method_type: "cvar_mppi"
 
   # probability | risk_aware
@@ -66,6 +67,16 @@ im2_mppi:
   cvar_alpha: 0.20                # tail fraction (worst 20%)
   cvar_num_obstacle_samples: 16   # R: obstacle Monte-Carlo samples per (i,m,j)
   cvar_lambda_r: 5.0              # weight on Σ_j ρ in the per-rollout cost
+
+  # DRA-MPPI baseline (Trevisan et al., IROS 2025 style).
+  # Used only when method_type == "dra_mppi".
+  dra_num_mc_samples: 64
+  dra_cp_lambda: 80.0
+  dra_cp_threshold: 0.20
+  dra_hard_penalty: 10000.0
+  dra_robot_radius: 0.25
+  dra_sigma_floor: 0.05
+  dra_use_z_probability: true
 
   # ── Mode fusion (Phase 4) ───────────────────────────────────────────
   # How joint-mode posteriors π_m enter the MPPI free-energy update:

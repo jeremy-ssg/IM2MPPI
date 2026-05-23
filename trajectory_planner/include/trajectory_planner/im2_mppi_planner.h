@@ -243,6 +243,11 @@ private:
         const std::vector<JointMode>&                  modes,
         std::vector<std::vector<double>>&              delta_S);   // [M][N]
 
+    void computeDRACollisionProbabilityCost(
+        const std::vector<RolloutResult>&              base_rollouts,
+        const std::vector<JointMode>&                  modes,
+        std::vector<std::vector<double>>&              delta_S) const; // [M][N]
+
     // ── Yaw post-processing ──────────────────────────────────────────────────
     void generateYawReference(std::vector<TrajectoryPoint>& traj) const;
 
