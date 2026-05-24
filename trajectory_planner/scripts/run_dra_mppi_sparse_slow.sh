@@ -20,8 +20,19 @@
 
 set -u
 
-SCRIPT_DIR="$(rospack find trajectory_planner)/scripts"
-WORLD_DIR="$(rospack find uav_simulator)/worlds/generated_env"
+# Self-locate so this wrapper works even if the catkin workspace hasn't
+# been sourced yet (rospack find would return empty string in that case,
+# silently producing "no such file /scripts/...").
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORLD_DIR="$(cd "${SCRIPT_DIR}/../../uav_simulator/worlds/generated_env" 2>/dev/null && pwd || true)"
+if [[ -z "${WORLD_DIR}" ]] && command -v rospack >/dev/null 2>&1; then
+    WORLD_DIR="$(rospack find uav_simulator 2>/dev/null)/worlds/generated_env"
+fi
+if [[ -z "${WORLD_DIR}" || ! -d "${WORLD_DIR}" ]]; then
+    echo "[sparse-slow] could not locate uav_simulator/worlds/generated_env"
+    echo "  did you 'source ~/catkin_ws/devel/setup.bash' first?"
+    exit 1
+fi
 WORLD="${WORLD_DIR}/generated_sparse_slow.world"
 
 if [[ ! -f "${WORLD}" ]]; then
