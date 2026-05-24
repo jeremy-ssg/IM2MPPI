@@ -26,6 +26,9 @@
 #    SEED_START=1
 #    GAZEBO_GUI=true
 #    ENABLE_RVIZ=true
+#    WORLD_FILE=/abs/path/to/world.world   # override start.launch's default
+#                                          # world. Useful for per-scenario
+#                                          # DRA-MPPI batches.
 # ============================================================================
 
 set -u
@@ -36,6 +39,7 @@ GOAL_RADIUS=${3:-0.8}
 SEED_START=${SEED_START:-1}
 GAZEBO_GUI="${GAZEBO_GUI:-true}"
 ENABLE_RVIZ="${ENABLE_RVIZ:-true}"
+WORLD_FILE="${WORLD_FILE:-}"
 
 if [[ -n "${OUT_DIR_OVERRIDE:-}" ]]; then
     OUT_DIR="${OUT_DIR_OVERRIDE}"
@@ -141,6 +145,7 @@ echo
 echo "================================================================"
 echo "  DRA-MPPI batch driver"
 echo "  method: M5_dra_mppi  method_type=dra_mppi  fusion=soft  closed_loop=false"
+echo "  world:  ${WORLD_FILE:-<start.launch default>}"
 echo "  runs: ${RUNS}  seed_start: ${SEED_START}"
 echo "  timeout/run: ${DURATION}s  goal_radius: ${GOAL_RADIUS}m"
 echo "  gazebo gui: ${GAZEBO_GUI}  rviz: ${ENABLE_RVIZ}"
@@ -176,9 +181,13 @@ for IDX in $(seq 0 $((RUNS - 1))); do
 
     rosparam set /autonomous_flight/closed_loop_intent_enabled false >/dev/null 2>&1 || true
 
+    SIM_EXTRA=""
+    if [[ -n "${WORLD_FILE}" ]]; then
+        SIM_EXTRA="world_name:=${WORLD_FILE}"
+    fi
     OBS_BRANCH_SEED="${SEED}" \
     timeout --kill-after=10 $((DURATION + 90)) \
-        roslaunch uav_simulator start.launch gui:="${GAZEBO_GUI}" \
+        roslaunch uav_simulator start.launch gui:="${GAZEBO_GUI}" ${SIM_EXTRA} \
         > "${LOG_DIR}/${TAG}_sim.log" 2>&1 &
     sleep 10
 

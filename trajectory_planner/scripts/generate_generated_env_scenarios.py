@@ -23,6 +23,18 @@ SCENARIOS = {
         "keep_dynamic": 20,
         "speed_range": (0.3, 0.5),
     },
+    "generated_sparse_medium.world": {
+        # NEW: between Sparse-Slow (20) and Medium-Normal (40)
+        "label": "Sparse-Medium",
+        "keep_dynamic": 25,
+        "speed_range": (0.4, 0.6),
+    },
+    "generated_medium_light.world": {
+        # NEW: between Sparse-Medium (25) and Medium-Normal (40)
+        "label": "Medium-Light",
+        "keep_dynamic": 35,
+        "speed_range": (0.5, 0.7),
+    },
     "generated_medium_normal.world": {
         "label": "Medium-Normal",
         "keep_dynamic": 40,
@@ -57,7 +69,10 @@ def deterministic_speed(idx, lo, hi):
 
 def rewrite_world(text, label, keep_dynamic, speed_range):
     lo, hi = speed_range
-    keep_per_kind = keep_dynamic // 2
+    # Odd keep_dynamic (e.g. 35 or 25): give one extra to cylinders so totals
+    # are exact instead of off-by-one.
+    keep_cylinders = (keep_dynamic + 1) // 2
+    keep_boxes     = keep_dynamic - keep_cylinders
     kept = 0
     removed = 0
     speeds = []
@@ -67,7 +82,8 @@ def rewrite_world(text, label, keep_dynamic, speed_range):
         block = match.group("block")
         kind = match.group("kind")
         idx = int(match.group("idx"))
-        if idx >= keep_per_kind:
+        keep_n = keep_cylinders if kind == "cylinder" else keep_boxes
+        if idx >= keep_n:
             removed += 1
             return "\n"
         global_idx = idx if kind == "cylinder" else 40 + idx

@@ -72,12 +72,13 @@ im2_mppi:
   # Used only when method_type == "dra_mppi".
   # Legacy knob kept for compatibility; light DRA uses analytic interval probability.
   dra_num_mc_samples: 1
-  # ω_soft from Eq.14. Lowered 200→80 because the previous value combined
-  # with the (now physical-only) collision radius produced an overly steep
-  # gradient away from obstacles: MinClr 0.63 m and Time 74 s with zero
-  # collisions — i.e. way over-conservative. The looser threshold below
-  # handles the safety guarantee on its own; lambda only shapes the gradient.
-  dra_cp_lambda: 80.0
+  # ω_soft from Eq.14. Stepped down 200→80→20 across tuning rounds. At
+  # 80 the drone still detoured wide (50-seed avg Time 67.3 s, avg speed
+  # only 40% of v_max = 2.0 m/s). The threshold guarantees safety on its
+  # own; with lambda=20 the soft gradient is just a gentle nudge so the
+  # drone doesn't path through the "very close" zone without reason, but
+  # otherwise can hold tighter passes near obstacles.
+  dra_cp_lambda: 20.0
   # Trajectory-level joint CP threshold σ (Eq.14). Paper uses 0.05 with H=20,
   # dt=0.2 → 4 s trajectory. Our H=38, dt=0.05 → 1.9 s; per-second risk-equiv
   # threshold scales accordingly. 0.40 lets the drone accept fairly close
