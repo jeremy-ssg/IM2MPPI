@@ -170,6 +170,7 @@ namespace AutoFlight{
 		this->mpcTrajPub_ = this->nh_.advertise<nav_msgs::Path>("mpcNavigation/mpc_trajectory", 10);
 		this->inputTrajPub_ = this->nh_.advertise<nav_msgs::Path>("mpcNavigation/input_trajectory", 10);
 		this->goalPub_ = this->nh_.advertise<visualization_msgs::MarkerArray>("mpcNavigation/goal", 10);
+		this->planTimePub_ = this->nh_.advertise<std_msgs::Float64>("mpcNavigation/plan_time_ms", 50);
 	}
 
 	void mpcNavigation::registerCallback(){
@@ -312,6 +313,7 @@ namespace AutoFlight{
 
 					ros::Time trajStartTime = ros::Time::now();
 					bool newTrajReturn;
+					const ros::WallTime wallStart = ros::WallTime::now();
 					if (this->usePredictor_){
 						// makePlan with predictor
 						newTrajReturn = this->mpc_->makePlanWithPred();
@@ -319,6 +321,10 @@ namespace AutoFlight{
 					else{
 						newTrajReturn = this->mpc_->makePlan();
 					}
+					const ros::WallTime wallEnd = ros::WallTime::now();
+					std_msgs::Float64 planTimeMsg;
+					planTimeMsg.data = (wallEnd - wallStart).toSec() * 1000.0;
+					this->planTimePub_.publish(planTimeMsg);
 					nav_msgs::Path mpcTraj;	
 					
 					if (newTrajReturn){

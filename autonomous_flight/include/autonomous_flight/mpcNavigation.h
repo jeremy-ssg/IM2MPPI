@@ -17,6 +17,7 @@
 #include <trajectory_planner/piecewiseLinearTraj.h>
 #include <trajectory_planner/bsplineTraj.h>
 #include <trajectory_planner/mpcPlanner.h>
+#include <std_msgs/Float64.h>
 
 namespace AutoFlight{
 
@@ -41,6 +42,7 @@ namespace AutoFlight{
 		ros::Publisher mpcTrajPub_;
 		ros::Publisher inputTrajPub_;
 		ros::Publisher goalPub_;
+		ros::Publisher planTimePub_;
 
 		std::thread mpcWorker_;
 
