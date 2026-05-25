@@ -26,6 +26,7 @@
 #    SEED_START=1
 #    GAZEBO_GUI=true
 #    ENABLE_RVIZ=true
+#    IM2_MPPI_LAUNCH="autonomous_flight im2_mppi_intent_uncertain.launch ..."
 #    WORLD_FILE=/abs/path/to/world.world   # override start.launch's default
 #                                          # world. Useful for per-scenario
 #                                          # DRA-MPPI batches.
@@ -40,6 +41,7 @@ SEED_START=${SEED_START:-1}
 GAZEBO_GUI="${GAZEBO_GUI:-true}"
 ENABLE_RVIZ="${ENABLE_RVIZ:-true}"
 WORLD_FILE="${WORLD_FILE:-}"
+IM2_MPPI_LAUNCH="${IM2_MPPI_LAUNCH:-autonomous_flight im2_mppi_demo.launch enable_rviz:=${ENABLE_RVIZ}}"
 
 if [[ -n "${OUT_DIR_OVERRIDE:-}" ]]; then
     OUT_DIR="${OUT_DIR_OVERRIDE}"
@@ -146,6 +148,7 @@ echo "================================================================"
 echo "  DRA-MPPI batch driver"
 echo "  method: M5_dra_mppi  method_type=dra_mppi  fusion=soft  closed_loop=false"
 echo "  world:  ${WORLD_FILE:-<start.launch default>}"
+echo "  launch: ${IM2_MPPI_LAUNCH}"
 echo "  runs: ${RUNS}  seed_start: ${SEED_START}"
 echo "  timeout/run: ${DURATION}s  goal_radius: ${GOAL_RADIUS}m"
 echo "  gazebo gui: ${GAZEBO_GUI}  rviz: ${ENABLE_RVIZ}"
@@ -197,7 +200,7 @@ for IDX in $(seq 0 $((RUNS - 1))); do
     pkill -9 -f keyboardCtrl          2>/dev/null || true
 
     timeout --kill-after=10 $((DURATION + 90)) \
-        roslaunch autonomous_flight im2_mppi_demo.launch enable_rviz:="${ENABLE_RVIZ}" \
+        roslaunch ${IM2_MPPI_LAUNCH} \
         > "${LOG_DIR}/${TAG}_stack.log" 2>&1 &
     sleep 12
 
