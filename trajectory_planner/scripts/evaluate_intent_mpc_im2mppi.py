@@ -144,6 +144,19 @@ def project_onto_polyline(points, point, min_s=None, backtrack=2.0):
     return best_s, best_dist
 
 
+def unwrap_closed_progress(raw_s, previous_unwrapped_s, reference_length):
+    """Lift a closed-path arc length into a monotonic lap-progress frame."""
+    if previous_unwrapped_s is None or reference_length <= 1e-6:
+        return raw_s
+
+    k0 = round((previous_unwrapped_s - raw_s) / reference_length)
+    candidates = [
+        raw_s + (k0 + dk) * reference_length
+        for dk in (-1, 0, 1)
+    ]
+    return min(candidates, key=lambda s: abs(s - previous_unwrapped_s))
+
+
 def finite_diff_norms(samples):
     out = []
     for i in range(1, len(samples)):
@@ -263,11 +276,18 @@ class Evaluator:
         self.finish_requested = False
         self.outputs_written = False
         self.completed_path_length = None
+        self.completion_wall_time = None
         self.executed_path_length_live = 0.0
         self.last_odom_position_for_length = None
+        self.lap_executed_path_length_live = 0.0
+        self.last_lap_odom_position_for_length = None
         self.lap_progress_m = 0.0
         self.lap_progress_fraction = None
         self.lap_nearest_distance = None
+        self.lap_reference_s = None
+        self.lap_reference_fraction = None
+        self.lap_start_reference_s = None
+        self.lap_unwrapped_reference_s = None
         self.lap_started = False
         self.lap_start_time = None
 
@@ -483,22 +503,41 @@ class Evaluator:
         if not self.lap_reference_points or self.lap_reference_length <= 1e-6:
             return
 
-        backtrack = max(2.0, 0.05 * self.lap_reference_length)
-        s, nearest = project_onto_polyline(
-            self.lap_reference_points, pos,
-            min_s=self.lap_progress_m if self.lap_progress_m > 0.0 else None,
-            backtrack=backtrack)
+        s, nearest = project_onto_polyline(self.lap_reference_points, pos)
         if s is None or nearest is None:
             return
 
+        self.lap_reference_s = s
+        self.lap_reference_fraction = min(1.0, s / self.lap_reference_length)
         self.lap_nearest_distance = nearest
         if nearest <= self.lap_progress_max_deviation:
             if not self.lap_started:
                 self.lap_started = True
                 self.lap_start_time = t
-            self.lap_progress_m = max(self.lap_progress_m, s)
+                self.lap_start_reference_s = s
+                self.lap_unwrapped_reference_s = s
+                self.lap_progress_m = 0.0
+                self.lap_progress_fraction = 0.0
+                self.lap_executed_path_length_live = 0.0
+                self.last_lap_odom_position_for_length = pos
+                return
+
+            unwrapped_s = unwrap_closed_progress(
+                s, self.lap_unwrapped_reference_s, self.lap_reference_length)
+            self.lap_unwrapped_reference_s = unwrapped_s
+            relative_s = max(0.0, unwrapped_s - self.lap_start_reference_s)
+            self.lap_progress_m = max(self.lap_progress_m, relative_s)
             self.lap_progress_fraction = min(
                 1.0, self.lap_progress_m / self.lap_reference_length)
+
+    def update_lap_path_length_locked(self, pos):
+        if not self.lap_started:
+            return
+        if self.last_lap_odom_position_for_length is not None:
+            step_len = dist3(pos, self.last_lap_odom_position_for_length)
+            if math.isfinite(step_len):
+                self.lap_executed_path_length_live += step_len
+        self.last_lap_odom_position_for_length = pos
 
     def completion_reached_locked(self, t, pos, goal_dist):
         if self.completion_mode == "lap":
@@ -506,7 +545,7 @@ class Evaluator:
             if self.lap_progress_fraction is None:
                 return False, None
             min_path_len = self.lap_min_path_fraction * self.lap_reference_length
-            path_len_ok = self.executed_path_length_live >= min_path_len
+            path_len_ok = self.lap_executed_path_length_live >= min_path_len
             if (self.lap_progress_fraction >= self.lap_finish_fraction and
                     self.lap_nearest_distance is not None and
                     self.lap_nearest_distance <= self.lap_completion_radius and
@@ -548,6 +587,21 @@ class Evaluator:
                     self.executed_path_length_live += step_len
             self.last_odom_position_for_length = pos
 
+            goal_dist = dist3(pos, self.goal) if self.goal is not None else None
+            if self.completion_mode == "lap":
+                self.update_lap_progress_locked(t, pos)
+                self.update_lap_path_length_locked(pos)
+
+            in_metric_window = self.completion_mode != "lap" or self.lap_started
+            lap_time = None
+            metric_time = t
+            metric_path_length = self.executed_path_length_live
+            if self.completion_mode == "lap":
+                metric_path_length = self.lap_executed_path_length_live
+                if self.lap_started and self.lap_start_time is not None:
+                    lap_time = max(0.0, t - self.lap_start_time)
+                    metric_time = lap_time
+
             target_error = None
             target_age = None
             if self.latest_target is not None:
@@ -555,12 +609,13 @@ class Evaluator:
                        self.latest_target.position.y,
                        self.latest_target.position.z)
                 target_error = dist3(pos, tgt)
-                self.target_errors.append(target_error)
+                if in_metric_window:
+                    self.target_errors.append(target_error)
                 if self.target_samples:
                     target_age = max(0.0, t - self.target_samples[-1]["t"])
 
             clearance = self.min_clearance_locked(pos)
-            if clearance is not None:
+            if clearance is not None and in_metric_window:
                 self.clearances.append(clearance)
 
                 # Per-tier sample counts (time-in-collision proxy).
@@ -571,7 +626,7 @@ class Evaluator:
                 if in_strict:
                     self.collision_strict_samples += 1
                     if self.last_sample_time is not None:
-                        self.collision_strict_time += max(0.0, t - self.last_sample_time)
+                        self.collision_strict_time += max(0.0, metric_time - self.last_sample_time)
                 if in_near_miss:
                     self.collision_near_miss_samples += 1
                 if in_tail:
@@ -580,23 +635,21 @@ class Evaluator:
                 # Rising-edge event counters (count of DISTINCT collisions).
                 if in_strict and not self.prev_in_strict:
                     self.collision_strict_events += 1
-                    self.collision_event_log.append((t, "strict", clearance))
+                    self.collision_event_log.append((metric_time, "strict", clearance))
                 if in_near_miss and not self.prev_in_near_miss:
                     self.collision_near_miss_events += 1
-                    self.collision_event_log.append((t, "near_miss", clearance))
+                    self.collision_event_log.append((metric_time, "near_miss", clearance))
                 if in_tail and not self.prev_in_tail:
                     self.collision_tail_events += 1
-                    self.collision_event_log.append((t, "tail", clearance))
+                    self.collision_event_log.append((metric_time, "tail", clearance))
 
                 self.prev_in_strict    = in_strict
                 self.prev_in_near_miss = in_near_miss
                 self.prev_in_tail      = in_tail
 
-            goal_dist = dist3(pos, self.goal) if self.goal is not None else None
-            if self.completion_mode == "lap":
-                self.update_lap_progress_locked(t, pos)
             self.odom_samples.append({
                 "t": t,
+                "lap_time_s": lap_time,
                 "x": pos[0], "y": pos[1], "z": pos[2],
                 "vx": vel[0], "vy": vel[1], "vz": vel[2],
                 "speed": norm3(vel),
@@ -604,26 +657,39 @@ class Evaluator:
                 "target_age_s": target_age,
                 "obstacle_clearance": clearance,
                 "goal_distance": goal_dist,
-                "executed_path_length_m": self.executed_path_length_live,
+                "executed_path_length_m": metric_path_length,
+                "run_executed_path_length_m": self.executed_path_length_live,
                 "lap_progress_m": self.lap_progress_m,
                 "lap_progress_fraction": self.lap_progress_fraction,
+                "lap_reference_s_m": self.lap_reference_s,
+                "lap_reference_fraction": self.lap_reference_fraction,
+                "lap_start_reference_s_m": self.lap_start_reference_s,
                 "lap_nearest_distance": self.lap_nearest_distance,
             })
-            self.last_sample_time = t
+            if in_metric_window:
+                self.last_sample_time = metric_time
 
             complete, reason = self.completion_reached_locked(t, pos, goal_dist)
             if complete:
+                completion_elapsed = t
+                if reason == "lap_complete" and self.lap_start_time is not None:
+                    completion_elapsed = max(0.0, t - self.lap_start_time)
                 self.success = True
-                self.time_to_goal = t
-                self.completion_time = t
+                self.time_to_goal = completion_elapsed
+                self.completion_time = completion_elapsed
+                self.completion_wall_time = t
                 self.completion_reason = reason
                 self.flight_ended = True
-                self.completed_path_length = path_length(
-                    [(s["x"], s["y"], s["z"]) for s in self.odom_samples])
+                if reason == "lap_complete":
+                    self.completed_path_length = self.lap_executed_path_length_live
+                else:
+                    self.completed_path_length = path_length(
+                        [(s["x"], s["y"], s["z"]) for s in self.odom_samples])
                 should_finish = self.shutdown_on_success and not self.finish_requested
                 self.finish_requested = self.finish_requested or should_finish
                 rospy.loginfo(
-                    "[eval] %s at t=%.2fs; freezing sampling.", reason, t)
+                    "[eval] %s at t=%.2fs (lap time %.2fs); freezing sampling.",
+                    reason, t, completion_elapsed)
 
         if should_finish:
             self.request_finish()
@@ -682,7 +748,10 @@ class Evaluator:
         flight_duration = self.odom_samples[-1]["t"] if self.odom_samples else None
         completed_path_length = self.completed_path_length
         if completed_path_length is None and self.success:
-            completed_path_length = executed_path_length
+            if self.completion_mode == "lap":
+                completed_path_length = self.lap_executed_path_length_live
+            else:
+                completed_path_length = executed_path_length
 
         summary = {
             "algorithm": self.algorithm,
@@ -710,10 +779,12 @@ class Evaluator:
                 "goal_radius": self.goal_radius,
                 "time_to_goal_s": self.time_to_goal,
                 "completion_time_s": self.completion_time,
+                "completion_wall_time_s": self.completion_wall_time,
                 "mission_time_s": self.completion_time if self.success else None,
                 "final_goal_distance_m": final_goal_distance,
                 "completed_path_length_m": completed_path_length,
                 "executed_path_length_m": executed_path_length,
+                "lap_executed_path_length_m": self.lap_executed_path_length_live,
                 "flight_duration_s": flight_duration,
                 "lap_reference_path": self.lap_reference_path,
                 "lap_reference_length_m": self.lap_reference_length,
@@ -725,6 +796,10 @@ class Evaluator:
                 "lap_start_time_s": self.lap_start_time,
                 "lap_progress_m": self.lap_progress_m,
                 "lap_progress_fraction": self.lap_progress_fraction,
+                "lap_reference_s_m": self.lap_reference_s,
+                "lap_reference_fraction": self.lap_reference_fraction,
+                "lap_start_reference_s_m": self.lap_start_reference_s,
+                "lap_unwrapped_reference_s_m": self.lap_unwrapped_reference_s,
                 "lap_nearest_distance_m": self.lap_nearest_distance,
             },
             "safety": {
@@ -909,13 +984,18 @@ class Evaluator:
             verdict = "tracking_diverged_without_obvious_timing_spike"
 
         task = summary["task"]
+        lap_path_length = task.get("lap_executed_path_length_m")
+        if lap_path_length is None:
+            lap_path_length = task.get("completed_path_length_m")
+        if lap_path_length is None:
+            lap_path_length = task.get("executed_path_length_m")
         if (not task["success"] and
                 task["lap_progress_fraction"] is not None and
                 task["lap_progress_fraction"] >= task["lap_finish_fraction"] and
-                task["executed_path_length_m"] is not None and
-                task["executed_path_length_m"] < task["lap_min_path_length_m"]):
+                lap_path_length is not None and
+                lap_path_length < task["lap_min_path_length_m"]):
             add_event(last_odom_t, "lap_completion_blocked_by_short_path",
-                      task["executed_path_length_m"], task["lap_min_path_length_m"],
+                      lap_path_length, task["lap_min_path_length_m"],
                       "reference progress reached the finish band but actual path length was too short for one lap")
 
         diagnostics = {
@@ -977,11 +1057,14 @@ class Evaluator:
                 json.dump(summary, f, indent=2, sort_keys=True)
 
             with open(prefix + "_timeseries.csv", "w", newline="") as f:
-                fields = ["t", "x", "y", "z", "vx", "vy", "vz", "speed",
+                fields = ["t", "lap_time_s",
+                          "x", "y", "z", "vx", "vy", "vz", "speed",
                           "target_error", "target_age_s",
                           "obstacle_clearance", "goal_distance",
-                          "executed_path_length_m",
+                          "executed_path_length_m", "run_executed_path_length_m",
                           "lap_progress_m", "lap_progress_fraction",
+                          "lap_reference_s_m", "lap_reference_fraction",
+                          "lap_start_reference_s_m",
                           "lap_nearest_distance"]
                 writer = csv.DictWriter(f, fieldnames=fields)
                 writer.writeheader()

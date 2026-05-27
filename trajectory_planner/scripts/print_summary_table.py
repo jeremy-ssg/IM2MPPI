@@ -215,7 +215,7 @@ def print_legend():
     print("  ColFree   = collision-free seed rate (CR_events==0)        (higher better)")
     print("  Time      = one-lap time over successful collision-free runs only (lower better)")
     print("  Length    = one-lap path length over successful collision-free runs only (lower better)")
-    print("  Progress  = final reference-lap progress before timeout   (higher better)")
+    print("  Progress  = final relative one-lap progress before timeout (higher better)")
     print("  CR#       = strict collision events <0.15m (count)       (lower  better)")
     print("  CR_nm#    = near-miss events <0.30m (count)              (lower  better)")
     print("  CR_tail#  = tail events <0.50m (count)                   (lower  better)")
