@@ -19,6 +19,7 @@
   <arg name="lap_reference_path"   default=""/>
   <arg name="lap_completion_radius" default="-1.0"/>
   <arg name="lap_finish_fraction"  default="0.98"/>
+  <arg name="lap_min_path_fraction" default="0.85"/>
   <arg name="lap_progress_max_deviation" default="3.0"/>
   <arg name="collision_strict"     default="0.15"/>
   <arg name="collision_near_miss"  default="0.30"/>
@@ -38,6 +39,7 @@
     <param name="lap_reference_path"   value="$(arg lap_reference_path)"/>
     <param name="lap_completion_radius" value="$(arg lap_completion_radius)"/>
     <param name="lap_finish_fraction"  value="$(arg lap_finish_fraction)"/>
+    <param name="lap_min_path_fraction" value="$(arg lap_min_path_fraction)"/>
     <param name="lap_progress_max_deviation" value="$(arg lap_progress_max_deviation)"/>
     <param name="collision_strict"     value="$(arg collision_strict)"/>
     <param name="collision_near_miss"  value="$(arg collision_near_miss)"/>
