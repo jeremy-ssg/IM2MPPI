@@ -30,6 +30,7 @@
 #  Optional environment overrides:
 #    OUT_DIR_OVERRIDE=/home/user/IM2MPPI/results/full_lap_resume
 #    SEED_START=1
+#    WALL_TIMEOUT=1140       # wall-clock guard per run; default DURATION*6+300
 #    GAZEBO_GUI=false
 #    ENABLE_RVIZ=false
 #    RECORD_BAG=true
@@ -45,6 +46,7 @@ GOAL_RADIUS=${3:-0.8}
 SEED_START=${SEED_START:-1}
 LAP_FINISH_FRACTION=${LAP_FINISH_FRACTION:-1.0}
 LAP_MIN_PATH_FRACTION=${LAP_MIN_PATH_FRACTION:-0.98}
+WALL_TIMEOUT=${WALL_TIMEOUT:-$((DURATION * 6 + 300))}
 GAZEBO_GUI="${GAZEBO_GUI:-false}"
 ENABLE_RVIZ="${ENABLE_RVIZ:-false}"
 RECORD_BAG="${RECORD_BAG:-true}"
@@ -170,7 +172,7 @@ start_bag() {
     echo "    [bag] recording ${BAG_FILE}"
     # shellcheck disable=SC2086
     rosbag record ${comp} --regex \
-        --duration="$((DURATION + 45))" \
+        --duration="$((WALL_TIMEOUT + 60))" \
         -O "${BAG_FILE}" \
         "${BAG_TOPIC_REGEX}" \
         __name:="${BAG_NODE#/}" \
@@ -209,8 +211,10 @@ archive_one() {
         mv "${tmp_out}/${eval_algo}_diagnostics.json" "${OUT_DIR}/${tag}_diagnostics.json" 2>/dev/null || true
         mv "${tmp_out}/${eval_algo}_diagnostic_events.csv" "${OUT_DIR}/${tag}_diagnostic_events.csv" 2>/dev/null || true
         echo "    [OK] -> ${tag}_summary.json"
+        return 0
     else
         echo "    [FAIL] no summary produced; see ${LOG_DIR}/${tag}_*.log"
+        return 1
     fi
 }
 
@@ -314,7 +318,7 @@ run_one() {
     fi
 
     OBS_BRANCH_SEED="${seed}" \
-    timeout --kill-after=10 $((DURATION + 120)) \
+    timeout --kill-after=30 "${WALL_TIMEOUT}" \
         roslaunch uav_simulator start.launch gui:="${GAZEBO_GUI}" ${sim_extra} \
         > "${LOG_DIR}/${tag}_sim.log" 2>&1 &
     sleep 10
@@ -333,7 +337,7 @@ run_one() {
     # whole lap instead of missing the first segment during takeoff/init.
     # We pass the reference path explicitly because /autonomous_flight params
     # are not guaranteed to exist before the planner launch comes up.
-    timeout --kill-after=10 $((DURATION + 35)) \
+    timeout --kill-after=30 "${WALL_TIMEOUT}" \
         roslaunch trajectory_planner evaluate_planner.launch \
             algorithm:="${eval_algo}" \
             duration:="${DURATION}" \
@@ -350,15 +354,18 @@ run_one() {
     EVAL_PID=$!
     sleep 2
 
-    timeout --kill-after=10 $((DURATION + 120)) \
+    timeout --kill-after=30 "${WALL_TIMEOUT}" \
         roslaunch ${launch} \
         > "${LOG_DIR}/${tag}_stack.log" 2>&1 &
 
     wait "${EVAL_PID}" >/dev/null 2>&1 || true
 
     stop_bag
-    archive_one "${tmp_out}" "${tag}" "${eval_algo}"
-    rm -rf "${tmp_out}"
+    if archive_one "${tmp_out}" "${tag}" "${eval_algo}"; then
+        rm -rf "${tmp_out}"
+    else
+        mv "${tmp_out}" "${OUT_DIR}/${tag}_failed_tmp" 2>/dev/null || true
+    fi
 
     cleanup_all
 }
@@ -378,6 +385,7 @@ echo "  methods: Intent-MPC, MPPI, DRA-MPPI, Ours"
 echo "  world: ${WORLD_FILE:-<start.launch default>}"
 echo "  seeds: ${SEEDS}  seed_start: ${SEED_START}  total runs: ${TOTAL}"
 echo "  timeout/run: ${DURATION}s  goal_radius: ${GOAL_RADIUS}m"
+echo "  wall-time guard/run: ${WALL_TIMEOUT}s"
 echo "  lap_finish_fraction: ${LAP_FINISH_FRACTION}  lap_min_path_fraction: ${LAP_MIN_PATH_FRACTION}"
 echo "  gazebo gui: ${GAZEBO_GUI}  rviz: ${ENABLE_RVIZ}  record_bag: ${RECORD_BAG}"
 echo "  bag compression: ${BAG_COMPRESSION}"

@@ -304,6 +304,7 @@ class Evaluator:
                                  self.sample_cb)
         self.shutdown_timer = rospy.Timer(rospy.Duration(max(self.duration, 1.0)),
                                           self.finish_cb, oneshot=True)
+        rospy.on_shutdown(self.shutdown_hook)
 
     # ── Topic defaults ────────────────────────────────────────────────────
 
@@ -695,11 +696,24 @@ class Evaluator:
             self.request_finish()
 
     def finish_cb(self, _event):
+        wrote = self.write_outputs_once("finish timer")
+        if wrote:
+            rospy.signal_shutdown("evaluation finished")
+
+    def shutdown_hook(self):
+        self.write_outputs_once("ROS shutdown")
+
+    def write_outputs_once(self, reason):
         if self.outputs_written:
-            return
+            return False
         self.outputs_written = True
-        self.write_outputs()
-        rospy.signal_shutdown("evaluation finished")
+        try:
+            self.write_outputs()
+            rospy.loginfo("[eval] Outputs written on %s.", reason)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            rospy.logerr("[eval] Failed to write outputs on %s: %s", reason, exc)
+            return False
 
     # ── Summary ───────────────────────────────────────────────────────────
 
