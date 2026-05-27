@@ -16,8 +16,8 @@
 #      relative lap finishes or DURATION is reached
 #    - records a compact rosbag per run with only key topics needed for
 #      trajectory, obstacle, planning, rollout, and intent visualization
-#    - writes plot_input_manifest.csv so the output dir is immediately usable
-#      by plotting scripts
+#    - writes plot_input_manifest.csv for runs that really produced summary
+#      and timeseries files, plus file_inventory.csv for missing-file checks
 #
 #  Usage:
 #    bash $(rospack find trajectory_planner)/scripts/run_four_methods_full_lap_bag.sh [SEEDS] [DURATION_SEC] [GOAL_RADIUS]
@@ -220,10 +220,56 @@ write_manifest() {
     for CONFIG in "${CONFIGS[@]}"; do
         IFS='|' read -r NAME LABEL _LAUNCH _METHOD _FUSION _CL _EVAL <<< "${CONFIG}"
         for SEED in $(seq "${SEED_START}" $((SEED_START + SEEDS - 1))); do
+            local summary="${OUT_DIR}/${NAME}_seed${SEED}_summary.json"
+            local timeseries="${OUT_DIR}/${NAME}_seed${SEED}_timeseries.csv"
+            local bag="${BAG_DIR}/${NAME}_seed${SEED}.bag"
+            if [[ ! -f "${summary}" || ! -f "${timeseries}" ]]; then
+                continue
+            fi
             echo "${NAME},${LABEL},${SEED},${OUT_DIR}/${NAME}_seed${SEED}_summary.json,${OUT_DIR}/${NAME}_seed${SEED}_timeseries.csv,${BAG_DIR}/${NAME}_seed${SEED}.bag,${REF_TRAJ},${LAP_FINISH_FRACTION},/im2mppi/best_trajectory;/mpcNavigation/mpc_trajectory,/im2mppi/sampled_rollouts,/im2mppi/dynamic_obstacle_predictions,/onboard_detector/GT_obstacle_bbox,/dynamic_map/inflated_voxel_map" >> "${manifest}"
         done
     done
     echo "  wrote ${manifest}"
+}
+
+file_size_or_zero() {
+    local path=$1
+    if [[ -f "${path}" ]]; then
+        stat -c%s "${path}" 2>/dev/null || echo 0
+    else
+        echo 0
+    fi
+}
+
+file_yes_no() {
+    local path=$1
+    if [[ -f "${path}" ]]; then
+        echo yes
+    else
+        echo no
+    fi
+}
+
+write_inventory() {
+    local inventory="${OUT_DIR}/file_inventory.csv"
+    echo "config,method,seed,summary_exists,timeseries_exists,path_metrics_exists,plan_time_exists,target_state_exists,cmd_accel_exists,collision_events_exists,diagnostics_exists,bag_exists,summary_bytes,timeseries_bytes,bag_bytes" > "${inventory}"
+    for CONFIG in "${CONFIGS[@]}"; do
+        IFS='|' read -r NAME LABEL _LAUNCH _METHOD _FUSION _CL _EVAL <<< "${CONFIG}"
+        for SEED in $(seq "${SEED_START}" $((SEED_START + SEEDS - 1))); do
+            local tag="${NAME}_seed${SEED}"
+            local summary="${OUT_DIR}/${tag}_summary.json"
+            local timeseries="${OUT_DIR}/${tag}_timeseries.csv"
+            local path_metrics="${OUT_DIR}/${tag}_path_metrics.csv"
+            local plan_time="${OUT_DIR}/${tag}_plan_time.csv"
+            local target_state="${OUT_DIR}/${tag}_target_state.csv"
+            local cmd_accel="${OUT_DIR}/${tag}_cmd_accel.csv"
+            local collision="${OUT_DIR}/${tag}_collision_events.csv"
+            local diagnostics="${OUT_DIR}/${tag}_diagnostics.json"
+            local bag="${BAG_DIR}/${tag}.bag"
+            echo "${NAME},${LABEL},${SEED},$(file_yes_no "${summary}"),$(file_yes_no "${timeseries}"),$(file_yes_no "${path_metrics}"),$(file_yes_no "${plan_time}"),$(file_yes_no "${target_state}"),$(file_yes_no "${cmd_accel}"),$(file_yes_no "${collision}"),$(file_yes_no "${diagnostics}"),$(file_yes_no "${bag}"),$(file_size_or_zero "${summary}"),$(file_size_or_zero "${timeseries}"),$(file_size_or_zero "${bag}")" >> "${inventory}"
+        done
+    done
+    echo "  wrote ${inventory}"
 }
 
 run_one() {
@@ -374,10 +420,12 @@ else
 fi
 
 write_manifest
+write_inventory
 
 echo
 echo "================================================================"
 echo "  DONE. Results dir: ${OUT_DIR}"
 echo "  Bags dir:    ${BAG_DIR}"
 echo "  Plot input:  ${OUT_DIR}/plot_input_manifest.csv"
+echo "  Inventory:   ${OUT_DIR}/file_inventory.csv"
 echo "================================================================"
