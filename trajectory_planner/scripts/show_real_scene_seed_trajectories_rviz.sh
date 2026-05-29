@@ -13,6 +13,11 @@
 #   bash $(rospack find trajectory_planner)/scripts/show_real_scene_seed_trajectories_rviz.sh \
 #     ~/IM2MPPI/results/full_lap_bag_20260528_080853 \
 #     12,19,21,24,25,28,29
+#
+# Without a recorded bag, old CSV trajectories cannot be exactly synchronized
+# with a newly launched Gazebo scene.  This script therefore restarts Gazebo per
+# seed with OBS_BRANCH_SEED=<seed> and waits until CSV_T0_SIM_TIME before
+# playing that seed.  That keeps the live dynamic obstacles seed-consistent.
 
 set -u
 
@@ -24,6 +29,7 @@ PLAYBACK_SPEED="${PLAYBACK_SPEED:-1.0}"
 PLAYBACK_RATE="${PLAYBACK_RATE:-20.0}"
 PAUSE_BETWEEN_SEEDS="${PAUSE_BETWEEN_SEEDS:-10.0}"
 LOOP_PLAYBACK="${LOOP_PLAYBACK:-false}"
+REPLAY_EXIT_DELAY="${REPLAY_EXIT_DELAY:-0.5}"
 SAVE_RVIZ_SCREENSHOTS="${SAVE_RVIZ_SCREENSHOTS:-true}"
 RVIZ_SCREENSHOT_DIR="${RVIZ_SCREENSHOT_DIR:-}"
 RVIZ_SAVE_IMAGE_SERVICE="${RVIZ_SAVE_IMAGE_SERVICE:-/rviz/save_image}"
@@ -35,6 +41,7 @@ GAZEBO_GUI="${GAZEBO_GUI:-true}"
 WORLD_FILE="${WORLD_FILE:-$(rospack find uav_simulator)/worlds/generated_env/generated_env.world}"
 RVIZ_STARTUP_WAIT="${RVIZ_STARTUP_WAIT:-5}"
 TOPIC_WAIT_TIMEOUT="${TOPIC_WAIT_TIMEOUT:-45}"
+CSV_T0_SIM_TIME="${CSV_T0_SIM_TIME:-12.0}"
 GT_COLOR_DISTANCE="${GT_COLOR_DISTANCE:-}"
 SHOW_INFLATED_DYNAMIC_BBOX="${SHOW_INFLATED_DYNAMIC_BBOX:-true}"
 INFLATED_BBOX_INPUT_TOPIC="${INFLATED_BBOX_INPUT_TOPIC:-/onboard_detector/GT_obstacle_bbox}"
@@ -142,6 +149,43 @@ wait_topic_optional() {
     return 1
 }
 
+wait_sim_time() {
+    local target_time="$1"
+
+    echo "[real-scene-rviz] waiting until /clock >= ${target_time}s"
+    python3 - "${target_time}" <<'PY'
+import sys
+import rospy
+from rosgraph_msgs.msg import Clock
+
+target = float(sys.argv[1])
+rospy.init_node("wait_for_csv_t0_sim_time", anonymous=True, disable_signals=True)
+rate = rospy.Rate(20)
+while not rospy.is_shutdown():
+    try:
+        msg = rospy.wait_for_message("/clock", Clock, timeout=1.0)
+    except Exception:
+        rate.sleep()
+        continue
+    if msg.clock.to_sec() >= target:
+        break
+    rate.sleep()
+PY
+}
+
+parse_seed_list() {
+    local raw="$1"
+    local parts
+    local seed
+    IFS=',' read -r -a parts <<< "${raw}"
+    for seed in "${parts[@]}"; do
+        seed="${seed//[[:space:]]/}"
+        if [[ -n "${seed}" ]]; then
+            printf '%s\n' "${seed}"
+        fi
+    done
+}
+
 if ! RESULTS_DIR="$(resolve_results_dir "${REQUESTED_RESULTS_DIR}")"; then
     echo "[real-scene-rviz] results directory not found: ${REQUESTED_RESULTS_DIR}" >&2
     echo "[real-scene-rviz] pass the directory explicitly as the first argument." >&2
@@ -155,6 +199,7 @@ fi
 LOG_DIR="${RESULTS_DIR}/rviz_real_scene_logs"
 mkdir -p "${LOG_DIR}" "${RVIZ_SCREENSHOT_DIR}"
 
+ROSCORE_PID=""
 SIM_PID=""
 MAP_PID=""
 FAKE_PID=""
@@ -162,8 +207,30 @@ INFLATED_PID=""
 RVIZ_PID=""
 REPLAY_PID=""
 
+stop_pid() {
+    local pid="$1"
+    if [[ -n "${pid}" ]]; then
+        kill "${pid}" >/dev/null 2>&1 || true
+        wait "${pid}" >/dev/null 2>&1 || true
+    fi
+}
+
+stop_scene() {
+    stop_pid "${REPLAY_PID}"
+    stop_pid "${INFLATED_PID}"
+    stop_pid "${FAKE_PID}"
+    stop_pid "${MAP_PID}"
+    stop_pid "${SIM_PID}"
+    REPLAY_PID=""
+    INFLATED_PID=""
+    FAKE_PID=""
+    MAP_PID=""
+    SIM_PID=""
+}
+
 cleanup() {
-    for pid in "${REPLAY_PID}" "${RVIZ_PID}" "${INFLATED_PID}" "${FAKE_PID}" "${MAP_PID}" "${SIM_PID}"; do
+    stop_scene
+    for pid in "${RVIZ_PID}" "${ROSCORE_PID}"; do
         if [[ -n "${pid}" ]]; then
             kill "${pid}" >/dev/null 2>&1 || true
             wait "${pid}" >/dev/null 2>&1 || true
@@ -181,48 +248,13 @@ echo "[real-scene-rviz] shots    : ${RVIZ_SCREENSHOT_DIR}"
 echo "[real-scene-rviz] dynamic  : /onboard_detector/GT_obstacle_bbox (all Gazebo target models)"
 echo "[real-scene-rviz] inflated : ${INFLATED_BBOX_OUTPUT_TOPIC}"
 echo "[real-scene-rviz] static   : /dynamic_map/inflated_voxel_map"
+echo "[real-scene-rviz] csv t0   : Gazebo /clock ${CSV_T0_SIM_TIME}s"
 
-echo "[real-scene-rviz] starting Gazebo"
-roslaunch uav_simulator start.launch gui:="${GAZEBO_GUI}" world_name:="${WORLD_FILE}" \
-    >"${LOG_DIR}/gazebo_start.log" 2>&1 &
-SIM_PID=$!
-
-wait_for_ros_master 30 || exit 1
-wait_topic_optional "/gazebo/model_states" 60 || true
-
-echo "[real-scene-rviz] loading map/detector parameters"
-rosparam load "$(rospack find autonomous_flight)/cfg/mpc_navigation/mapping_param.yaml" /dynamic_map
-rosparam load "$(rospack find autonomous_flight)/cfg/mpc_navigation/dynamic_detector_param.yaml" /onboard_detector
-rosparam load "$(rospack find autonomous_flight)/cfg/mpc_navigation/fake_detector_param.yaml"
-rosparam set odom_topic "/CERLAB/quadcopter/odom"
-if [[ -n "${GT_COLOR_DISTANCE}" ]]; then
-    rosparam set color_distance "${GT_COLOR_DISTANCE}"
-fi
-
-echo "[real-scene-rviz] starting dynamic map node"
-rosrun map_manager dynamic_map_node >"${LOG_DIR}/dynamic_map_node.log" 2>&1 &
-MAP_PID=$!
-
-echo "[real-scene-rviz] starting fake detector node"
-rosrun onboard_detector fake_detector_node >"${LOG_DIR}/fake_detector_node.log" 2>&1 &
-FAKE_PID=$!
-
-if [[ "${SHOW_INFLATED_DYNAMIC_BBOX}" == "true" || "${SHOW_INFLATED_DYNAMIC_BBOX}" == "1" ]]; then
-    echo "[real-scene-rviz] starting inflated dynamic bbox visualizer"
-    python3 "${INFLATED_BBOX_NODE}" \
-        _input_topic:="${INFLATED_BBOX_INPUT_TOPIC}" \
-        _output_topic:="${INFLATED_BBOX_OUTPUT_TOPIC}" \
-        _line_width:="${INFLATED_BBOX_LINE_WIDTH}" \
-        _extra_margin_xy:="${INFLATED_BBOX_EXTRA_MARGIN_XY}" \
-        _extra_margin_z:="${INFLATED_BBOX_EXTRA_MARGIN_Z}" \
-        >"${LOG_DIR}/inflated_dynamic_bbox_visualizer.log" 2>&1 &
-    INFLATED_PID=$!
-fi
-
-wait_topic_optional "/dynamic_map/inflated_voxel_map" "${TOPIC_WAIT_TIMEOUT}" || true
-wait_topic_optional "/onboard_detector/GT_obstacle_bbox" "${TOPIC_WAIT_TIMEOUT}" || true
-if [[ -n "${INFLATED_PID}" ]]; then
-    wait_topic_optional "${INFLATED_BBOX_OUTPUT_TOPIC}" "${TOPIC_WAIT_TIMEOUT}" || true
+if ! rostopic list >/dev/null 2>&1; then
+    echo "[real-scene-rviz] starting roscore"
+    roscore >"${LOG_DIR}/roscore.log" 2>&1 &
+    ROSCORE_PID=$!
+    wait_for_ros_master 30 || exit 1
 fi
 
 echo "[real-scene-rviz] opening RViz"
@@ -230,23 +262,90 @@ rviz -d "${RVIZ_CONFIG}" >"${LOG_DIR}/rviz.log" 2>&1 &
 RVIZ_PID=$!
 sleep "${RVIZ_STARTUP_WAIT}"
 
-echo "[real-scene-rviz] starting saved trajectory playback"
-python3 "${REPLAY_NODE}" \
-    _results_dir:="${RESULTS_DIR}" \
-    _seeds:="${SEEDS}" \
-    _playback_speed:="${PLAYBACK_SPEED}" \
-    _rate:="${PLAYBACK_RATE}" \
-    _pause_between_seeds:="${PAUSE_BETWEEN_SEEDS}" \
-    _loop:="${LOOP_PLAYBACK}" \
-    _replay_bags:=false \
-    _use_world_obstacles:=false \
-    _save_rviz_screenshots:="${SAVE_RVIZ_SCREENSHOTS}" \
-    _screenshot_dir:="${RVIZ_SCREENSHOT_DIR}" \
-    _rviz_save_image_service:="${RVIZ_SAVE_IMAGE_SERVICE}" \
-    _screenshot_delay:="${RVIZ_SCREENSHOT_DELAY}" \
-    _screenshot_once_per_seed:="${SCREENSHOT_ONCE_PER_SEED}" \
-    _show_labels:="${SHOW_TRAJECTORY_LABELS}" &
-REPLAY_PID=$!
+mapfile -t SEED_LIST < <(parse_seed_list "${SEEDS}")
+if [[ "${#SEED_LIST[@]}" -eq 0 ]]; then
+    echo "[real-scene-rviz] no valid seeds requested: ${SEEDS}" >&2
+    exit 1
+fi
 
-wait "${REPLAY_PID}"
-echo "[real-scene-rviz] trajectory playback finished"
+for idx in "${!SEED_LIST[@]}"; do
+    seed="${SEED_LIST[$idx]}"
+    echo
+    echo "================================================================"
+    echo "[real-scene-rviz] seed ${seed}: starting seed-synchronized Gazebo scene"
+
+    OBS_BRANCH_SEED="${seed}" \
+    roslaunch uav_simulator start.launch gui:="${GAZEBO_GUI}" world_name:="${WORLD_FILE}" \
+        >"${LOG_DIR}/seed${seed}_gazebo_start.log" 2>&1 &
+    SIM_PID=$!
+
+    wait_topic_optional "/gazebo/model_states" 60 || true
+
+    echo "[real-scene-rviz] seed ${seed}: loading map/detector parameters"
+    rosparam load "$(rospack find autonomous_flight)/cfg/mpc_navigation/mapping_param.yaml" /dynamic_map
+    rosparam load "$(rospack find autonomous_flight)/cfg/mpc_navigation/dynamic_detector_param.yaml" /onboard_detector
+    rosparam load "$(rospack find autonomous_flight)/cfg/mpc_navigation/fake_detector_param.yaml"
+    rosparam set odom_topic "/CERLAB/quadcopter/odom"
+    if [[ -n "${GT_COLOR_DISTANCE}" ]]; then
+        rosparam set color_distance "${GT_COLOR_DISTANCE}"
+    fi
+
+    echo "[real-scene-rviz] seed ${seed}: starting dynamic map node"
+    rosrun map_manager dynamic_map_node >"${LOG_DIR}/seed${seed}_dynamic_map_node.log" 2>&1 &
+    MAP_PID=$!
+
+    echo "[real-scene-rviz] seed ${seed}: starting fake detector node"
+    rosrun onboard_detector fake_detector_node >"${LOG_DIR}/seed${seed}_fake_detector_node.log" 2>&1 &
+    FAKE_PID=$!
+
+    if [[ "${SHOW_INFLATED_DYNAMIC_BBOX}" == "true" || "${SHOW_INFLATED_DYNAMIC_BBOX}" == "1" ]]; then
+        echo "[real-scene-rviz] seed ${seed}: starting inflated dynamic bbox visualizer"
+        python3 "${INFLATED_BBOX_NODE}" \
+            _input_topic:="${INFLATED_BBOX_INPUT_TOPIC}" \
+            _output_topic:="${INFLATED_BBOX_OUTPUT_TOPIC}" \
+            _line_width:="${INFLATED_BBOX_LINE_WIDTH}" \
+            _extra_margin_xy:="${INFLATED_BBOX_EXTRA_MARGIN_XY}" \
+            _extra_margin_z:="${INFLATED_BBOX_EXTRA_MARGIN_Z}" \
+            >"${LOG_DIR}/seed${seed}_inflated_dynamic_bbox_visualizer.log" 2>&1 &
+        INFLATED_PID=$!
+    fi
+
+    wait_topic_optional "/dynamic_map/inflated_voxel_map" "${TOPIC_WAIT_TIMEOUT}" || true
+    wait_topic_optional "/onboard_detector/GT_obstacle_bbox" "${TOPIC_WAIT_TIMEOUT}" || true
+    if [[ -n "${INFLATED_PID}" ]]; then
+        wait_topic_optional "${INFLATED_BBOX_OUTPUT_TOPIC}" "${TOPIC_WAIT_TIMEOUT}" || true
+    fi
+
+    wait_sim_time "${CSV_T0_SIM_TIME}"
+
+    echo "[real-scene-rviz] seed ${seed}: starting saved trajectory playback"
+    python3 "${REPLAY_NODE}" \
+        _results_dir:="${RESULTS_DIR}" \
+        _seeds:="${seed}" \
+        _playback_speed:="${PLAYBACK_SPEED}" \
+        _rate:="${PLAYBACK_RATE}" \
+        _pause_between_seeds:="${REPLAY_EXIT_DELAY}" \
+        _loop:="${LOOP_PLAYBACK}" \
+        _replay_bags:=false \
+        _use_world_obstacles:=false \
+        _save_rviz_screenshots:="${SAVE_RVIZ_SCREENSHOTS}" \
+        _screenshot_dir:="${RVIZ_SCREENSHOT_DIR}" \
+        _rviz_save_image_service:="${RVIZ_SAVE_IMAGE_SERVICE}" \
+        _screenshot_delay:="${RVIZ_SCREENSHOT_DELAY}" \
+        _screenshot_once_per_seed:="${SCREENSHOT_ONCE_PER_SEED}" \
+        _show_labels:="${SHOW_TRAJECTORY_LABELS}" &
+    REPLAY_PID=$!
+
+    wait "${REPLAY_PID}" || true
+    REPLAY_PID=""
+
+    echo "[real-scene-rviz] seed ${seed}: playback finished; stopping scene"
+    stop_scene
+
+    if [[ "$idx" -lt "$((${#SEED_LIST[@]} - 1))" ]]; then
+        echo "[real-scene-rviz] waiting ${PAUSE_BETWEEN_SEEDS}s before next seed"
+        sleep "${PAUSE_BETWEEN_SEEDS}"
+    fi
+done
+
+echo "[real-scene-rviz] all requested seed playbacks finished"
