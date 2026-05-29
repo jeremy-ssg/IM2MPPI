@@ -293,6 +293,12 @@ catkin_install_python(PROGRAMS
   scripts/compare_planner_eval.py
   scripts/sweep_im2_full.py
   scripts/analyze_sweep.py
+  scripts/visualize_seed_trajectories_rviz.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+install(PROGRAMS
+  scripts/show_selected_seed_trajectories_rviz.sh
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
