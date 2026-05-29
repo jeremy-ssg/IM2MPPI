@@ -289,6 +289,24 @@ def load_all_series(results_dir: str, seeds: Sequence[int], z_offset: float) -> 
     return loaded
 
 
+def has_timeseries_csv(results_dir: str) -> bool:
+    if not os.path.isdir(results_dir):
+        return False
+    return any(name.endswith("_timeseries.csv") for name in os.listdir(results_dir))
+
+
+def normalize_results_dir(results_dir: str) -> str:
+    if not os.path.isdir(results_dir):
+        return results_dir
+    if has_timeseries_csv(results_dir):
+        return results_dir
+    nested = os.path.join(results_dir, os.path.basename(os.path.normpath(results_dir)))
+    if has_timeseries_csv(nested):
+        rospy.loginfo("Using nested results directory: %s", nested)
+        return nested
+    return results_dir
+
+
 def first_point(series_list: Sequence[Series]) -> Optional[Point]:
     for series in series_list:
         if series.rows:
@@ -337,7 +355,7 @@ def main() -> None:
     rospy.init_node("seed_trajectory_rviz_replay", anonymous=False)
 
     default_results = os.path.expanduser("~/IM2MPPI/results/full_lap_bag_20260528_080853")
-    results_dir = os.path.expanduser(rospy.get_param("~results_dir", default_results))
+    results_dir = normalize_results_dir(os.path.expanduser(rospy.get_param("~results_dir", default_results)))
     seed_text = rospy.get_param("~seeds", "12,19,21,24,25,28,29")
     seeds = parse_seed_list(seed_text)
     frame_id = rospy.get_param("~frame_id", "map")
