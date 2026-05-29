@@ -46,13 +46,13 @@ Visualization Manager:
       Value: true
     - Alpha: 1
       Class: rviz/Axes
-      Enabled: true
+      Enabled: false
       Length: 1
       Name: Axes
       Radius: 0.1
       Reference Frame: <Fixed Frame>
       Show Trail: false
-      Value: true
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -194,20 +194,48 @@ Visualization Manager:
         seed_traj_agents: true
         seed_traj_arrows: true
         seed_traj_full_paths: true
-        seed_traj_labels: true
-        seed_traj_seed_label: true
+        seed_traj_labels: false
+        seed_traj_seed_label: false
         seed_traj_trails: true
       Queue Size: 100
       Value: true
 
     # ─── Detector / predictor (optional overlay) ──────────────────────
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /onboard_detector/GT_obstacle_bbox
       Name: GT Obstacles
       Namespaces: {}
       Queue Size: 100
-      Value: false
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /onboard_detector/dynamic_bboxes
+      Name: Dynamic Obstacles
+      Namespaces: {}
+      Queue Size: 100
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /onboard_detector/tracked_bboxes
+      Name: Tracked Obstacles
+      Namespaces: {}
+      Queue Size: 100
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /onboard_detector/history_trajectories
+      Name: Obstacle History
+      Namespaces: {}
+      Queue Size: 100
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /onboard_detector/velocity_visualizaton
+      Name: Obstacle Velocity
+      Namespaces: {}
+      Queue Size: 100
+      Value: true
     - Class: rviz/MarkerArray
       Enabled: false
       Marker Topic: /dynamic_predictor/pred_bbox
@@ -245,23 +273,13 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Class: rviz/Orbit
-      Distance: 25.0
-      Enable Stereo Rendering:
-        Stereo Eye Separation: 0.06
-        Stereo Focal Distance: 1
-        Swap Stereo Eyes: false
-        Value: false
-      Field of View: 0.7853981852531433
-      Focal Point: {X: 0.0, Y: 0.0, Z: 0.0}
-      Focal Shape Fixed Size: true
-      Focal Shape Size: 0.05
-      Invert Z Axis: false
+      Class: rviz/TopDownOrtho
       Name: Current View
       Near Clip Distance: 0.01
-      Pitch: 1.0
+      Scale: 22
       Target Frame: <Fixed Frame>
-      Yaw: 3.14
+      X: 0
+      Y: 0
     Saved: ~
 Window Geometry:
   Displays:

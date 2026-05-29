@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Replay selected benchmark seeds in the existing IM2-MPPI RViz layout.
+# The Python node also replays one matching bag per seed when bags are present,
+# so static map and dynamic obstacle markers move together with the trajectories.
 #
 # Usage:
 #   bash $(rospack find trajectory_planner)/scripts/show_selected_seed_trajectories_rviz.sh [RESULTS_DIR] [SEEDS]
@@ -16,8 +18,16 @@ REQUESTED_RESULTS_DIR="${1:-${RESULTS_DIR:-${DEFAULT_RESULTS}}}"
 SEEDS="${2:-${SEEDS:-12,19,21,24,25,28,29}}"
 PLAYBACK_SPEED="${PLAYBACK_SPEED:-1.0}"
 PLAYBACK_RATE="${PLAYBACK_RATE:-20.0}"
-PAUSE_BETWEEN_SEEDS="${PAUSE_BETWEEN_SEEDS:-2.0}"
+PAUSE_BETWEEN_SEEDS="${PAUSE_BETWEEN_SEEDS:-10.0}"
 LOOP_PLAYBACK="${LOOP_PLAYBACK:-true}"
+REPLAY_BAGS="${REPLAY_BAGS:-true}"
+BAG_METHOD_ORDER="${BAG_METHOD_ORDER:-M4_im2_full,M5_dra_mppi,M1_vanilla,M0_intent_mpc}"
+SAVE_RVIZ_SCREENSHOTS="${SAVE_RVIZ_SCREENSHOTS:-true}"
+RVIZ_SCREENSHOT_DIR="${RVIZ_SCREENSHOT_DIR:-}"
+RVIZ_SAVE_IMAGE_SERVICE="${RVIZ_SAVE_IMAGE_SERVICE:-/rviz/save_image}"
+RVIZ_SCREENSHOT_DELAY="${RVIZ_SCREENSHOT_DELAY:-0.5}"
+SCREENSHOT_ONCE_PER_SEED="${SCREENSHOT_ONCE_PER_SEED:-true}"
+SHOW_TRAJECTORY_LABELS="${SHOW_TRAJECTORY_LABELS:-false}"
 
 SCRIPT_DIR="$(rospack find trajectory_planner)/scripts"
 RVIZ_CONFIG="$(rospack find autonomous_flight)/cfg/im2_mppi_navigation.rviz"
@@ -136,8 +146,11 @@ fi
 
 echo "[seed-rviz] results : ${RESULTS_DIR}"
 echo "[seed-rviz] seeds   : ${SEEDS}"
+echo "[seed-rviz] gap     : ${PAUSE_BETWEEN_SEEDS}s between seeds"
 echo "[seed-rviz] topic   : /seed_trajectory_viz/markers"
 echo "[seed-rviz] rviz    : ${RVIZ_CONFIG}"
+echo "[seed-rviz] shots   : ${SAVE_RVIZ_SCREENSHOTS}"
+echo "[seed-rviz] labels  : ${SHOW_TRAJECTORY_LABELS}"
 
 python3 "${REPLAY_NODE}" \
     _results_dir:="${RESULTS_DIR}" \
@@ -145,7 +158,15 @@ python3 "${REPLAY_NODE}" \
     _playback_speed:="${PLAYBACK_SPEED}" \
     _rate:="${PLAYBACK_RATE}" \
     _pause_between_seeds:="${PAUSE_BETWEEN_SEEDS}" \
-    _loop:="${LOOP_PLAYBACK}" &
+    _loop:="${LOOP_PLAYBACK}" \
+    _replay_bags:="${REPLAY_BAGS}" \
+    _bag_method_order:="${BAG_METHOD_ORDER}" \
+    _save_rviz_screenshots:="${SAVE_RVIZ_SCREENSHOTS}" \
+    _screenshot_dir:="${RVIZ_SCREENSHOT_DIR}" \
+    _rviz_save_image_service:="${RVIZ_SAVE_IMAGE_SERVICE}" \
+    _screenshot_delay:="${RVIZ_SCREENSHOT_DELAY}" \
+    _screenshot_once_per_seed:="${SCREENSHOT_ONCE_PER_SEED}" \
+    _show_labels:="${SHOW_TRAJECTORY_LABELS}" &
 REPLAY_PID=$!
 
 sleep 1
