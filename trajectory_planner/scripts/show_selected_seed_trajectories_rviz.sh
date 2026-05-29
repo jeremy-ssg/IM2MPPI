@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Replay selected benchmark seeds in the existing IM2-MPPI RViz layout.
-# The Python node also replays one matching bag per seed when bags are present,
-# so static map and dynamic obstacle markers move together with the trajectories.
+# The Python node parses the Gazebo world directly and publishes RViz markers
+# for static and dynamic obstacles, so this replay does not require rosbag files.
 #
 # Usage:
 #   bash $(rospack find trajectory_planner)/scripts/show_selected_seed_trajectories_rviz.sh [RESULTS_DIR] [SEEDS]
@@ -20,8 +20,12 @@ PLAYBACK_SPEED="${PLAYBACK_SPEED:-1.0}"
 PLAYBACK_RATE="${PLAYBACK_RATE:-20.0}"
 PAUSE_BETWEEN_SEEDS="${PAUSE_BETWEEN_SEEDS:-10.0}"
 LOOP_PLAYBACK="${LOOP_PLAYBACK:-true}"
-REPLAY_BAGS="${REPLAY_BAGS:-true}"
+REPLAY_BAGS="${REPLAY_BAGS:-false}"
 BAG_METHOD_ORDER="${BAG_METHOD_ORDER:-M4_im2_full,M5_dra_mppi,M1_vanilla,M0_intent_mpc}"
+WORLD_FILE="${WORLD_FILE:-$(rospack find uav_simulator)/worlds/generated_env/generated_env.world}"
+REPLAY_WORLD_OBSTACLES="${REPLAY_WORLD_OBSTACLES:-true}"
+SHOW_STATIC_OBSTACLES="${SHOW_STATIC_OBSTACLES:-true}"
+SHOW_DYNAMIC_OBSTACLES="${SHOW_DYNAMIC_OBSTACLES:-true}"
 SAVE_RVIZ_SCREENSHOTS="${SAVE_RVIZ_SCREENSHOTS:-true}"
 RVIZ_SCREENSHOT_DIR="${RVIZ_SCREENSHOT_DIR:-}"
 RVIZ_SAVE_IMAGE_SERVICE="${RVIZ_SAVE_IMAGE_SERVICE:-/rviz/save_image}"
@@ -149,6 +153,7 @@ echo "[seed-rviz] seeds   : ${SEEDS}"
 echo "[seed-rviz] gap     : ${PAUSE_BETWEEN_SEEDS}s between seeds"
 echo "[seed-rviz] topic   : /seed_trajectory_viz/markers"
 echo "[seed-rviz] rviz    : ${RVIZ_CONFIG}"
+echo "[seed-rviz] world   : ${WORLD_FILE}"
 echo "[seed-rviz] shots   : ${SAVE_RVIZ_SCREENSHOTS}"
 echo "[seed-rviz] labels  : ${SHOW_TRAJECTORY_LABELS}"
 
@@ -161,6 +166,10 @@ python3 "${REPLAY_NODE}" \
     _loop:="${LOOP_PLAYBACK}" \
     _replay_bags:="${REPLAY_BAGS}" \
     _bag_method_order:="${BAG_METHOD_ORDER}" \
+    _world_file:="${WORLD_FILE}" \
+    _use_world_obstacles:="${REPLAY_WORLD_OBSTACLES}" \
+    _show_static_obstacles:="${SHOW_STATIC_OBSTACLES}" \
+    _show_dynamic_obstacles:="${SHOW_DYNAMIC_OBSTACLES}" \
     _save_rviz_screenshots:="${SAVE_RVIZ_SCREENSHOTS}" \
     _screenshot_dir:="${RVIZ_SCREENSHOT_DIR}" \
     _rviz_save_image_service:="${RVIZ_SAVE_IMAGE_SERVICE}" \

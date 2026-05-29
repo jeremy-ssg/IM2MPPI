@@ -197,6 +197,11 @@ Visualization Manager:
         seed_traj_labels: false
         seed_traj_seed_label: false
         seed_traj_trails: true
+        world_dynamic_obstacles: true
+        world_dynamic_path_arrows: true
+        world_dynamic_paths: true
+        world_dynamic_velocity_arrows: true
+        world_static_obstacles: true
       Queue Size: 100
       Value: true
 

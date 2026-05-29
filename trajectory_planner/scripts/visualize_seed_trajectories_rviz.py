@@ -11,6 +11,7 @@ import csv
 import math
 import os
 import time
+import xml.etree.ElementTree as ET
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import rospy
@@ -115,6 +116,80 @@ class Series:
         return points
 
 
+class WorldObstacle:
+    def __init__(
+        self,
+        name: str,
+        shape: str,
+        pose: Tuple[float, float, float, float, float, float],
+        scale: Tuple[float, float, float],
+        dynamic: bool,
+        waypoints: Optional[List[Point]] = None,
+        velocity: float = 0.0,
+        loop: bool = False,
+    ):
+        self.name = name
+        self.shape = shape
+        self.pose = pose
+        self.scale = scale
+        self.dynamic = dynamic
+        self.waypoints = waypoints or []
+        self.velocity = velocity
+        self.loop = loop
+        self.segment_lengths = self._compute_segment_lengths()
+        self.path_length = sum(self.segment_lengths)
+
+    def _compute_segment_lengths(self) -> List[float]:
+        lengths: List[float] = []
+        for start, end in zip(self.waypoints, self.waypoints[1:]):
+            lengths.append(dist_xyz(start, end))
+        return lengths
+
+    def position_at(self, t: float) -> Point:
+        if not self.dynamic or len(self.waypoints) < 2 or self.velocity <= 1e-6 or self.path_length <= 1e-6:
+            point = Point()
+            point.x, point.y, point.z = self.pose[:3]
+            return point
+
+        travelled = max(0.0, t) * self.velocity
+        if self.loop:
+            travelled = travelled % self.path_length
+        else:
+            travelled = min(travelled, self.path_length)
+
+        remaining = travelled
+        for idx, seg_len in enumerate(self.segment_lengths):
+            start = self.waypoints[idx]
+            end = self.waypoints[idx + 1]
+            if remaining <= seg_len or idx == len(self.segment_lengths) - 1:
+                ratio = 0.0 if seg_len <= 1e-6 else remaining / seg_len
+                return interpolate_point(start, end, ratio)
+            remaining -= seg_len
+        return self.waypoints[-1]
+
+    def direction_point(self, t: float, lookahead_s: float = 2.0) -> Optional[Point]:
+        if not self.dynamic or len(self.waypoints) < 2:
+            return None
+        current = self.position_at(t)
+        future = self.position_at(t + lookahead_s)
+        if dist_xy(current, future) >= 0.05:
+            return future
+        return self.waypoints[-1]
+
+
+class WorldScene:
+    def __init__(self, obstacles: Optional[List[WorldObstacle]] = None):
+        self.obstacles = obstacles or []
+
+    @property
+    def static_count(self) -> int:
+        return sum(1 for obstacle in self.obstacles if not obstacle.dynamic)
+
+    @property
+    def dynamic_count(self) -> int:
+        return sum(1 for obstacle in self.obstacles if obstacle.dynamic)
+
+
 def make_point(row: Tuple[float, float, float, float]) -> Point:
     _, x, y, z = row
     point = Point()
@@ -124,12 +199,51 @@ def make_point(row: Tuple[float, float, float, float]) -> Point:
     return point
 
 
+def point_from_xyz(x: float, y: float, z: float) -> Point:
+    point = Point()
+    point.x = x
+    point.y = y
+    point.z = z
+    return point
+
+
+def interpolate_point(start: Point, end: Point, ratio: float) -> Point:
+    ratio = max(0.0, min(1.0, ratio))
+    return point_from_xyz(
+        start.x + ratio * (end.x - start.x),
+        start.y + ratio * (end.y - start.y),
+        start.z + ratio * (end.z - start.z),
+    )
+
+
 def dist_xy(a: Point, b: Point) -> float:
     return math.hypot(a.x - b.x, a.y - b.y)
 
 
 def dist_xyz(a: Point, b: Point) -> float:
     return math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2)
+
+
+def parse_floats(text: Optional[str]) -> List[float]:
+    if not text:
+        return []
+    values: List[float] = []
+    for token in text.replace(",", " ").split():
+        try:
+            values.append(float(token))
+        except ValueError:
+            pass
+    return values
+
+
+def parse_pose_text(text: Optional[str]) -> Tuple[float, float, float, float, float, float]:
+    values = parse_floats(text)
+    padded = values[:6] + [0.0] * max(0, 6 - len(values))
+    return tuple(padded[:6])  # type: ignore[return-value]
+
+
+def parse_bool_text(text: Optional[str]) -> bool:
+    return str(text or "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def color_rgba(color: Tuple[float, float, float, float], alpha: Optional[float] = None) -> ColorRGBA:
@@ -302,6 +416,84 @@ def add_text_marker(
     markers.markers.append(marker)
 
 
+def set_marker_pose(marker: Marker, point: Point, yaw: float = 0.0) -> None:
+    marker.pose.position = point
+    marker.pose.orientation.z = math.sin(yaw * 0.5)
+    marker.pose.orientation.w = math.cos(yaw * 0.5)
+
+
+def add_shape_marker(
+    markers: MarkerArray,
+    ns: str,
+    marker_id: int,
+    frame_id: str,
+    obstacle: WorldObstacle,
+    point: Point,
+    color: Tuple[float, float, float, float],
+) -> None:
+    marker_type = Marker.CYLINDER if obstacle.shape == "cylinder" else Marker.CUBE
+    marker = make_marker(ns, marker_id, marker_type, frame_id)
+    set_marker_pose(marker, point, obstacle.pose[5])
+    marker.scale.x, marker.scale.y, marker.scale.z = obstacle.scale
+    marker.color = color_rgba(color, color[3])
+    markers.markers.append(marker)
+
+
+def add_world_obstacle_markers(
+    markers: MarkerArray,
+    scene: WorldScene,
+    play_t: float,
+    frame_id: str,
+    show_static: bool,
+    show_dynamic: bool,
+) -> None:
+    static_color = (0.58, 0.62, 0.66, 0.70)
+    dynamic_color = (0.92, 0.16, 0.10, 0.92)
+    dynamic_path_color = (0.92, 0.16, 0.10, 0.42)
+    dynamic_arrow_color = (0.95, 0.08, 0.04, 0.95)
+
+    for idx, obstacle in enumerate(scene.obstacles):
+        if obstacle.dynamic:
+            if not show_dynamic:
+                continue
+            point = obstacle.position_at(play_t)
+            add_shape_marker(markers, "world_dynamic_obstacles", 20000 + idx, frame_id, obstacle, point, dynamic_color)
+            if len(obstacle.waypoints) >= 2:
+                add_line_marker(
+                    markers,
+                    "world_dynamic_paths",
+                    30000 + idx,
+                    frame_id,
+                    obstacle.waypoints,
+                    dynamic_path_color,
+                    0.045,
+                    dynamic_path_color[3],
+                )
+                add_arrow_marker(
+                    markers,
+                    "world_dynamic_path_arrows",
+                    31000 + idx,
+                    frame_id,
+                    obstacle.waypoints[0],
+                    obstacle.waypoints[-1],
+                    dynamic_arrow_color,
+                )
+            add_arrow_marker(
+                markers,
+                "world_dynamic_velocity_arrows",
+                32000 + idx,
+                frame_id,
+                point,
+                obstacle.direction_point(play_t),
+                dynamic_arrow_color,
+            )
+        else:
+            if not show_static:
+                continue
+            point = point_from_xyz(obstacle.pose[0], obstacle.pose[1], obstacle.pose[2])
+            add_shape_marker(markers, "world_static_obstacles", 10000 + idx, frame_id, obstacle, point, static_color)
+
+
 def delete_all_marker() -> MarkerArray:
     marker = Marker()
     marker.action = Marker.DELETEALL
@@ -337,6 +529,95 @@ def normalize_results_dir(results_dir: str) -> str:
         rospy.loginfo("Using nested results directory: %s", nested)
         return nested
     return results_dir
+
+
+def read_world_scene(world_file: str) -> WorldScene:
+    if not world_file:
+        return WorldScene()
+    world_file = os.path.expanduser(world_file)
+    if not os.path.isfile(world_file):
+        rospy.logwarn("World file not found; world-obstacle replay disabled: %s", world_file)
+        return WorldScene()
+
+    try:
+        root = ET.parse(world_file).getroot()
+    except ET.ParseError as exc:
+        rospy.logwarn("Failed to parse world file %s: %s", world_file, exc)
+        return WorldScene()
+
+    obstacles: List[WorldObstacle] = []
+    for model in root.findall(".//model"):
+        obstacle = parse_world_model(model)
+        if obstacle is not None:
+            obstacles.append(obstacle)
+    scene = WorldScene(obstacles)
+    rospy.loginfo(
+        "Loaded world obstacles from %s: %d static, %d dynamic",
+        world_file,
+        scene.static_count,
+        scene.dynamic_count,
+    )
+    return scene
+
+
+def parse_world_model(model: ET.Element) -> Optional[WorldObstacle]:
+    name = model.attrib.get("name", "")
+    if not name or name == "ground_plane":
+        return None
+
+    geometry = model.find(".//geometry")
+    if geometry is None:
+        return None
+
+    shape = ""
+    scale = (0.0, 0.0, 0.0)
+    cylinder = geometry.find("cylinder")
+    box = geometry.find("box")
+    if cylinder is not None:
+        radius = first_float(cylinder.findtext("radius"), 0.25)
+        length = first_float(cylinder.findtext("length"), 1.0)
+        shape = "cylinder"
+        scale = (2.0 * radius, 2.0 * radius, length)
+    elif box is not None:
+        size = parse_floats(box.findtext("size"))
+        if len(size) < 3:
+            return None
+        shape = "box"
+        scale = (size[0], size[1], size[2])
+    else:
+        return None
+
+    pose = parse_pose_text(model.findtext("pose"))
+    motion_plugin = find_motion_plugin(model)
+    dynamic = motion_plugin is not None
+    waypoints: List[Point] = []
+    velocity = 0.0
+    loop = False
+    if motion_plugin is not None:
+        velocity = first_float(motion_plugin.findtext("velocity"), 0.0)
+        loop = parse_bool_text(motion_plugin.findtext("loop"))
+        for waypoint in motion_plugin.findall(".//waypoint"):
+            values = parse_floats(waypoint.text)
+            if len(values) >= 3:
+                waypoints.append(point_from_xyz(values[0], values[1], values[2]))
+        if len(waypoints) < 2:
+            waypoints = [point_from_xyz(pose[0], pose[1], pose[2])]
+
+    return WorldObstacle(name, shape, pose, scale, dynamic, waypoints, velocity, loop)
+
+
+def first_float(text: Optional[str], default: float) -> float:
+    values = parse_floats(text)
+    return values[0] if values else default
+
+
+def find_motion_plugin(model: ET.Element) -> Optional[ET.Element]:
+    for plugin in model.findall("plugin"):
+        name = plugin.attrib.get("name", "")
+        filename = plugin.attrib.get("filename", "")
+        if name == "obstacle_motion" or "obstaclePathPlugin" in filename:
+            return plugin
+    return None
 
 
 def results_root_for_bags(results_dir: str) -> str:
@@ -503,9 +784,28 @@ def first_point(series_list: Sequence[Series]) -> Optional[Point]:
     return None
 
 
-def build_markers(seed: int, series_list: Sequence[Series], play_t: float, frame_id: str, max_path_points: int, show_labels: bool) -> MarkerArray:
+def build_markers(
+    seed: int,
+    series_list: Sequence[Series],
+    play_t: float,
+    frame_id: str,
+    max_path_points: int,
+    show_labels: bool,
+    world_scene: WorldScene,
+    show_static_obstacles: bool,
+    show_dynamic_obstacles: bool,
+) -> MarkerArray:
     markers = MarkerArray()
     duration = max(series.duration for series in series_list)
+
+    add_world_obstacle_markers(
+        markers,
+        world_scene,
+        play_t,
+        frame_id,
+        show_static_obstacles,
+        show_dynamic_obstacles,
+    )
 
     for method_idx, series in enumerate(series_list):
         index, point = series.pose_at(play_t)
@@ -555,9 +855,13 @@ def main() -> None:
     max_path_points = int(rospy.get_param("~max_path_points", 1600))
     z_offset = float(rospy.get_param("~z_offset", 0.05))
     loop = parse_bool(rospy.get_param("~loop", True))
-    replay_bags = parse_bool(rospy.get_param("~replay_bags", True))
+    replay_bags = parse_bool(rospy.get_param("~replay_bags", False))
     bag_method_order = parse_string_list(rospy.get_param("~bag_method_order", "M4_im2_full,M5_dra_mppi,M1_vanilla,M0_intent_mpc"))
     bag_topics = parse_string_list(rospy.get_param("~bag_topics", ",".join(BAG_TOPICS)))
+    world_file = os.path.expanduser(rospy.get_param("~world_file", ""))
+    use_world_obstacles = parse_bool(rospy.get_param("~use_world_obstacles", True))
+    show_static_obstacles = parse_bool(rospy.get_param("~show_static_obstacles", True))
+    show_dynamic_obstacles = parse_bool(rospy.get_param("~show_dynamic_obstacles", True))
     save_screenshots = parse_bool(rospy.get_param("~save_rviz_screenshots", True))
     screenshot_dir_param = os.path.expanduser(rospy.get_param("~screenshot_dir", ""))
     screenshot_dir = screenshot_dir_param if screenshot_dir_param else default_screenshot_dir(results_dir)
@@ -573,6 +877,7 @@ def main() -> None:
         rospy.logerr("No seeds requested.")
         return
 
+    world_scene = read_world_scene(world_file) if use_world_obstacles else WorldScene()
     loaded = load_all_series(results_dir, seeds, z_offset)
     seeds = [seed for seed in seeds if seed in loaded]
     if not seeds:
@@ -621,11 +926,35 @@ def main() -> None:
 
         if replay_bags:
             bag_replay.publish_until(display_t)
-        publisher.publish(build_markers(seed, series_list, display_t, frame_id, max_path_points, show_labels))
+        publisher.publish(
+            build_markers(
+                seed,
+                series_list,
+                display_t,
+                frame_id,
+                max_path_points,
+                show_labels,
+                world_scene,
+                show_static_obstacles,
+                show_dynamic_obstacles,
+            )
+        )
 
         should_save_screenshot = save_screenshots and play_t >= duration
         if should_save_screenshot and (not screenshot_once_per_seed or seed not in screenshot_saved):
-            publisher.publish(build_markers(seed, series_list, duration, frame_id, max_path_points, show_labels))
+            publisher.publish(
+                build_markers(
+                    seed,
+                    series_list,
+                    duration,
+                    frame_id,
+                    max_path_points,
+                    show_labels,
+                    world_scene,
+                    show_static_obstacles,
+                    show_dynamic_obstacles,
+                )
+            )
             if replay_bags:
                 bag_replay.publish_until(duration)
             rospy.sleep(max(0.0, screenshot_delay))
