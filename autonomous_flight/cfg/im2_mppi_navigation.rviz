@@ -215,6 +215,14 @@ Visualization Manager:
       Value: true
     - Class: rviz/MarkerArray
       Enabled: true
+      Marker Topic: /onboard_detector/GT_obstacle_bbox_inflated
+      Name: Inflated GT Obstacles
+      Namespaces:
+        inflated_gt_obstacles: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
       Marker Topic: /onboard_detector/dynamic_bboxes
       Name: Dynamic Obstacles
       Namespaces: {}

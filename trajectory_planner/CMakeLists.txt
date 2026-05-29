@@ -294,6 +294,7 @@ catkin_install_python(PROGRAMS
   scripts/sweep_im2_full.py
   scripts/analyze_sweep.py
   scripts/visualize_seed_trajectories_rviz.py
+  scripts/publish_inflated_dynamic_bboxes.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

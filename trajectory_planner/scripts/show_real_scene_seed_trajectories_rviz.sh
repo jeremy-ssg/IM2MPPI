@@ -36,10 +36,17 @@ WORLD_FILE="${WORLD_FILE:-$(rospack find uav_simulator)/worlds/generated_env/gen
 RVIZ_STARTUP_WAIT="${RVIZ_STARTUP_WAIT:-5}"
 TOPIC_WAIT_TIMEOUT="${TOPIC_WAIT_TIMEOUT:-45}"
 GT_COLOR_DISTANCE="${GT_COLOR_DISTANCE:-}"
+SHOW_INFLATED_DYNAMIC_BBOX="${SHOW_INFLATED_DYNAMIC_BBOX:-true}"
+INFLATED_BBOX_INPUT_TOPIC="${INFLATED_BBOX_INPUT_TOPIC:-/onboard_detector/GT_obstacle_bbox}"
+INFLATED_BBOX_OUTPUT_TOPIC="${INFLATED_BBOX_OUTPUT_TOPIC:-/onboard_detector/GT_obstacle_bbox_inflated}"
+INFLATED_BBOX_LINE_WIDTH="${INFLATED_BBOX_LINE_WIDTH:-0.08}"
+INFLATED_BBOX_EXTRA_MARGIN_XY="${INFLATED_BBOX_EXTRA_MARGIN_XY:-0.0}"
+INFLATED_BBOX_EXTRA_MARGIN_Z="${INFLATED_BBOX_EXTRA_MARGIN_Z:-0.0}"
 
 SCRIPT_DIR="$(rospack find trajectory_planner)/scripts"
 RVIZ_CONFIG="$(rospack find autonomous_flight)/cfg/im2_mppi_navigation.rviz"
 REPLAY_NODE="${SCRIPT_DIR}/visualize_seed_trajectories_rviz.py"
+INFLATED_BBOX_NODE="${SCRIPT_DIR}/publish_inflated_dynamic_bboxes.py"
 
 has_timeseries_csv() {
     compgen -G "$1/*_timeseries.csv" >/dev/null 2>&1
@@ -151,11 +158,12 @@ mkdir -p "${LOG_DIR}" "${RVIZ_SCREENSHOT_DIR}"
 SIM_PID=""
 MAP_PID=""
 FAKE_PID=""
+INFLATED_PID=""
 RVIZ_PID=""
 REPLAY_PID=""
 
 cleanup() {
-    for pid in "${REPLAY_PID}" "${RVIZ_PID}" "${FAKE_PID}" "${MAP_PID}" "${SIM_PID}"; do
+    for pid in "${REPLAY_PID}" "${RVIZ_PID}" "${INFLATED_PID}" "${FAKE_PID}" "${MAP_PID}" "${SIM_PID}"; do
         if [[ -n "${pid}" ]]; then
             kill "${pid}" >/dev/null 2>&1 || true
             wait "${pid}" >/dev/null 2>&1 || true
@@ -171,6 +179,7 @@ echo "[real-scene-rviz] rviz     : ${RVIZ_CONFIG}"
 echo "[real-scene-rviz] logs     : ${LOG_DIR}"
 echo "[real-scene-rviz] shots    : ${RVIZ_SCREENSHOT_DIR}"
 echo "[real-scene-rviz] dynamic  : /onboard_detector/GT_obstacle_bbox (all Gazebo target models)"
+echo "[real-scene-rviz] inflated : ${INFLATED_BBOX_OUTPUT_TOPIC}"
 echo "[real-scene-rviz] static   : /dynamic_map/inflated_voxel_map"
 
 echo "[real-scene-rviz] starting Gazebo"
@@ -198,8 +207,23 @@ echo "[real-scene-rviz] starting fake detector node"
 rosrun onboard_detector fake_detector_node >"${LOG_DIR}/fake_detector_node.log" 2>&1 &
 FAKE_PID=$!
 
+if [[ "${SHOW_INFLATED_DYNAMIC_BBOX}" == "true" || "${SHOW_INFLATED_DYNAMIC_BBOX}" == "1" ]]; then
+    echo "[real-scene-rviz] starting inflated dynamic bbox visualizer"
+    python3 "${INFLATED_BBOX_NODE}" \
+        _input_topic:="${INFLATED_BBOX_INPUT_TOPIC}" \
+        _output_topic:="${INFLATED_BBOX_OUTPUT_TOPIC}" \
+        _line_width:="${INFLATED_BBOX_LINE_WIDTH}" \
+        _extra_margin_xy:="${INFLATED_BBOX_EXTRA_MARGIN_XY}" \
+        _extra_margin_z:="${INFLATED_BBOX_EXTRA_MARGIN_Z}" \
+        >"${LOG_DIR}/inflated_dynamic_bbox_visualizer.log" 2>&1 &
+    INFLATED_PID=$!
+fi
+
 wait_topic_optional "/dynamic_map/inflated_voxel_map" "${TOPIC_WAIT_TIMEOUT}" || true
 wait_topic_optional "/onboard_detector/GT_obstacle_bbox" "${TOPIC_WAIT_TIMEOUT}" || true
+if [[ -n "${INFLATED_PID}" ]]; then
+    wait_topic_optional "${INFLATED_BBOX_OUTPUT_TOPIC}" "${TOPIC_WAIT_TIMEOUT}" || true
+fi
 
 echo "[real-scene-rviz] opening RViz"
 rviz -d "${RVIZ_CONFIG}" >"${LOG_DIR}/rviz.log" 2>&1 &
