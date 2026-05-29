@@ -299,6 +299,7 @@ catkin_install_python(PROGRAMS
 
 install(PROGRAMS
   scripts/show_selected_seed_trajectories_rviz.sh
+  scripts/show_real_scene_seed_trajectories_rviz.sh
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
