@@ -43,7 +43,7 @@ RVIZ_STARTUP_WAIT="${RVIZ_STARTUP_WAIT:-5}"
 TOPIC_WAIT_TIMEOUT="${TOPIC_WAIT_TIMEOUT:-45}"
 CSV_T0_SIM_TIME="${CSV_T0_SIM_TIME:-12.0}"
 GT_COLOR_DISTANCE="${GT_COLOR_DISTANCE:-}"
-SHOW_INFLATED_DYNAMIC_BBOX="${SHOW_INFLATED_DYNAMIC_BBOX:-true}"
+SHOW_INFLATED_DYNAMIC_BBOX="${SHOW_INFLATED_DYNAMIC_BBOX:-false}"
 INFLATED_BBOX_INPUT_TOPIC="${INFLATED_BBOX_INPUT_TOPIC:-/onboard_detector/GT_obstacle_bbox}"
 INFLATED_BBOX_OUTPUT_TOPIC="${INFLATED_BBOX_OUTPUT_TOPIC:-/onboard_detector/GT_obstacle_bbox_inflated}"
 INFLATED_BBOX_LINE_WIDTH="${INFLATED_BBOX_LINE_WIDTH:-0.08}"
@@ -245,8 +245,12 @@ echo "[real-scene-rviz] world    : ${WORLD_FILE}"
 echo "[real-scene-rviz] rviz     : ${RVIZ_CONFIG}"
 echo "[real-scene-rviz] logs     : ${LOG_DIR}"
 echo "[real-scene-rviz] shots    : ${RVIZ_SCREENSHOT_DIR}"
-echo "[real-scene-rviz] dynamic  : /onboard_detector/GT_obstacle_bbox (all Gazebo target models)"
-echo "[real-scene-rviz] inflated : ${INFLATED_BBOX_OUTPUT_TOPIC}"
+echo "[real-scene-rviz] dynamic  : /onboard_detector/GT_obstacle_bbox (planning-time fakeDetector bbox style)"
+if [[ "${SHOW_INFLATED_DYNAMIC_BBOX}" == "true" || "${SHOW_INFLATED_DYNAMIC_BBOX}" == "1" ]]; then
+    echo "[real-scene-rviz] inflated : ${INFLATED_BBOX_OUTPUT_TOPIC}"
+else
+    echo "[real-scene-rviz] inflated : disabled"
+fi
 echo "[real-scene-rviz] static   : /dynamic_map/inflated_voxel_map"
 echo "[real-scene-rviz] csv t0   : Gazebo /clock ${CSV_T0_SIM_TIME}s"
 
