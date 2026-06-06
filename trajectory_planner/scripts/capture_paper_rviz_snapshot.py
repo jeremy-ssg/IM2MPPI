@@ -2,6 +2,9 @@
 
 import math
 import os
+import re
+import shutil
+import subprocess
 import sys
 import time
 
@@ -24,6 +27,10 @@ class PaperSnapshotCapture:
             "~filename_prefix", "im2_mppi_paper_snapshot"
         )
         self.save_service = rospy.get_param("~save_service", "/rviz/save_image")
+        self.window_title = rospy.get_param("~window_title", "RViz")
+        self.screenshot_backend = rospy.get_param(
+            "~screenshot_backend", "auto"
+        ).lower()
         self.first_capture_distance = float(
             rospy.get_param("~first_capture_distance", 4.0)
         )
@@ -56,6 +63,7 @@ class PaperSnapshotCapture:
             self._rollout_callback,
             queue_size=1,
         )
+        self.capture_backend = self._select_capture_backend()
 
     def _odom_callback(self, message):
         point = message.pose.pose.position
@@ -96,19 +104,126 @@ class PaperSnapshotCapture:
             ),
         )
 
-    def _save(self, output_file):
+    def _service_available(self):
         if SendFilePath is None:
-            rospy.logerr("rviz/SendFilePath is unavailable")
+            return False
+        try:
+            rospy.wait_for_service(self.save_service, timeout=0.5)
+            return True
+        except rospy.ROSException:
             return False
 
-        os.makedirs(self.output_dir, exist_ok=True)
+    @staticmethod
+    def _imagemagick_command():
+        if shutil.which("import"):
+            return ["import"]
+        if shutil.which("magick"):
+            return ["magick", "import"]
+        return None
 
-        rospy.wait_for_service(self.save_service, timeout=10.0)
+    def _select_capture_backend(self):
+        requested = self.screenshot_backend
+        if requested in ("auto", "service") and self._service_available():
+            rospy.loginfo("RViz screenshot backend: service %s", self.save_service)
+            return "service"
+
+        has_locator = shutil.which("xdotool") or shutil.which("xwininfo")
+        if requested in ("auto", "window") and self._imagemagick_command() and has_locator:
+            rospy.loginfo("RViz screenshot backend: direct window capture")
+            return "window"
+
+        rospy.logerr(
+            "No RViz screenshot backend is available. Install the window "
+            "capture tools with: sudo apt install imagemagick xdotool"
+        )
+        return None
+
+    def _find_rviz_window(self):
+        if shutil.which("xdotool"):
+            searches = (
+                ["xdotool", "search", "--onlyvisible", "--class", "rviz"],
+                [
+                    "xdotool",
+                    "search",
+                    "--onlyvisible",
+                    "--name",
+                    self.window_title,
+                ],
+            )
+            for command in searches:
+                result = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                window_ids = result.stdout.split()
+                if result.returncode == 0 and window_ids:
+                    return window_ids[-1]
+
+        if shutil.which("xwininfo"):
+            result = subprocess.run(
+                ["xwininfo", "-root", "-tree"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            candidates = []
+            for line in result.stdout.splitlines():
+                if "rviz" not in line.lower():
+                    continue
+                match = re.match(r"\s*(0x[0-9a-fA-F]+)\s+", line)
+                if match:
+                    candidates.append(match.group(1))
+            if candidates:
+                return candidates[-1]
+
+        return None
+
+    def _save_with_service(self, output_file):
         save_image = rospy.ServiceProxy(self.save_service, SendFilePath)
         response = save_image(output_file)
         return not hasattr(response, "success") or response.success
 
+    def _save_window(self, output_file):
+        window_id = self._find_rviz_window()
+        if window_id is None:
+            rospy.logerr(
+                "Could not find a visible RViz window (title=%s)",
+                self.window_title,
+            )
+            return False
+
+        command = self._imagemagick_command()
+        command.extend(["-window", window_id, output_file])
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            rospy.logerr(
+                "RViz window capture failed (window=%s): %s",
+                window_id,
+                result.stderr.strip(),
+            )
+            return False
+        return os.path.isfile(output_file) and os.path.getsize(output_file) > 0
+
+    def _save(self, output_file):
+        if self.capture_backend is None:
+            return False
+
+        os.makedirs(self.output_dir, exist_ok=True)
+        if self.capture_backend == "service":
+            return self._save_with_service(output_file)
+        return self._save_window(output_file)
+
     def run(self):
+        if self.capture_backend is None:
+            return 1
+
         rate = rospy.Rate(10)
         while not rospy.is_shutdown():
             elapsed = time.monotonic() - self.start_wall_time

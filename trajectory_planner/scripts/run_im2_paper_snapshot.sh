@@ -19,6 +19,22 @@ MIN_ELAPSED="${MIN_ELAPSED:-3}"
 VIZ_ROLLOUTS="${VIZ_ROLLOUTS:-200}"
 GAZEBO_GUI="${GAZEBO_GUI:-true}"
 
+if ! command -v import >/dev/null 2>&1 \
+    && ! command -v magick >/dev/null 2>&1; then
+    echo "ERROR: RViz window capture requires ImageMagick."
+    echo "Install it once with:"
+    echo "  sudo apt update && sudo apt install -y imagemagick xdotool"
+    exit 1
+fi
+
+if ! command -v xdotool >/dev/null 2>&1 \
+    && ! command -v xwininfo >/dev/null 2>&1; then
+    echo "ERROR: RViz window capture requires xdotool or xwininfo."
+    echo "Install the recommended tool once with:"
+    echo "  sudo apt update && sudo apt install -y imagemagick xdotool"
+    exit 1
+fi
+
 STAMP="$(date +%Y%m%d_%H%M%S)"
 OUT_DIR="${OUT_DIR_OVERRIDE:-${HOME}/IM2MPPI/results/paper_snapshot_${STAMP}}"
 LOG_DIR="${OUT_DIR}/logs"
