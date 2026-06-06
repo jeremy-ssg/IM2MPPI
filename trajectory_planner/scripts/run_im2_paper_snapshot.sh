@@ -6,19 +6,19 @@
 #                                [IMAGE_WIDTH_PX] [IMAGE_HEIGHT_PX]
 #
 # Example:
-#   ./run_im2_paper_snapshot.sh 12 10 7.5 3840 2160
+#   ./run_im2_paper_snapshot.sh 12 20 7.5
 
 set -u
 
 SEED="${1:-12}"
-CAPTURE_COUNT="${2:-10}"
+CAPTURE_COUNT="${2:-20}"
 VIEW_HALF_WIDTH="${3:-7.5}"
-IMAGE_WIDTH="${4:-3840}"
-IMAGE_HEIGHT="${5:-2160}"
-RVIZ_WINDOW_WIDTH="${RVIZ_WINDOW_WIDTH:-1600}"
-RVIZ_WINDOW_HEIGHT="${RVIZ_WINDOW_HEIGHT:-900}"
+RVIZ_WINDOW_WIDTH="${RVIZ_WINDOW_WIDTH:-1920}"
+RVIZ_WINDOW_HEIGHT="${RVIZ_WINDOW_HEIGHT:-1080}"
+IMAGE_WIDTH="${4:-${RVIZ_WINDOW_WIDTH}}"
+IMAGE_HEIGHT="${5:-${RVIZ_WINDOW_HEIGHT}}"
 FIRST_CAPTURE_DISTANCE="${FIRST_CAPTURE_DISTANCE:-4.0}"
-CAPTURE_INTERVAL="${CAPTURE_INTERVAL:-3.0}"
+CAPTURE_INTERVAL="${CAPTURE_INTERVAL:-1.5}"
 CAPTURE_TIMEOUT="${CAPTURE_TIMEOUT:-120}"
 MIN_ELAPSED="${MIN_ELAPSED:-3}"
 VIZ_ROLLOUTS="${VIZ_ROLLOUTS:-200}"
@@ -127,7 +127,7 @@ echo "  captures: ${CAPTURE_COUNT}, first at ${FIRST_CAPTURE_DISTANCE} m,"
 echo "            then every ${CAPTURE_INTERVAL} m"
 echo "  horizontal view: +/- ${VIEW_HALF_WIDTH} m"
 echo "  RViz window: ${RVIZ_WINDOW_WIDTH}x${RVIZ_WINDOW_HEIGHT} (single screen)"
-echo "  output image: ${IMAGE_WIDTH}x${IMAGE_HEIGHT}"
+echo "  output image: ${IMAGE_WIDTH}x${IMAGE_HEIGHT} (native by default)"
 echo "  output: ${SNAPSHOT_DIR}"
 echo "============================================================"
 

@@ -44,8 +44,8 @@ class PaperSnapshotCapture:
         self.min_rollout_markers = int(
             rospy.get_param("~min_rollout_markers", 150)
         )
-        self.output_width = int(rospy.get_param("~output_width", 3840))
-        self.output_height = int(rospy.get_param("~output_height", 2160))
+        self.output_width = int(rospy.get_param("~output_width", 0))
+        self.output_height = int(rospy.get_param("~output_height", 0))
 
         self.start_wall_time = time.monotonic()
         self.previous_position = None
@@ -286,15 +286,24 @@ class PaperSnapshotCapture:
                 len(windows),
             )
             command = self._imagemagick_command()
-            command.extend(
-                [
-                    "-window",
-                    window_id,
-                    "-resize",
-                    "{}x{}!".format(self.output_width, self.output_height),
-                    output_file,
-                ]
-            )
+            command.extend(["-window", window_id])
+            if self.output_width > 0 and self.output_height > 0:
+                if (
+                    self.output_width != window_width
+                    or self.output_height != window_height
+                ):
+                    command.extend(
+                        [
+                            "-filter",
+                            "Lanczos",
+                            "-resize",
+                            "{}x{}!".format(
+                                self.output_width,
+                                self.output_height,
+                            ),
+                        ]
+                    )
+            command.append(output_file)
             result = subprocess.run(
                 command,
                 check=False,
