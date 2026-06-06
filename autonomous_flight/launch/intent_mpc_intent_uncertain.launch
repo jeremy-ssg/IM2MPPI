@@ -27,6 +27,13 @@
         output="screen"/>
 
   <group if="$(arg enable_rviz)">
+    <node pkg="trajectory_planner"
+          type="filter_visible_dynamic_bboxes.py"
+          name="visible_dynamic_bbox_filter"
+          output="screen">
+      <param name="input_topic" value="/onboard_detector/GT_obstacle_bbox"/>
+      <param name="output_topic" value="/onboard_detector/visible_dynamic_bboxes"/>
+    </node>
     <include file="$(find remote_control)/launch/mpc_navigation_rviz.launch"/>
   </group>
 </launch>

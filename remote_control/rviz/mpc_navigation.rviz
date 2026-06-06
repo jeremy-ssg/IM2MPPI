@@ -132,16 +132,24 @@ Visualization Manager:
       Name: GT Obstacles
       Namespaces:
         {}
-      Queue Size: 100
+      Queue Size: 10
       Value: false
     - Class: rviz/MarkerArray
       Enabled: true
+      Marker Topic: /onboard_detector/visible_dynamic_bboxes
+      Name: Visible Dynamic Obstacles
+      Namespaces:
+        {}
+      Queue Size: 10
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: false
       Marker Topic: /mpc_planner/dynamic_obstacles
       Name: Dynamic Obstacles
       Namespaces:
         mpc_dynamic_obstacles: true
-      Queue Size: 100
-      Value: true
+      Queue Size: 10
+      Value: false
     - Alpha: 1
       Class: rviz/RobotModel
       Collision Enabled: false

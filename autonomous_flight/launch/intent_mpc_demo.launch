@@ -1,4 +1,6 @@
 <launch>
+	<arg name="enable_rviz" default="true"/>
+
 	<rosparam file="$(find tracking_controller)/cfg/controller_param.yaml" ns="controller"/>
 	<rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/fake_detector_param.yaml" />
 	<rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/flight_base.yaml" ns="autonomous_flight"/>
@@ -10,5 +12,14 @@
 	<node pkg="tracking_controller" type="tracking_controller_node" name="tracking_controller_node" output="screen" />
 	<node pkg="autonomous_flight" type="mpc_navigation_node" name="mpc_navigation_node" output="screen" />
 	<!-- <node pkg="onboard_detector" type="yolo_detector_node.py" name="yolo_detector_node" output="screen" /> -->
-	<include file="$(find remote_control)/launch/mpc_navigation_rviz.launch" />
+	<group if="$(arg enable_rviz)">
+		<node pkg="trajectory_planner"
+			  type="filter_visible_dynamic_bboxes.py"
+			  name="visible_dynamic_bbox_filter"
+			  output="screen">
+			<param name="input_topic" value="/onboard_detector/GT_obstacle_bbox"/>
+			<param name="output_topic" value="/onboard_detector/visible_dynamic_bboxes"/>
+		</node>
+		<include file="$(find remote_control)/launch/mpc_navigation_rviz.launch" />
+	</group>
 </launch>

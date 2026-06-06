@@ -29,6 +29,13 @@
         output="screen"/>
 
   <group if="$(arg enable_rviz)">
+    <node pkg="trajectory_planner"
+          type="filter_visible_dynamic_bboxes.py"
+          name="visible_dynamic_bbox_filter"
+          output="screen">
+      <param name="input_topic" value="/onboard_detector/GT_obstacle_bbox"/>
+      <param name="output_topic" value="/onboard_detector/visible_dynamic_bboxes"/>
+    </node>
     <node pkg="rviz"
           type="rviz"
           name="im2_mppi_rviz"
