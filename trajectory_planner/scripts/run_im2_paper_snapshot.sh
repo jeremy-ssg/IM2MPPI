@@ -3,15 +3,18 @@
 #
 # Usage:
 #   ./run_im2_paper_snapshot.sh [SEED] [CAPTURE_COUNT] [VIEW_HALF_WIDTH_M]
+#                                [IMAGE_WIDTH_PX] [IMAGE_HEIGHT_PX]
 #
 # Example:
-#   ./run_im2_paper_snapshot.sh 12 10 7.5
+#   ./run_im2_paper_snapshot.sh 12 10 7.5 3840 2160
 
 set -u
 
 SEED="${1:-12}"
 CAPTURE_COUNT="${2:-10}"
 VIEW_HALF_WIDTH="${3:-7.5}"
+IMAGE_WIDTH="${4:-3840}"
+IMAGE_HEIGHT="${5:-2160}"
 FIRST_CAPTURE_DISTANCE="${FIRST_CAPTURE_DISTANCE:-4.0}"
 CAPTURE_INTERVAL="${CAPTURE_INTERVAL:-3.0}"
 CAPTURE_TIMEOUT="${CAPTURE_TIMEOUT:-120}"
@@ -102,13 +105,17 @@ set_yaml_str "fusion_mode" "adaptive"
 set_yaml_num "random_seed" "${SEED}"
 set_yaml_num "viz_num_rollouts" "${VIZ_ROLLOUTS}"
 
-VIEW_SCALE="$(python3 - "${VIEW_HALF_WIDTH}" <<'PY'
+VIEW_SCALE="$(python3 - "${VIEW_HALF_WIDTH}" "${IMAGE_WIDTH}" <<'PY'
 import sys
 half_width = max(1.0, float(sys.argv[1]))
-print(1920.0 / (2.0 * half_width))
+image_width = max(640, int(sys.argv[2]))
+print(float(image_width) / (2.0 * half_width))
 PY
 )"
-sed -E "s|^([[:space:]]*Scale:).*$|\1 ${VIEW_SCALE}|" \
+sed -E \
+    -e "s|^([[:space:]]*Scale:).*$|\1 ${VIEW_SCALE}|" \
+    -e "s|^([[:space:]]*Width:).*$|\1 ${IMAGE_WIDTH}|" \
+    -e "s|^([[:space:]]*Height:).*$|\1 ${IMAGE_HEIGHT}|" \
     "${BASE_RVIZ}" > "${RUNTIME_RVIZ}"
 
 echo "============================================================"
@@ -117,6 +124,7 @@ echo "  seed: ${SEED}  displayed rollouts: ${VIZ_ROLLOUTS}"
 echo "  captures: ${CAPTURE_COUNT}, first at ${FIRST_CAPTURE_DISTANCE} m,"
 echo "            then every ${CAPTURE_INTERVAL} m"
 echo "  horizontal view: +/- ${VIEW_HALF_WIDTH} m"
+echo "  requested image size: ${IMAGE_WIDTH}x${IMAGE_HEIGHT}"
 echo "  output: ${SNAPSHOT_DIR}"
 echo "============================================================"
 

@@ -211,6 +211,20 @@ class PaperSnapshotCapture:
             return False
         return os.path.isfile(output_file) and os.path.getsize(output_file) > 0
 
+    @staticmethod
+    def _image_dimensions(output_file):
+        if not shutil.which("identify"):
+            return None
+        result = subprocess.run(
+            ["identify", "-format", "%wx%h", output_file],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip()
+
     def _save(self, output_file):
         if self.capture_backend is None:
             return False
@@ -244,11 +258,13 @@ class PaperSnapshotCapture:
                 if not self._save(output_file):
                     return 1
                 self.saved_count += 1
+                dimensions = self._image_dimensions(output_file)
                 rospy.loginfo(
-                    "Saved paper snapshot %d/%d at %.2f m: %s",
+                    "Saved paper snapshot %d/%d at %.2f m%s: %s",
                     self.saved_count,
                     self.capture_count,
                     self.travelled_distance,
+                    " ({})".format(dimensions) if dimensions else "",
                     output_file,
                 )
                 if self.saved_count >= self.capture_count:
