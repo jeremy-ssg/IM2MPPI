@@ -138,7 +138,8 @@ class PaperSnapshotCapture:
         )
         return None
 
-    def _find_rviz_window(self):
+    def _find_rviz_windows(self):
+        candidates = set()
         if shutil.which("xdotool"):
             searches = (
                 ["xdotool", "search", "--onlyvisible", "--class", "rviz"],
@@ -159,7 +160,7 @@ class PaperSnapshotCapture:
                 )
                 window_ids = result.stdout.split()
                 if result.returncode == 0 and window_ids:
-                    return window_ids[-1]
+                    candidates.update(window_ids)
 
         if shutil.which("xwininfo"):
             result = subprocess.run(
@@ -168,15 +169,59 @@ class PaperSnapshotCapture:
                 capture_output=True,
                 text=True,
             )
-            candidates = []
             for line in result.stdout.splitlines():
                 if "rviz" not in line.lower():
                     continue
                 match = re.match(r"\s*(0x[0-9a-fA-F]+)\s+", line)
                 if match:
-                    candidates.append(match.group(1))
-            if candidates:
-                return candidates[-1]
+                    candidates.add(match.group(1))
+
+        windows = []
+        for window_id in candidates:
+            geometry = self._window_geometry(window_id)
+            if geometry is None:
+                continue
+            width, height = geometry
+            windows.append((width * height, width, height, window_id))
+
+        windows.sort(reverse=True)
+        return [
+            (window_id, width, height)
+            for _, width, height, window_id in windows
+        ]
+
+    @staticmethod
+    def _window_geometry(window_id):
+        if shutil.which("xdotool"):
+            result = subprocess.run(
+                ["xdotool", "getwindowgeometry", "--shell", window_id],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                values = {}
+                for line in result.stdout.splitlines():
+                    if "=" in line:
+                        key, value = line.split("=", 1)
+                        values[key] = value
+                try:
+                    return int(values["WIDTH"]), int(values["HEIGHT"])
+                except (KeyError, ValueError):
+                    pass
+
+        if shutil.which("xwininfo"):
+            result = subprocess.run(
+                ["xwininfo", "-id", window_id],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                width = re.search(r"^\s*Width:\s*(\d+)", result.stdout, re.MULTILINE)
+                height = re.search(r"^\s*Height:\s*(\d+)", result.stdout, re.MULTILINE)
+                if width and height:
+                    return int(width.group(1)), int(height.group(1))
 
         return None
 
@@ -186,30 +231,62 @@ class PaperSnapshotCapture:
         return not hasattr(response, "success") or response.success
 
     def _save_window(self, output_file):
-        window_id = self._find_rviz_window()
-        if window_id is None:
+        windows = self._find_rviz_windows()
+        if not windows:
             rospy.logerr(
                 "Could not find a visible RViz window (title=%s)",
                 self.window_title,
             )
             return False
 
-        command = self._imagemagick_command()
-        command.extend(["-window", window_id, output_file])
-        result = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            rospy.logerr(
-                "RViz window capture failed (window=%s): %s",
+        for index, (window_id, window_width, window_height) in enumerate(windows):
+            rospy.loginfo(
+                "Trying RViz window %s (%dx%d), candidate %d/%d",
                 window_id,
-                result.stderr.strip(),
+                window_width,
+                window_height,
+                index + 1,
+                len(windows),
             )
-            return False
-        return os.path.isfile(output_file) and os.path.getsize(output_file) > 0
+            command = self._imagemagick_command()
+            command.extend(["-window", window_id, output_file])
+            result = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                rospy.logwarn(
+                    "RViz window capture failed (window=%s): %s",
+                    window_id,
+                    result.stderr.strip(),
+                )
+                continue
+
+            dimensions = self._image_dimensions(output_file)
+            if dimensions is None:
+                rospy.logwarn(
+                    "RViz window %s did not produce a readable PNG",
+                    window_id,
+                )
+                continue
+
+            width, height = dimensions
+            if width < 640 or height < 480:
+                rospy.logwarn(
+                    "Rejected invalid RViz capture %dx%d from window %s",
+                    width,
+                    height,
+                    window_id,
+                )
+                continue
+            return True
+
+        if os.path.isfile(output_file):
+            os.remove(output_file)
+        rospy.logerr("No RViz candidate produced a valid screenshot")
+        return False
 
     @staticmethod
     def _image_dimensions(output_file):
@@ -223,7 +300,10 @@ class PaperSnapshotCapture:
         )
         if result.returncode != 0:
             return None
-        return result.stdout.strip()
+        match = re.fullmatch(r"(\d+)x(\d+)", result.stdout.strip())
+        if not match:
+            return None
+        return int(match.group(1)), int(match.group(2))
 
     def _save(self, output_file):
         if self.capture_backend is None:
@@ -259,12 +339,15 @@ class PaperSnapshotCapture:
                     return 1
                 self.saved_count += 1
                 dimensions = self._image_dimensions(output_file)
+                dimensions_text = (
+                    " ({}x{})".format(*dimensions) if dimensions else ""
+                )
                 rospy.loginfo(
                     "Saved paper snapshot %d/%d at %.2f m%s: %s",
                     self.saved_count,
                     self.capture_count,
                     self.travelled_distance,
-                    " ({})".format(dimensions) if dimensions else "",
+                    dimensions_text,
                     output_file,
                 )
                 if self.saved_count >= self.capture_count:
