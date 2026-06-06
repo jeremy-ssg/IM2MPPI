@@ -197,21 +197,28 @@ Visualization Manager:
         seed_traj_labels: false
         seed_traj_seed_label: false
         seed_traj_trails: true
-        world_dynamic_obstacles: true
-        world_dynamic_path_arrows: true
-        world_dynamic_paths: true
-        world_dynamic_velocity_arrows: true
-        world_static_obstacles: true
+        world_dynamic_obstacles: false
+        world_dynamic_path_arrows: false
+        world_dynamic_paths: false
+        world_dynamic_velocity_arrows: false
+        world_static_obstacles: false
       Queue Size: 100
       Value: true
 
     # ─── Detector / predictor (optional overlay) ──────────────────────
     - Class: rviz/MarkerArray
-      Enabled: true
+      Enabled: false
       Marker Topic: /onboard_detector/GT_obstacle_bbox
       Name: GT Obstacles
       Namespaces: {}
-      Queue Size: 100
+      Queue Size: 10
+      Value: false
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /onboard_detector/visible_dynamic_bboxes
+      Name: Visible Dynamic Obstacles
+      Namespaces: {}
+      Queue Size: 10
       Value: true
     - Class: rviz/MarkerArray
       Enabled: false
@@ -222,12 +229,12 @@ Visualization Manager:
       Queue Size: 100
       Value: false
     - Class: rviz/MarkerArray
-      Enabled: true
+      Enabled: false
       Marker Topic: /onboard_detector/dynamic_bboxes
       Name: Dynamic Obstacles
       Namespaces: {}
-      Queue Size: 100
-      Value: true
+      Queue Size: 10
+      Value: false
     - Class: rviz/MarkerArray
       Enabled: false
       Marker Topic: /onboard_detector/all_dynamic_bboxes
@@ -237,26 +244,26 @@ Visualization Manager:
       Queue Size: 100
       Value: false
     - Class: rviz/MarkerArray
-      Enabled: true
+      Enabled: false
       Marker Topic: /onboard_detector/tracked_bboxes
       Name: Tracked Obstacles
       Namespaces: {}
-      Queue Size: 100
-      Value: true
+      Queue Size: 10
+      Value: false
     - Class: rviz/MarkerArray
-      Enabled: true
+      Enabled: false
       Marker Topic: /onboard_detector/history_trajectories
       Name: Obstacle History
       Namespaces: {}
-      Queue Size: 100
-      Value: true
+      Queue Size: 10
+      Value: false
     - Class: rviz/MarkerArray
-      Enabled: true
+      Enabled: false
       Marker Topic: /onboard_detector/velocity_visualizaton
       Name: Obstacle Velocity
       Namespaces: {}
-      Queue Size: 100
-      Value: true
+      Queue Size: 10
+      Value: false
     - Class: rviz/MarkerArray
       Enabled: false
       Marker Topic: /dynamic_predictor/pred_bbox

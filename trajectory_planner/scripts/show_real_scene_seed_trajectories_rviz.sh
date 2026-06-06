@@ -54,6 +54,7 @@ SCRIPT_DIR="$(rospack find trajectory_planner)/scripts"
 RVIZ_CONFIG="$(rospack find autonomous_flight)/cfg/im2_mppi_navigation.rviz"
 REPLAY_NODE="${SCRIPT_DIR}/visualize_seed_trajectories_rviz.py"
 INFLATED_BBOX_NODE="${SCRIPT_DIR}/publish_inflated_dynamic_bboxes.py"
+VISIBLE_BBOX_NODE="${SCRIPT_DIR}/filter_visible_dynamic_bboxes.py"
 
 has_timeseries_csv() {
     compgen -G "$1/*_timeseries.csv" >/dev/null 2>&1
@@ -204,6 +205,7 @@ SIM_PID=""
 MAP_PID=""
 FAKE_PID=""
 INFLATED_PID=""
+VISIBLE_BBOX_PID=""
 RVIZ_PID=""
 REPLAY_PID=""
 
@@ -218,11 +220,13 @@ stop_pid() {
 stop_scene() {
     stop_pid "${REPLAY_PID}"
     stop_pid "${INFLATED_PID}"
+    stop_pid "${VISIBLE_BBOX_PID}"
     stop_pid "${FAKE_PID}"
     stop_pid "${MAP_PID}"
     stop_pid "${SIM_PID}"
     REPLAY_PID=""
     INFLATED_PID=""
+    VISIBLE_BBOX_PID=""
     FAKE_PID=""
     MAP_PID=""
     SIM_PID=""
@@ -245,7 +249,7 @@ echo "[real-scene-rviz] world    : ${WORLD_FILE}"
 echo "[real-scene-rviz] rviz     : ${RVIZ_CONFIG}"
 echo "[real-scene-rviz] logs     : ${LOG_DIR}"
 echo "[real-scene-rviz] shots    : ${RVIZ_SCREENSHOT_DIR}"
-echo "[real-scene-rviz] dynamic  : /onboard_detector/GT_obstacle_bbox (planning-time fakeDetector bbox style)"
+echo "[real-scene-rviz] dynamic  : /onboard_detector/visible_dynamic_bboxes (current-view fakeDetector bbox style)"
 if [[ "${SHOW_INFLATED_DYNAMIC_BBOX}" == "true" || "${SHOW_INFLATED_DYNAMIC_BBOX}" == "1" ]]; then
     echo "[real-scene-rviz] inflated : ${INFLATED_BBOX_OUTPUT_TOPIC}"
 else
@@ -302,6 +306,13 @@ for idx in "${!SEED_LIST[@]}"; do
     rosrun onboard_detector fake_detector_node >"${LOG_DIR}/seed${seed}_fake_detector_node.log" 2>&1 &
     FAKE_PID=$!
 
+    echo "[real-scene-rviz] seed ${seed}: starting current-view bbox filter"
+    python3 "${VISIBLE_BBOX_NODE}" \
+        _input_topic:=/onboard_detector/GT_obstacle_bbox \
+        _output_topic:=/onboard_detector/visible_dynamic_bboxes \
+        >"${LOG_DIR}/seed${seed}_visible_dynamic_bbox_filter.log" 2>&1 &
+    VISIBLE_BBOX_PID=$!
+
     if [[ "${SHOW_INFLATED_DYNAMIC_BBOX}" == "true" || "${SHOW_INFLATED_DYNAMIC_BBOX}" == "1" ]]; then
         echo "[real-scene-rviz] seed ${seed}: starting inflated dynamic bbox visualizer"
         python3 "${INFLATED_BBOX_NODE}" \
@@ -316,6 +327,7 @@ for idx in "${!SEED_LIST[@]}"; do
 
     wait_topic_optional "/dynamic_map/inflated_voxel_map" "${TOPIC_WAIT_TIMEOUT}" || true
     wait_topic_optional "/onboard_detector/GT_obstacle_bbox" "${TOPIC_WAIT_TIMEOUT}" || true
+    wait_topic_optional "/onboard_detector/visible_dynamic_bboxes" "${TOPIC_WAIT_TIMEOUT}" || true
     if [[ -n "${INFLATED_PID}" ]]; then
         wait_topic_optional "${INFLATED_BBOX_OUTPUT_TOPIC}" "${TOPIC_WAIT_TIMEOUT}" || true
     fi
