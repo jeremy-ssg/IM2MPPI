@@ -83,7 +83,6 @@ trap 'echo "[batch] restoring yaml"; cp "${YAML_PLANNER}.batchbak" "${YAML_PLANN
 #    "N/A" entries are skipped (Intent-MPC has no MPPI yaml).
 # ────────────────────────────────────────────────────────────────────────────
 CONFIGS=(
-  "M0_intent_mpc|${INTENT_MPC_LAUNCH}|N/A|N/A|N/A"
   "M1_vanilla|${IM2_MPPI_LAUNCH}|vanilla_mppi|soft|true"
   "M2_mean_pred|${IM2_MPPI_LAUNCH}|mean_prediction_mppi|soft|true"
   "M3_mode_aware|${IM2_MPPI_LAUNCH}|mode_aware_mppi|soft|false"
@@ -92,6 +91,7 @@ CONFIGS=(
   "A1_no_cvar|${IM2_MPPI_LAUNCH}|mode_aware_mppi|adaptive|true"
   "A2_no_fusion|${IM2_MPPI_LAUNCH}|cvar_mppi|soft|true"
   "A3_no_cl|${IM2_MPPI_LAUNCH}|cvar_mppi|adaptive|false"
+  "M0_intent_mpc|${INTENT_MPC_LAUNCH}|N/A|N/A|N/A"
 )
 
 # ────────────────────────────────────────────────────────────────────────────
