@@ -171,13 +171,13 @@ Visualization Manager:
       Unreliable: false
       Value: true
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /im2mppi/dynamic_obstacle_predictions
       Name: IM2-MPPI Dynamic Predictions
       Namespaces:
         im2mppi_dyn_pred: true
       Queue Size: 100
-      Value: false
+      Value: true
     - Class: rviz/MarkerArray
       Enabled: true
       Marker Topic: /im2mppi/goal

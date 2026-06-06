@@ -71,8 +71,8 @@ YAML_PLANNER="$(rospack find trajectory_planner)/cfg/im2_mppi.yaml"
 SCRIPT_DIR="$(rospack find trajectory_planner)/scripts"
 GAZEBO_GUI="${GAZEBO_GUI:-true}"
 ENABLE_RVIZ="${ENABLE_RVIZ:-true}"
-INTENT_MPC_LAUNCH="${INTENT_MPC_LAUNCH:-autonomous_flight intent_mpc_demo.launch enable_rviz:=${ENABLE_RVIZ}}"
-IM2_MPPI_LAUNCH="${IM2_MPPI_LAUNCH:-autonomous_flight im2_mppi_demo.launch enable_rviz:=${ENABLE_RVIZ}}"
+INTENT_MPC_LAUNCH="${INTENT_MPC_LAUNCH:-autonomous_flight intent_mpc_demo.launch}"
+IM2_MPPI_LAUNCH="${IM2_MPPI_LAUNCH:-autonomous_flight im2_mppi_demo.launch}"
 
 # Back up the planner yaml so we always restore it on exit, even on Ctrl+C.
 cp "${YAML_PLANNER}" "${YAML_PLANNER}.batchbak"
@@ -111,6 +111,7 @@ cleanup_all() {
         pkill -${SIG} -f tracking_controller_node   2>/dev/null || true
         pkill -${SIG} -f onboard_detector           2>/dev/null || true
         pkill -${SIG} -f dynamic_predictor          2>/dev/null || true
+        pkill -${SIG} -f filter_visible_dynamic_bboxes.py 2>/dev/null || true
         pkill -${SIG} -f teleop_twist_keyboard      2>/dev/null || true
         pkill -${SIG} -f keyboard_control           2>/dev/null || true
         pkill -${SIG} -f key_teleop                 2>/dev/null || true
@@ -200,10 +201,23 @@ run_one() {
 
     # 5. Launch the planner stack (Intent-MPC or IM2-MPPI), hard-timed too.
     timeout --kill-after=10 $((DURATION + 90)) \
-        roslaunch ${LAUNCH} \
+        roslaunch ${LAUNCH} enable_rviz:=false \
         > "${LOG_DIR}/${TAG}_stack.log" 2>&1 &
     STACK_PID=$!
-    sleep 12   # wait for takeoff + planner init
+    sleep 3
+
+    # Use one dedicated RViz for every method. Planner launch files keep their
+    # own RViz disabled so no legacy config can subscribe to full-map obstacle
+    # topics. The dedicated config contains only the current-view bbox topic.
+    if [[ "${ENABLE_RVIZ}" == "true" || "${ENABLE_RVIZ}" == "1" ]]; then
+        pkill -9 -f rviz 2>/dev/null || true
+        timeout --kill-after=10 $((DURATION + 90)) \
+            roslaunch trajectory_planner benchmark_local_rviz.launch \
+            > "${LOG_DIR}/${TAG}_rviz.log" 2>&1 &
+        RVIZ_PID=$!
+    fi
+
+    sleep 9   # wait for takeoff + planner/RViz init
 
     # 6. Choose evaluator algorithm tag.
     local EVAL_ALGO="im2_mppi"
