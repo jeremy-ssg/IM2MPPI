@@ -10,7 +10,6 @@ import sys
 import time
 
 import rospy
-from geometry_msgs.msg import Point
 from nav_msgs.msg import Odometry
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -90,64 +89,29 @@ class PaperSnapshotCapture:
         self._publish_drone_marker(message)
 
     def _publish_drone_marker(self, odometry):
-        pose = odometry.pose.pose
         markers = MarkerArray()
 
-        body = Marker()
-        body.header = odometry.header
-        body.header.frame_id = odometry.header.frame_id or "map"
-        body.ns = "paper_drone"
-        body.id = 0
-        body.type = Marker.CYLINDER
-        body.action = Marker.ADD
-        body.pose = copy.deepcopy(pose)
-        body.pose.position.z += 0.55
-        body.scale.x = 0.62
-        body.scale.y = 0.62
-        body.scale.z = 0.18
-        body.color.r = 0.02
-        body.color.g = 0.20
-        body.color.b = 0.95
-        body.color.a = 1.0
-        markers.markers.append(body)
-
-        heading = Marker()
-        heading.header = body.header
-        heading.ns = "paper_drone"
-        heading.id = 1
-        heading.type = Marker.ARROW
-        heading.action = Marker.ADD
-        heading.pose = copy.deepcopy(pose)
-        heading.pose.position.z += 0.68
-        heading.scale.x = 0.95
-        heading.scale.y = 0.18
-        heading.scale.z = 0.18
-        heading.color.r = 1.0
-        heading.color.g = 0.72
-        heading.color.b = 0.02
-        heading.color.a = 1.0
-        markers.markers.append(heading)
-
-        center = Marker()
-        center.header = body.header
-        center.ns = "paper_drone"
-        center.id = 2
-        center.type = Marker.SPHERE
-        center.action = Marker.ADD
-        center.pose.position = Point(
-            x=pose.position.x,
-            y=pose.position.y,
-            z=pose.position.z + 0.70,
+        drone = Marker()
+        drone.header = odometry.header
+        drone.header.frame_id = odometry.header.frame_id or "map"
+        drone.ns = "paper_drone_model"
+        drone.id = 0
+        drone.type = Marker.MESH_RESOURCE
+        drone.action = Marker.ADD
+        drone.pose = copy.deepcopy(odometry.pose.pose)
+        drone.mesh_resource = (
+            "package://uav_simulator/urdf/quadcopter/meshes/"
+            "CERLAB_quadcopter.dae"
         )
-        center.pose.orientation.w = 1.0
-        center.scale.x = 0.22
-        center.scale.y = 0.22
-        center.scale.z = 0.22
-        center.color.r = 1.0
-        center.color.g = 1.0
-        center.color.b = 1.0
-        center.color.a = 1.0
-        markers.markers.append(center)
+        drone.mesh_use_embedded_materials = True
+        drone.scale.x = 1.5
+        drone.scale.y = 1.5
+        drone.scale.z = 1.5
+        drone.color.r = 1.0
+        drone.color.g = 1.0
+        drone.color.b = 1.0
+        drone.color.a = 1.0
+        markers.markers.append(drone)
 
         self.drone_marker_publisher.publish(markers)
 

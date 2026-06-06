@@ -56,22 +56,6 @@ Visualization Manager:
       Use rainbow: true
       Value: true
     - Alpha: 1
-      Axes Length: 0.55
-      Axes Radius: 0.09
-      Class: rviz/Pose
-      Color: 20; 70; 230
-      Enabled: true
-      Head Length: 0.28
-      Head Radius: 0.18
-      Name: Drone Pose
-      Queue Size: 10
-      Shaft Length: 0.55
-      Shaft Radius: 0.10
-      Shape: Arrow
-      Topic: /CERLAB/quadcopter/pose
-      Unreliable: false
-      Value: true
-    - Alpha: 1
       Class: rviz/RobotModel
       Collision Enabled: false
       Enabled: true
@@ -127,9 +111,9 @@ Visualization Manager:
     - Class: rviz/MarkerArray
       Enabled: true
       Marker Topic: /im2mppi/paper_drone_marker
-      Name: Drone Highlight
+      Name: Drone Model
       Namespaces:
-        paper_drone: true
+        paper_drone_model: true
       Queue Size: 2
       Value: true
   Enabled: true
