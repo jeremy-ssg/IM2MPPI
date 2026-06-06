@@ -2,23 +2,31 @@
   <!-- ════════════════════════════════════════════════════════════════════
        Minimal launch for Table I per-stage planner timing benchmark.
 
-       Composes only what is needed for plan() to be exercised:
-         - Gazebo server in headless mode (gui:=false, no gzclient)
-         - URDF + TF + quadrotor spawn  (via uav_simulator/start.launch)
-         - Map manager / detector / predictor / tracking controller
-         - IM2-MPPI navigation node    (the thing we're timing)
+       Mirrors the canonical IM2-MPPI launch pattern from
+       run_all_experiments.sh (run_one() at line ~188), namely:
 
-       Explicitly omits the heavy visualisation overlays that make the
-       full debug stack laggy and corrupt the timing:
-         - RViz                             (im2_mppi_demo.launch arg)
-         - All-dynamic-bbox publisher overlay
-         - Evaluator + summary writer       (we read timings from the
-                                             planner's stage_timing_log
-                                             instead)
+           roslaunch uav_simulator start.launch
+           roslaunch autonomous_flight im2_mppi_demo.launch
+
+       The ONLY addition is a <param> that sets the path the
+       instrumented planner appends one JSON line per plan() tick to.
+       The param is declared BEFORE the include so it sits on the
+       rosparam server before im2_mppi_navigation_node constructs.
+
+       This deliberately keeps im2_mppi_demo.launch's RViz config
+       (im2_mppi_navigation.rviz) — which only renders the detector's
+       FOV-filtered dynamic-obstacle bboxes, NOT every world obstacle.
+       That is the lightweight visualisation the production benchmark
+       has always used.
 
        Usage:
          roslaunch trajectory_planner bench_table_i.launch \
                  stage_timing_log:=/tmp/im2_stage.jsonl
+
+         # Fully headless (no Gazebo client, no RViz):
+         roslaunch trajectory_planner bench_table_i.launch \
+                 stage_timing_log:=/tmp/im2_stage.jsonl \
+                 gui:=false enable_rviz:=false
   ═══════════════════════════════════════════════════════════════════════ -->
 
   <!-- ─── Args ─────────────────────────────────────────────────────────── -->
@@ -27,71 +35,50 @@
        Empty string => instrumentation no-ops, table will report zero ticks. -->
   <arg name="stage_timing_log" default="/tmp/im2_stage.jsonl"/>
 
-  <!-- World file. Defaults to the same generated_env Scenario-A world that
-       run_im2_full_debug.sh exercises, but override-able for sensitivity
-       checks (e.g., Scenario-B 35-ped worlds). -->
+  <!-- Pass-through to start.launch / im2_mppi_demo.launch. Defaults match
+       run_all_experiments.sh so the obstacle visualisation behaviour is
+       identical to the benchmark runs the paper actually reports. -->
+  <arg name="gui"         default="true"/>
+  <arg name="enable_rviz" default="true"/>
+
+  <!-- Optional world override (matches run_all_experiments.sh WORLD_FILE). -->
   <arg name="world_name"
        default="$(find uav_simulator)/worlds/generated_env/generated_env.world"/>
 
-  <!-- Match the production CVaR-MPPI config the paper reports. -->
-  <arg name="method_type"  default="cvar_mppi"/>
-  <arg name="fusion_mode"  default="adaptive"/>
-  <arg name="random_seed"  default="1"/>
+  <!-- Match the paper's CVaR-MPPI production config (M4_im2_full). -->
+  <arg name="method_type" default="cvar_mppi"/>
+  <arg name="fusion_mode" default="adaptive"/>
+  <arg name="random_seed" default="1"/>
 
-  <!-- ─── Stage-timing parameter (read by instrumented planner) ───────── -->
+  <!-- ─── Stage-timing param (read by instrumented planner) ───────────── -->
+  <!-- Declared BEFORE the includes so it's on the master by the time
+       im2_mppi_navigation_node constructs and calls loadParams(). -->
 
   <param name="im2_mppi/stage_timing_log" type="string"
          value="$(arg stage_timing_log)"/>
 
-  <!-- ─── Gazebo + URDF + TF + spawn (headless) ───────────────────────── -->
+  <!-- ─── Simulator stack (verbatim from run_all_experiments.sh) ──────── -->
 
   <include file="$(find uav_simulator)/launch/start.launch">
-    <arg name="gui"          value="false"/>
-    <arg name="paused"       value="false"/>
-    <arg name="verbose"      value="false"/>
-    <arg name="use_sim_time" value="true"/>
-    <arg name="debug"        value="false"/>
-    <arg name="lidar"        value="false"/>
-    <arg name="world_name"   value="$(arg world_name)"/>
+    <arg name="gui"        value="$(arg gui)"/>
+    <arg name="world_name" value="$(arg world_name)"/>
   </include>
 
-  <!-- ─── Planner-stack rosparams (mirrors im2_mppi_demo.launch) ──────── -->
+  <!-- ─── Planner stack (verbatim from run_all_experiments.sh) ────────── -->
+  <!-- im2_mppi_demo.launch handles ALL the rosparams + nodes
+       (tracking_controller, im2_mppi_navigation_node, RViz) and uses
+       the production im2_mppi_navigation.rviz config that renders the
+       detector's FOV-filtered bboxes only. -->
 
-  <rosparam file="$(find tracking_controller)/cfg/controller_param.yaml"
-            ns="controller"/>
-  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/fake_detector_param.yaml"/>
-  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/flight_base.yaml"
-            ns="autonomous_flight"/>
-  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/mapping_param.yaml"
-            ns="/dynamic_map"/>
-  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/dynamic_detector_param.yaml"
-            ns="/onboard_detector"/>
-  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/predictor_param.yaml"
-            ns="/dynamic_predictor"/>
-  <rosparam file="$(find trajectory_planner)/cfg/im2_mppi.yaml"/>
+  <include file="$(find autonomous_flight)/launch/im2_mppi_demo.launch">
+    <arg name="enable_rviz" value="$(arg enable_rviz)"/>
+  </include>
 
-  <!-- Override the three knobs the paper-config table assumes. -->
+  <!-- Override the three planner knobs the paper-config table assumes.
+       Declared AFTER the include so they take precedence over
+       im2_mppi.yaml's defaults. -->
   <param name="im2_mppi/method_type" value="$(arg method_type)"/>
   <param name="im2_mppi/fusion_mode" value="$(arg fusion_mode)"/>
   <param name="im2_mppi/random_seed" value="$(arg random_seed)"/>
-
-  <!-- ─── Nodes ───────────────────────────────────────────────────────── -->
-
-  <!-- Low-level tracking controller (drives plan() consumption). -->
-  <node pkg="tracking_controller"
-        type="tracking_controller_node"
-        name="tracking_controller_node"
-        output="log"/>
-
-  <!-- The actual planner under test. -->
-  <node pkg="autonomous_flight"
-        type="im2_mppi_navigation_node"
-        name="im2_mppi_navigation_node"
-        output="log"/>
-
-  <!-- NOTE: No <node pkg="rviz" .../> here on purpose.
-             No publish_all_dynamic_bboxes.py overlay.
-             No evaluate_planner.launch evaluator.
-       The instrumented planner writes timing directly to stage_timing_log. -->
 
 </launch>
