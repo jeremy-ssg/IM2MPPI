@@ -111,7 +111,6 @@ cleanup_all() {
         pkill -${SIG} -f tracking_controller_node   2>/dev/null || true
         pkill -${SIG} -f onboard_detector           2>/dev/null || true
         pkill -${SIG} -f dynamic_predictor          2>/dev/null || true
-        pkill -${SIG} -f filter_visible_dynamic_bboxes.py 2>/dev/null || true
         pkill -${SIG} -f teleop_twist_keyboard      2>/dev/null || true
         pkill -${SIG} -f keyboard_control           2>/dev/null || true
         pkill -${SIG} -f key_teleop                 2>/dev/null || true
@@ -208,7 +207,8 @@ run_one() {
 
     # Use one dedicated RViz for every method. Planner launch files keep their
     # own RViz disabled so no legacy config can subscribe to full-map obstacle
-    # topics. The dedicated config contains only the current-view bbox topic.
+    # topics. The dedicated config omits obstacle bbox topics and keeps only
+    # the planner prediction overlays.
     if [[ "${ENABLE_RVIZ}" == "true" || "${ENABLE_RVIZ}" == "1" ]]; then
         pkill -9 -f rviz 2>/dev/null || true
         timeout --kill-after=10 $((DURATION + 90)) \

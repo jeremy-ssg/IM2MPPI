@@ -76,13 +76,6 @@ Visualization Manager:
       Value: true
     - Class: rviz/MarkerArray
       Enabled: true
-      Marker Topic: /onboard_detector/visible_dynamic_bboxes
-      Name: Current-View Dynamic Obstacles
-      Namespaces: {}
-      Queue Size: 2
-      Value: true
-    - Class: rviz/MarkerArray
-      Enabled: true
       Marker Topic: /im2mppi/dynamic_obstacle_predictions
       Name: IM2-MPPI Dynamic Predictions
       Namespaces:
