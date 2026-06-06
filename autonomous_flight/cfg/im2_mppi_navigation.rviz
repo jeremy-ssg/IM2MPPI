@@ -46,13 +46,13 @@ Visualization Manager:
       Value: true
     - Alpha: 1
       Class: rviz/Axes
-      Enabled: false
+      Enabled: true
       Length: 1
       Name: Axes
       Radius: 0.1
       Reference Frame: <Fixed Frame>
       Show Trail: false
-      Value: false
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -186,24 +186,6 @@ Visualization Manager:
         im2mppi_goal: true
       Queue Size: 100
       Value: true
-    - Class: rviz/MarkerArray
-      Enabled: true
-      Marker Topic: /seed_trajectory_viz/markers
-      Name: Seed Trajectory Playback
-      Namespaces:
-        seed_traj_agents: true
-        seed_traj_arrows: true
-        seed_traj_full_paths: true
-        seed_traj_labels: false
-        seed_traj_seed_label: false
-        seed_traj_trails: true
-        world_dynamic_obstacles: false
-        world_dynamic_path_arrows: false
-        world_dynamic_paths: false
-        world_dynamic_velocity_arrows: false
-        world_static_obstacles: false
-      Queue Size: 100
-      Value: true
 
     # ─── Detector / predictor (optional overlay) ──────────────────────
     - Class: rviz/MarkerArray
@@ -211,58 +193,7 @@ Visualization Manager:
       Marker Topic: /onboard_detector/GT_obstacle_bbox
       Name: GT Obstacles
       Namespaces: {}
-      Queue Size: 10
-      Value: false
-    - Class: rviz/MarkerArray
-      Enabled: true
-      Marker Topic: /onboard_detector/visible_dynamic_bboxes
-      Name: Visible Dynamic Obstacles
-      Namespaces: {}
-      Queue Size: 10
-      Value: true
-    - Class: rviz/MarkerArray
-      Enabled: false
-      Marker Topic: /onboard_detector/GT_obstacle_bbox_inflated
-      Name: Inflated GT Obstacles
-      Namespaces:
-        inflated_gt_obstacles: true
       Queue Size: 100
-      Value: false
-    - Class: rviz/MarkerArray
-      Enabled: false
-      Marker Topic: /onboard_detector/dynamic_bboxes
-      Name: Dynamic Obstacles
-      Namespaces: {}
-      Queue Size: 10
-      Value: false
-    - Class: rviz/MarkerArray
-      Enabled: false
-      Marker Topic: /onboard_detector/all_dynamic_bboxes
-      Name: All Dynamic Obstacles
-      Namespaces:
-        box3D: true
-      Queue Size: 100
-      Value: false
-    - Class: rviz/MarkerArray
-      Enabled: false
-      Marker Topic: /onboard_detector/tracked_bboxes
-      Name: Tracked Obstacles
-      Namespaces: {}
-      Queue Size: 10
-      Value: false
-    - Class: rviz/MarkerArray
-      Enabled: false
-      Marker Topic: /onboard_detector/history_trajectories
-      Name: Obstacle History
-      Namespaces: {}
-      Queue Size: 10
-      Value: false
-    - Class: rviz/MarkerArray
-      Enabled: false
-      Marker Topic: /onboard_detector/velocity_visualizaton
-      Name: Obstacle Velocity
-      Namespaces: {}
-      Queue Size: 10
       Value: false
     - Class: rviz/MarkerArray
       Enabled: false
@@ -301,13 +232,23 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Class: rviz/TopDownOrtho
+      Class: rviz/Orbit
+      Distance: 25.0
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.06
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Field of View: 0.7853981852531433
+      Focal Point: {X: 0.0, Y: 0.0, Z: 0.0}
+      Focal Shape Fixed Size: true
+      Focal Shape Size: 0.05
+      Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.01
-      Scale: 22
+      Pitch: 1.0
       Target Frame: <Fixed Frame>
-      X: 0
-      Y: 0
+      Yaw: 3.14
     Saved: ~
 Window Geometry:
   Displays:

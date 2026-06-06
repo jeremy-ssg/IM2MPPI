@@ -69,6 +69,8 @@ mkdir -p "${LOG_DIR}"
 
 YAML_PLANNER="$(rospack find trajectory_planner)/cfg/im2_mppi.yaml"
 SCRIPT_DIR="$(rospack find trajectory_planner)/scripts"
+IM2_RVIZ_CONFIG="$(rospack find autonomous_flight)/cfg/im2_mppi_navigation.rviz"
+INTENT_RVIZ_CONFIG="$(rospack find remote_control)/rviz/mpc_navigation.rviz"
 GAZEBO_GUI="${GAZEBO_GUI:-true}"
 ENABLE_RVIZ="${ENABLE_RVIZ:-true}"
 INTENT_MPC_LAUNCH="${INTENT_MPC_LAUNCH:-autonomous_flight intent_mpc_demo.launch}"
@@ -206,14 +208,18 @@ run_one() {
     STACK_PID=$!
     sleep 3
 
-    # Use one dedicated RViz for every method. Planner launch files keep their
-    # own RViz disabled so no legacy config can subscribe to full-map obstacle
-    # topics. The dedicated config omits obstacle bbox topics and keeps only
-    # the planner prediction overlays.
+    # Reproduce the v0.1-working visualization without rolling back planner
+    # code: MPPI variants use the original IM2 config, while Intent-MPC uses
+    # its original MPC config. Planner launch files keep their own RViz off so
+    # only one RViz process exists.
     if [[ "${ENABLE_RVIZ}" == "true" || "${ENABLE_RVIZ}" == "1" ]]; then
         pkill -9 -f rviz 2>/dev/null || true
+        local RVIZ_CONFIG="${IM2_RVIZ_CONFIG}"
+        if [[ "${LAUNCH}" =~ intent_mpc ]]; then
+            RVIZ_CONFIG="${INTENT_RVIZ_CONFIG}"
+        fi
         timeout --kill-after=10 $((DURATION + 90)) \
-            roslaunch trajectory_planner benchmark_local_rviz.launch \
+            rviz -d "${RVIZ_CONFIG}" \
             > "${LOG_DIR}/${TAG}_rviz.log" 2>&1 &
         RVIZ_PID=$!
     fi
