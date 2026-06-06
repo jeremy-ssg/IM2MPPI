@@ -111,6 +111,7 @@ cleanup_all() {
         pkill -${SIG} -f tracking_controller_node   2>/dev/null || true
         pkill -${SIG} -f onboard_detector           2>/dev/null || true
         pkill -${SIG} -f dynamic_predictor          2>/dev/null || true
+        pkill -${SIG} -f filter_visible_prediction_markers.py 2>/dev/null || true
         pkill -${SIG} -f teleop_twist_keyboard      2>/dev/null || true
         pkill -${SIG} -f keyboard_control           2>/dev/null || true
         pkill -${SIG} -f key_teleop                 2>/dev/null || true

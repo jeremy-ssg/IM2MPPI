@@ -296,6 +296,7 @@ catkin_install_python(PROGRAMS
   scripts/visualize_seed_trajectories_rviz.py
   scripts/publish_inflated_dynamic_bboxes.py
   scripts/filter_visible_dynamic_bboxes.py
+  scripts/filter_visible_prediction_markers.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

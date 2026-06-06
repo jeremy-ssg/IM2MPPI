@@ -76,7 +76,7 @@ Visualization Manager:
       Value: true
     - Class: rviz/MarkerArray
       Enabled: true
-      Marker Topic: /im2mppi/dynamic_obstacle_predictions
+      Marker Topic: /im2mppi/visible_dynamic_obstacle_predictions
       Name: IM2-MPPI Dynamic Predictions
       Namespaces:
         im2mppi_dyn_pred: true

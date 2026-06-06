@@ -1,4 +1,15 @@
 <launch>
+  <node pkg="trajectory_planner"
+        type="filter_visible_prediction_markers.py"
+        name="visible_prediction_marker_filter"
+        output="screen">
+    <param name="input_topic" value="/im2mppi/dynamic_obstacle_predictions"/>
+    <param name="output_topic" value="/im2mppi/visible_dynamic_obstacle_predictions"/>
+    <param name="odom_topic" value="/CERLAB/quadcopter/odom"/>
+    <param name="fov" value="3.141592653589793"/>
+    <param name="max_distance" value="4.0"/>
+  </node>
+
   <node pkg="rviz"
         type="rviz"
         name="benchmark_local_rviz"
