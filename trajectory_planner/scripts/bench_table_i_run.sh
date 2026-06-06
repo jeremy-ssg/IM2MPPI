@@ -4,19 +4,22 @@
 # Run the Table I per-stage timing benchmark end-to-end and print the
 # LaTeX block ready to paste into the paper.
 #
+# Drives bench_table_i.launch — a minimal headless stack composed in the
+# style of start.launch (no RViz, no gzclient, no all-dynamic-bbox
+# overlay, no evaluator). Anything visualisation-heavy distorts the
+# wall-clock per-stage measurement we are trying to capture.
+#
 # Prerequisites:
 #   1) The C++ instrumentation from bench_table_i_instrument.md must be
 #      applied to im2_mppi_planner.{h,cpp} and the workspace rebuilt.
 #      Without it, the planner never writes timing records and this
 #      script will report zero ticks at the end.
 #   2) ROS environment sourced (devel/setup.bash).
-#   3) A benchmark launch script capable of driving plan() at full rate.
-#      Defaults to run_im2_full_debug.sh; override via $BENCH_LAUNCH.
 #
 # Usage:
-#   ./bench_table_i_run.sh                # 90 s default
+#   ./bench_table_i_run.sh                # 90 s
 #   ./bench_table_i_run.sh 180            # 180 s
-#   BENCH_LAUNCH=./run_dra_mppi_experiments.sh ./bench_table_i_run.sh
+#   WORLD=path/to/scenario_b.world ./bench_table_i_run.sh 120
 #
 # Outputs:
 #   - $STAGE_LOG (default /tmp/im2_stage_<ts>.jsonl) — raw per-tick log
@@ -27,93 +30,99 @@ set -uo pipefail
 
 DURATION="${1:-90}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BENCH_LAUNCH="${BENCH_LAUNCH:-${SCRIPT_DIR}/run_im2_full_debug.sh}"
 
 TS="$(date +%s)"
 STAGE_LOG="${STAGE_LOG:-/tmp/im2_stage_${TS}.jsonl}"
 LATEX_OUT="${LATEX_OUT:-/tmp/table_i_${TS}.tex}"
+LAUNCH_LOG="${LAUNCH_LOG:-/tmp/im2_bench_launch_${TS}.log}"
 YAML_PATH="${YAML_PATH:-${SCRIPT_DIR}/../cfg/im2_mppi.yaml}"
-
-# Window we'll wait for roscore to come up after launching the bench.
-ROSCORE_WAIT_MAX="${ROSCORE_WAIT_MAX:-30}"
+WORLD="${WORLD:-}"
 
 echo ">> stage timing log : $STAGE_LOG"
 echo ">> latex output     : $LATEX_OUT"
-echo ">> bench launcher   : $BENCH_LAUNCH"
+echo ">> launch log       : $LAUNCH_LOG"
 echo ">> duration         : ${DURATION}s"
+[[ -n "$WORLD" ]] && echo ">> world override   : $WORLD"
 
 # Wipe / create the log so we only collect fresh ticks.
 : > "$STAGE_LOG"
 
-# Check ROS is sourced before we even start.
-if ! command -v rosparam >/dev/null 2>&1; then
-    echo "!! ROS not on PATH — did you source devel/setup.bash?" >&2
+# Sanity-check ROS env.
+if ! command -v roslaunch >/dev/null 2>&1; then
+    echo "!! roslaunch not on PATH — did you source devel/setup.bash?" >&2
     exit 4
 fi
 
-# Refuse to clobber an existing roscore the user might be using for
-# something else; we want full control of /im2_mppi/stage_timing_log.
+# Refuse to run against a roscore the user is already using; we want
+# a clean master for the benchmark.
 if rostopic list >/dev/null 2>&1; then
     echo "!! a roscore is already running. Stop it (or unset ROS_MASTER_URI)" >&2
-    echo "!! and re-run — the bench launcher needs to start its own." >&2
+    echo "!! and re-run — the bench launcher needs a clean master." >&2
     exit 5
 fi
 
-BENCH_PID=""
+LAUNCH_PID=""
 
 cleanup() {
-    if [[ -n "$BENCH_PID" ]] && kill -0 "$BENCH_PID" 2>/dev/null; then
-        echo ">> terminating bench launcher (pid $BENCH_PID)..."
-        kill "$BENCH_PID" 2>/dev/null || true
+    if [[ -n "$LAUNCH_PID" ]] && kill -0 "$LAUNCH_PID" 2>/dev/null; then
+        echo ">> terminating roslaunch (pid $LAUNCH_PID)..."
+        kill -INT "$LAUNCH_PID" 2>/dev/null || true
+        sleep 2
+        kill -TERM "$LAUNCH_PID" 2>/dev/null || true
+        sleep 1
+        kill -KILL "$LAUNCH_PID" 2>/dev/null || true
     fi
-    sleep 1
-    # Mop up anything the launcher's own cleanup may have missed.
-    pkill -f roslaunch  2>/dev/null || true
-    pkill -f rosmaster  2>/dev/null || true
-    pkill -f rosout     2>/dev/null || true
-    pkill -f gzserver   2>/dev/null || true
-    pkill -f gzclient   2>/dev/null || true
-    pkill -f rviz       2>/dev/null || true
+    # Mop up anything left running.
+    pkill -f roslaunch                       2>/dev/null || true
+    pkill -f rosmaster                       2>/dev/null || true
+    pkill -f rosout                          2>/dev/null || true
+    pkill -f gzserver                        2>/dev/null || true
+    pkill -f gzclient                        2>/dev/null || true
+    pkill -f im2_mppi_navigation_node        2>/dev/null || true
+    pkill -f tracking_controller_node        2>/dev/null || true
     sleep 1
 }
 trap cleanup EXIT INT TERM
 
-# 1) Start the bench launcher in the background — it will spin up its
-#    own roscore and full planner stack.
-echo ">> starting bench launcher..."
-"$BENCH_LAUNCH" 1 "$DURATION" &
-BENCH_PID=$!
+# Compose roslaunch args. stage_timing_log is set as a <param> inside
+# bench_table_i.launch, so there is no rosparam-vs-roscore race here.
+LAUNCH_ARGS=("trajectory_planner" "bench_table_i.launch"
+             "stage_timing_log:=$STAGE_LOG")
+if [[ -n "$WORLD" ]]; then
+    LAUNCH_ARGS+=("world_name:=$WORLD")
+fi
 
-# 2) Wait for roscore to come up so we can set the timing-log parameter
-#    BEFORE the planner constructs and reads its rosparams.
-echo ">> waiting for roscore (up to ${ROSCORE_WAIT_MAX}s)..."
+echo ">> roslaunch ${LAUNCH_ARGS[*]}"
+# `timeout` ensures we cut things off even if Gazebo wedges.
+# DURATION+30 leaves headroom for roscore + gzserver startup.
+( timeout --kill-after=15 "$((DURATION + 30))" \
+      roslaunch "${LAUNCH_ARGS[@]}" \
+      > "$LAUNCH_LOG" 2>&1 ) &
+LAUNCH_PID=$!
+
+# Wait until the planner node has constructed and started writing
+# timing records, or DURATION seconds elapse — whichever comes first.
+echo ">> running for ${DURATION}s (stream into $STAGE_LOG)..."
 SLEPT=0
-while ! rosparam list >/dev/null 2>&1; do
-    sleep 1
-    SLEPT=$((SLEPT + 1))
-    if [[ "$SLEPT" -ge "$ROSCORE_WAIT_MAX" ]]; then
-        echo "!! roscore did not come up within ${ROSCORE_WAIT_MAX}s." >&2
-        echo "!! Inspect bench launcher log; aborting." >&2
-        exit 6
+LAST_LINES=0
+while [[ "$SLEPT" -lt "$DURATION" ]]; do
+    if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
+        echo "!! roslaunch died early (after ${SLEPT}s). See: $LAUNCH_LOG" >&2
+        break
+    fi
+    sleep 5
+    SLEPT=$((SLEPT + 5))
+    LINES="$(wc -l < "$STAGE_LOG" 2>/dev/null || echo 0)"
+    if [[ "$LINES" -ne "$LAST_LINES" ]]; then
+        echo "   [${SLEPT}s] $LINES tick(s) recorded"
+        LAST_LINES="$LINES"
     fi
 done
-echo ">> roscore up after ${SLEPT}s; setting stage timing log path"
 
-# 3) Set the parameter the instrumented planner reads at construction.
-#    run_im2_full_debug.sh has a ~13 s gap between roscore startup and
-#    the im2_mppi_demo.launch fire, so we comfortably win the race.
-if ! rosparam set /im2_mppi/stage_timing_log "$STAGE_LOG"; then
-    echo "!! failed to set /im2_mppi/stage_timing_log on the master" >&2
-    exit 7
-fi
-echo ">> /im2_mppi/stage_timing_log = $STAGE_LOG"
+cleanup
+trap - EXIT INT TERM
 
-# 4) Let the planner run. The bench launcher will exit on its own when
-#    DURATION elapses (it has its own timeout); we wait for it.
-wait "$BENCH_PID" || true
-BENCH_PID=""
-
-# 5) Aggregate.
+# Aggregate.
 N_TICKS=0
 if [[ -s "$STAGE_LOG" ]]; then
     N_TICKS="$(wc -l < "$STAGE_LOG")"
@@ -131,6 +140,7 @@ if [[ "$N_TICKS" -eq 0 ]]; then
 !!   - catkin_make must be re-run after the edits.
 !!
 !! See: ${SCRIPT_DIR}/bench_table_i_instrument.md
+!! See launch log for runtime errors: $LAUNCH_LOG
 EOF
     exit 8
 fi
@@ -147,3 +157,4 @@ python3 "${SCRIPT_DIR}/bench_table_i.py" "$STAGE_LOG" \
 echo
 echo ">> wrote LaTeX block to $LATEX_OUT"
 echo ">> raw timing log retained at $STAGE_LOG"
+echo ">> roslaunch console log:    $LAUNCH_LOG"

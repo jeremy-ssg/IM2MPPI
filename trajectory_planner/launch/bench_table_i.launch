@@ -1,0 +1,97 @@
+<launch>
+  <!-- ════════════════════════════════════════════════════════════════════
+       Minimal launch for Table I per-stage planner timing benchmark.
+
+       Composes only what is needed for plan() to be exercised:
+         - Gazebo server in headless mode (gui:=false, no gzclient)
+         - URDF + TF + quadrotor spawn  (via uav_simulator/start.launch)
+         - Map manager / detector / predictor / tracking controller
+         - IM2-MPPI navigation node    (the thing we're timing)
+
+       Explicitly omits the heavy visualisation overlays that make the
+       full debug stack laggy and corrupt the timing:
+         - RViz                             (im2_mppi_demo.launch arg)
+         - All-dynamic-bbox publisher overlay
+         - Evaluator + summary writer       (we read timings from the
+                                             planner's stage_timing_log
+                                             instead)
+
+       Usage:
+         roslaunch trajectory_planner bench_table_i.launch \
+                 stage_timing_log:=/tmp/im2_stage.jsonl
+  ═══════════════════════════════════════════════════════════════════════ -->
+
+  <!-- ─── Args ─────────────────────────────────────────────────────────── -->
+
+  <!-- Path the instrumented planner appends one JSON line per plan() tick to.
+       Empty string => instrumentation no-ops, table will report zero ticks. -->
+  <arg name="stage_timing_log" default="/tmp/im2_stage.jsonl"/>
+
+  <!-- World file. Defaults to the same generated_env Scenario-A world that
+       run_im2_full_debug.sh exercises, but override-able for sensitivity
+       checks (e.g., Scenario-B 35-ped worlds). -->
+  <arg name="world_name"
+       default="$(find uav_simulator)/worlds/generated_env/generated_env.world"/>
+
+  <!-- Match the production CVaR-MPPI config the paper reports. -->
+  <arg name="method_type"  default="cvar_mppi"/>
+  <arg name="fusion_mode"  default="adaptive"/>
+  <arg name="random_seed"  default="1"/>
+
+  <!-- ─── Stage-timing parameter (read by instrumented planner) ───────── -->
+
+  <param name="im2_mppi/stage_timing_log" type="string"
+         value="$(arg stage_timing_log)"/>
+
+  <!-- ─── Gazebo + URDF + TF + spawn (headless) ───────────────────────── -->
+
+  <include file="$(find uav_simulator)/launch/start.launch">
+    <arg name="gui"          value="false"/>
+    <arg name="paused"       value="false"/>
+    <arg name="verbose"      value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="debug"        value="false"/>
+    <arg name="lidar"        value="false"/>
+    <arg name="world_name"   value="$(arg world_name)"/>
+  </include>
+
+  <!-- ─── Planner-stack rosparams (mirrors im2_mppi_demo.launch) ──────── -->
+
+  <rosparam file="$(find tracking_controller)/cfg/controller_param.yaml"
+            ns="controller"/>
+  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/fake_detector_param.yaml"/>
+  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/flight_base.yaml"
+            ns="autonomous_flight"/>
+  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/mapping_param.yaml"
+            ns="/dynamic_map"/>
+  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/dynamic_detector_param.yaml"
+            ns="/onboard_detector"/>
+  <rosparam file="$(find autonomous_flight)/cfg/mpc_navigation/predictor_param.yaml"
+            ns="/dynamic_predictor"/>
+  <rosparam file="$(find trajectory_planner)/cfg/im2_mppi.yaml"/>
+
+  <!-- Override the three knobs the paper-config table assumes. -->
+  <param name="im2_mppi/method_type" value="$(arg method_type)"/>
+  <param name="im2_mppi/fusion_mode" value="$(arg fusion_mode)"/>
+  <param name="im2_mppi/random_seed" value="$(arg random_seed)"/>
+
+  <!-- ─── Nodes ───────────────────────────────────────────────────────── -->
+
+  <!-- Low-level tracking controller (drives plan() consumption). -->
+  <node pkg="tracking_controller"
+        type="tracking_controller_node"
+        name="tracking_controller_node"
+        output="log"/>
+
+  <!-- The actual planner under test. -->
+  <node pkg="autonomous_flight"
+        type="im2_mppi_navigation_node"
+        name="im2_mppi_navigation_node"
+        output="log"/>
+
+  <!-- NOTE: No <node pkg="rviz" .../> here on purpose.
+             No publish_all_dynamic_bboxes.py overlay.
+             No evaluate_planner.launch evaluator.
+       The instrumented planner writes timing directly to stage_timing_log. -->
+
+</launch>
