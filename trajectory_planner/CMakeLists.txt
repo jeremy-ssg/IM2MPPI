@@ -297,12 +297,14 @@ catkin_install_python(PROGRAMS
   scripts/publish_inflated_dynamic_bboxes.py
   scripts/filter_visible_dynamic_bboxes.py
   scripts/filter_visible_prediction_markers.py
+  scripts/capture_paper_rviz_snapshot.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
 install(PROGRAMS
   scripts/show_selected_seed_trajectories_rviz.sh
   scripts/show_real_scene_seed_trajectories_rviz.sh
+  scripts/run_im2_paper_snapshot.sh
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
