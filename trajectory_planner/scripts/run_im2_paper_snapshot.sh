@@ -6,13 +6,13 @@
 #                                [IMAGE_WIDTH_PX] [IMAGE_HEIGHT_PX]
 #
 # Example:
-#   ./run_im2_paper_snapshot.sh 12 20 7.5
+#   ./run_im2_paper_snapshot.sh 12 20 5.0
 
 set -u
 
 SEED="${1:-12}"
 CAPTURE_COUNT="${2:-20}"
-VIEW_HALF_WIDTH="${3:-7.5}"
+VIEW_HALF_WIDTH="${3:-5.0}"
 RVIZ_WINDOW_WIDTH="${RVIZ_WINDOW_WIDTH:-1920}"
 RVIZ_WINDOW_HEIGHT="${RVIZ_WINDOW_HEIGHT:-1080}"
 IMAGE_WIDTH="${4:-${RVIZ_WINDOW_WIDTH}}"
