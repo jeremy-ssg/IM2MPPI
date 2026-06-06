@@ -124,6 +124,14 @@ Visualization Manager:
         im2mppi_dyn_pred: true
       Queue Size: 2
       Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /im2mppi/paper_drone_marker
+      Name: Drone Highlight
+      Namespaces:
+        paper_drone: true
+      Queue Size: 2
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 245; 245; 245
@@ -152,9 +160,9 @@ Visualization Manager:
 Window Geometry:
   Displays:
     collapsed: true
-  Height: 1080
+  Height: 900
   Hide Left Dock: true
   Hide Right Dock: true
-  Width: 1920
-  X: 0
-  Y: 0
+  Width: 1600
+  X: 40
+  Y: 40

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import copy
 import math
 import os
 import re
@@ -9,8 +10,9 @@ import sys
 import time
 
 import rospy
+from geometry_msgs.msg import Point
 from nav_msgs.msg import Odometry
-from visualization_msgs.msg import MarkerArray
+from visualization_msgs.msg import Marker, MarkerArray
 
 try:
     from rviz.srv import SendFilePath
@@ -43,6 +45,8 @@ class PaperSnapshotCapture:
         self.min_rollout_markers = int(
             rospy.get_param("~min_rollout_markers", 150)
         )
+        self.output_width = int(rospy.get_param("~output_width", 3840))
+        self.output_height = int(rospy.get_param("~output_height", 2160))
 
         self.start_wall_time = time.monotonic()
         self.previous_position = None
@@ -50,6 +54,12 @@ class PaperSnapshotCapture:
         self.travelled_distance = 0.0
         self.rollout_count = 0
         self.saved_count = 0
+        self.drone_marker_publisher = rospy.Publisher(
+            "/im2mppi/paper_drone_marker",
+            MarkerArray,
+            queue_size=1,
+            latch=True,
+        )
 
         rospy.Subscriber(
             "/CERLAB/quadcopter/odom",
@@ -77,6 +87,69 @@ class PaperSnapshotCapture:
                 self.travelled_distance += step
         self.previous_position = position
         self.current_position = position
+        self._publish_drone_marker(message)
+
+    def _publish_drone_marker(self, odometry):
+        pose = odometry.pose.pose
+        markers = MarkerArray()
+
+        body = Marker()
+        body.header = odometry.header
+        body.header.frame_id = odometry.header.frame_id or "map"
+        body.ns = "paper_drone"
+        body.id = 0
+        body.type = Marker.CYLINDER
+        body.action = Marker.ADD
+        body.pose = copy.deepcopy(pose)
+        body.pose.position.z += 0.55
+        body.scale.x = 0.62
+        body.scale.y = 0.62
+        body.scale.z = 0.18
+        body.color.r = 0.02
+        body.color.g = 0.20
+        body.color.b = 0.95
+        body.color.a = 1.0
+        markers.markers.append(body)
+
+        heading = Marker()
+        heading.header = body.header
+        heading.ns = "paper_drone"
+        heading.id = 1
+        heading.type = Marker.ARROW
+        heading.action = Marker.ADD
+        heading.pose = copy.deepcopy(pose)
+        heading.pose.position.z += 0.68
+        heading.scale.x = 0.95
+        heading.scale.y = 0.18
+        heading.scale.z = 0.18
+        heading.color.r = 1.0
+        heading.color.g = 0.72
+        heading.color.b = 0.02
+        heading.color.a = 1.0
+        markers.markers.append(heading)
+
+        center = Marker()
+        center.header = body.header
+        center.ns = "paper_drone"
+        center.id = 2
+        center.type = Marker.SPHERE
+        center.action = Marker.ADD
+        center.pose.position = Point(
+            x=pose.position.x,
+            y=pose.position.y,
+            z=pose.position.z + 0.70,
+        )
+        center.pose.orientation.w = 1.0
+        center.scale.x = 0.22
+        center.scale.y = 0.22
+        center.scale.z = 0.22
+        center.color.r = 1.0
+        center.color.g = 1.0
+        center.color.b = 1.0
+        center.color.a = 1.0
+        markers.markers.append(center)
+
+        self.drone_marker_publisher.publish(markers)
 
     def _rollout_callback(self, message):
         self.rollout_count = len(message.markers)
@@ -249,7 +322,15 @@ class PaperSnapshotCapture:
                 len(windows),
             )
             command = self._imagemagick_command()
-            command.extend(["-window", window_id, output_file])
+            command.extend(
+                [
+                    "-window",
+                    window_id,
+                    "-resize",
+                    "{}x{}!".format(self.output_width, self.output_height),
+                    output_file,
+                ]
+            )
             result = subprocess.run(
                 command,
                 check=False,
