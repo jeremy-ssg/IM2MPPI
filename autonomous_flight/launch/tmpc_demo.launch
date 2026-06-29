@@ -6,7 +6,7 @@
        T-MPC++ demo launch file
        Topology-driven MPC (de Groot et al., IEEE T-RO 2025). Benchmark method
        id M6_tmpc. Mirrors im2_mppi_demo.launch but starts tmpc_navigation_node
-       and loads the T-MPC++ planner parameters (+ vendored guidance_planner cfg).
+       and loads the self-contained T-MPC++ planner parameters.
        See trajectory_planner/docs/TMPC_INTEGRATION.md
   ═══════════════════════════════════════════════════════════════════════════ -->
 
@@ -35,10 +35,6 @@
 
   <!-- T-MPC++ planner parameters (all keys live under the "tmpc" namespace) -->
   <rosparam file="$(find trajectory_planner)/cfg/tmpc.yaml"/>
-
-  <!-- Official topology guidance planner config. T-MPC++ requires
-       tud-amr/guidance_planner in the catkin workspace. -->
-  <rosparam file="$(find guidance_planner)/config/params.yaml"/>
 
   <!-- ─── Nodes ──────────────────────────────────────────────────────────── -->
 

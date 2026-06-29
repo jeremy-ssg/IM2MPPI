@@ -7,12 +7,12 @@
     Pipeline per plan():
         buildConstantVelocityPredictions()  (locked decision: const-vel)
         buildGoalGrid()                      (Frenet grid along the lap ref path)
-        runGuidance()                        (vendored guidance_planner -> P branches)
+        runGuidance()                        (internal Visibility-PRM -> P branches)
         solveBranch() x (P + unguided)       (self-contained OSQP linear MPC)
         decide()                             (Eq.12 consistency-weighted min cost)
 
     LOCAL PLANNER (the "fork" resolved, see docs §8): a self-contained linear MPC
-    on a 2-D double integrator (z fixed at z_lap), solved with the vendored
+    on a 3-D double integrator, solved with the bundled
     OsqpEigen. ALL branches share the SAME tracking cost (track the real reference
     path) so their optimal costs are directly comparable (paper Eq.11). The branches
     differ ONLY in their linear half-plane constraints (Eq.8): guided branches derive
@@ -27,16 +27,14 @@
 #include <trajectory_planner/tmpc/tmpcPlanner.h>
 #include <trajectory_planner/path_search/astarOcc.h>
 #include <trajectory_planner/third_party/OsqpEigen/OsqpEigen.h>
-#if TMPC_HAVE_GUIDANCE_PLANNER
-  #include <guidance_planner/config.h>
-  #include <ros_tools/spline.h>
-#endif
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <limits>
+#include <queue>
+#include <sstream>
 
 namespace trajPlanner {
 
@@ -92,45 +90,54 @@ static Eigen::Vector2d localTangent(const std::vector<Eigen::Vector3d>& path, in
     return t.normalized();
 }
 
-#if TMPC_HAVE_GUIDANCE_PLANNER
-static std::string guidanceTopologyMethodName(std::string method) {
-    std::transform(method.begin(), method.end(), method.begin(),
-                   [](unsigned char c){ return (char)std::tolower(c); });
-    if (method == "winding" || method == "winding_angle") return "Winding";
-    if (method == "uvd") return "UVD";
-    return "Homology"; // h_signature / homology: official homology implementation.
+static double cross2d(const Eigen::Vector2d& a, const Eigen::Vector2d& b) {
+    return a.x() * b.y() - a.y() * b.x();
 }
 
-static std::shared_ptr<RosTools::Spline2D> makeGuidanceReferenceSpline(
-    const std::vector<Eigen::Vector3d>& ref) {
-    std::vector<double> x;
-    std::vector<double> y;
-    std::vector<double> s;
-    x.reserve(ref.size());
-    y.reserve(ref.size());
-    s.reserve(ref.size());
+struct GuidanceNode {
+    Eigen::Vector2d p = Eigen::Vector2d::Zero();
+    int k = 0;
+    bool goal = false;
+    double goalCost = 0.0;
+};
 
-    double acc = 0.0;
-    Eigen::Vector2d prev = Eigen::Vector2d::Zero();
-    bool havePrev = false;
-    for (const auto& p3 : ref) {
-        Eigen::Vector2d p = p3.head<2>();
-        if (havePrev) {
-            const double ds = (p - prev).norm();
-            if (ds < 1e-4) continue;
-            acc += ds;
-        }
-        x.push_back(p.x());
-        y.push_back(p.y());
-        s.push_back(acc);
-        prev = p;
-        havePrev = true;
+struct GuidanceCandidate {
+    double cost = 0.0;
+    std::vector<int> nodes;
+    std::vector<Eigen::Vector3d> traj;
+    std::string signature;
+};
+
+static bool sameGuidanceSample(const GuidanceNode& a, const GuidanceNode& b) {
+    return a.k == b.k && (a.p - b.p).norm() < 0.18;
+}
+
+static int stableClassId(const std::string& sig) {
+    uint32_t h = 2166136261u;
+    for (char c : sig) {
+        h ^= (uint8_t)c;
+        h *= 16777619u;
     }
-
-    if (x.size() < 2 || s.back() <= 1e-4) return nullptr;
-    return std::make_shared<RosTools::Spline2D>(x, y, s);
+    return (int)(h & 0x3fffffff);
 }
-#endif
+
+static Eigen::Vector2d interpolateGuidancePath(
+    const std::vector<GuidanceNode>& nodes,
+    const std::vector<int>& path,
+    int queryK) {
+    if (path.empty()) return Eigen::Vector2d::Zero();
+    if (queryK <= nodes[path.front()].k) return nodes[path.front()].p;
+    for (size_t i = 0; i + 1 < path.size(); ++i) {
+        const GuidanceNode& a = nodes[path[i]];
+        const GuidanceNode& b = nodes[path[i + 1]];
+        if (queryK >= a.k && queryK <= b.k) {
+            double den = std::max(1, b.k - a.k);
+            double u = (double)(queryK - a.k) / den;
+            return a.p + u * (b.p - a.p);
+        }
+    }
+    return nodes[path.back()].p;
+}
 
 tmpcPlanner::tmpcPlanner(const ros::NodeHandle& nh) : nh_(nh) {}
 
@@ -396,102 +403,253 @@ void tmpcPlanner::buildStaticAwareReference() {
 }
 
 // ---------------------------------------------------------------------------
-// Guidance: call the vendored guidance_planner to get P topology-distinct
-// trajectories. If the official package is absent or returns no path, do not
-// invent a non-paper fallback topology.
+// Guidance: lightweight in-package Visibility-PRM in (x,y,t).
+// Nodes are sampled along the current reference corridor and around dynamic
+// obstacles. Edges are forward-in-time visibility checks against dynamic obstacle
+// tubes and the inflated static map. A uniform-cost graph search enumerates low
+// cost paths; topology signatures keep only homotopy-distinct branches.
 // ---------------------------------------------------------------------------
 bool tmpcPlanner::runGuidance() {
     branches_.clear();
+    if ((int)localRef_.size() < horizon_ + 1) return false;
 
-#if TMPC_HAVE_GUIDANCE_PLANNER
-    const int guidanceVerticalGoals = (goalGridLat_ % 2 == 1)
-                                    ? std::max(1, goalGridLat_)
-                                    : std::max(1, goalGridLat_ + 1);
-    if (!guidance_) {
-        nh_.setParam("/guidance_planner/N", horizon_);
-        nh_.setParam("/guidance_planner/T", dt_ * (double)horizon_);
-        nh_.setParam("/guidance_planner/sampling/n_samples", std::max(1, prmSamplesN_));
-        nh_.setParam("/guidance_planner/homotopy/n_paths", std::max(1, numTrajP_));
-        nh_.setParam("/guidance_planner/homotopy/comparison_function",
-                     guidanceTopologyMethodName(homotopyMethod_));
-        nh_.setParam("/guidance_planner/goals/longitudinal", std::max(2, goalGridLong_));
-        nh_.setParam("/guidance_planner/goals/vertical", guidanceVerticalGoals);
-        nh_.setParam("/guidance_planner/max_velocity", vMax_);
-        nh_.setParam("/guidance_planner/max_acceleration", aMax_);
-        nh_.setParam("/guidance_planner/predictions_are_constant_velocity", true);
-        nh_.setParam("/clock_frequency", 1.0 / std::max(1e-3, dt_));
-        guidance_.reset(new GuidancePlanner::GlobalGuidance());
-    }
-    GuidancePlanner::Config* gCfg = guidance_->GetConfig();
-    GuidancePlanner::Config::N = horizon_;
-    GuidancePlanner::Config::DT = dt_;
-    GuidancePlanner::Config::CONTROL_DT = dt_;
-    gCfg->T_ = dt_ * (double)horizon_;
-    gCfg->n_paths_ = std::max(1, numTrajP_);
-    gCfg->n_samples_ = std::max(1, prmSamplesN_);
-    gCfg->longitudinal_goals_ = std::max(2, goalGridLong_);
-    gCfg->vertical_goals_ = guidanceVerticalGoals;
-    gCfg->topology_comparison_function_ = guidanceTopologyMethodName(homotopyMethod_);
-    gCfg->selection_weight_consistency_ = std::max(1e-3, consistencyCi_);
-    gCfg->max_velocity_ = vMax_;
-    gCfg->max_acceleration_ = aMax_;
-    gCfg->assume_constant_velocity_ = true;
+    const int N = horizon_;
+    const double halfWidth = std::max(0.5, 0.5 * goalLatSpread_);
+    const double dynMargin = 0.10;
+    const double speedLimit = std::max(vMax_ * 1.35, vRef_ * 1.75);
+    std::vector<GuidanceNode> nodes;
+    std::vector<int> goalIds;
 
-    // start
-    guidance_->SetStart(currPos_.head<2>(), currYaw_, currVel_.head<2>().norm());
-    guidance_->SetReferenceVelocity(vRef_);
-    guidance_->SetPlanningFrequency(1.0 / std::max(1e-3, dt_));
+    auto staticFree = [&](const Eigen::Vector2d& p) -> bool {
+        if (!map_) return true;
+        return !map_->isInflatedOccupied(Eigen::Vector3d(p.x(), p.y(), zLap_));
+    };
 
-    // obstacles via constant-velocity constructor (id, start, vel, DT, N, radius)
-    std::vector<GuidancePlanner::Obstacle> gObs;
-    for (size_t j = 0; j < obsPredPos_.size(); ++j) {
-        std::vector<Eigen::Vector2d> pos2d(obsPredPos_[j].size());
-        for (size_t k = 0; k < obsPredPos_[j].size(); ++k)
-            pos2d[k] = obsPredPos_[j][k].head<2>();
-        gObs.emplace_back((int)j, pos2d, obsRadius_[j]);
-    }
-    std::vector<GuidancePlanner::Halfspace> staticObs;   // (static map handled by local MPC)
-    guidance_->LoadObstacles(gObs, staticObs);
-
-    auto refSpline = makeGuidanceReferenceSpline(localRef_);
-    if (!refSpline) {
-        ROS_WARN_THROTTLE(1.0, "[tmpcPlanner] cannot build guidance reference spline.");
-        return false;
-    }
-
-    // Official guidance_planner path: LoadReferencePath samples the Visibility-PRM
-    // along the reference and constructs the goal grid internally, matching the
-    // open-source T-MPC++ stack more closely than manually injecting goals.
-    guidance_->LoadReferencePath(0.0, refSpline, std::max(0.5, goalLatSpread_));
-
-    if (!guidance_->Update() || guidance_->NumberOfGuidanceTrajectories() == 0) {
-        ROS_WARN_THROTTLE(1.0,
-            "[tmpcPlanner] official guidance_planner produced no topology paths; skipping this plan.");
-        return false;
-    }
-
-    int nTraj = std::min(numTrajP_, guidance_->NumberOfGuidanceTrajectories());
-    for (int i = 0; i < nTraj; ++i) {
-        auto& out = guidance_->GetGuidanceTrajectory(i);
-        auto& traj2d = out.spline.GetTrajectory();
-        TMPCBranch b;
-        b.guided  = true;
-        b.classId = out.topology_class;
-        b.guidanceTraj.resize(horizon_ + 1);
-        for (int k = 0; k <= horizon_; ++k) {
-            Eigen::Vector2d p = traj2d.getPoint(k * dt_);
-            b.guidanceTraj[k] = Eigen::Vector3d(p.x(), p.y(), zLap_);
+    auto addNode = [&](const Eigen::Vector2d& p, int k, bool goal, double goalCost) -> int {
+        k = std::max(0, std::min(N, k));
+        if (!staticFree(p)) return -1;
+        GuidanceNode candidate;
+        candidate.p = p;
+        candidate.k = k;
+        candidate.goal = goal;
+        candidate.goalCost = goalCost;
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            if (sameGuidanceSample(candidate, nodes[i])) {
+                if (goal) {
+                    nodes[i].goal = true;
+                    nodes[i].goalCost = std::min(nodes[i].goalCost, goalCost);
+                    goalIds.push_back((int)i);
+                }
+                return (int)i;
+            }
         }
+        nodes.push_back(candidate);
+        int id = (int)nodes.size() - 1;
+        if (goal) goalIds.push_back(id);
+        return id;
+    };
+
+    const int startId = addNode(currPos_.head<2>(), 0, false, 0.0);
+    if (startId < 0) {
+        ROS_WARN_THROTTLE(1.0, "[tmpcPlanner] guidance start is in collision/outside map.");
+        return false;
+    }
+
+    int latCount = std::max(3, goalGridLat_);
+    if (latCount % 2 == 0) ++latCount;
+    const int halfLat = latCount / 2;
+    const int longSamples = std::max(3, std::min(N - 1, std::max(1, prmSamplesN_) / latCount));
+
+    // Reference-corridor samples: deterministic PRM lattice in (x,y,t).
+    for (int s = 1; s <= longSamples; ++s) {
+        int k = std::max(1, std::min(N - 1, (int)std::round((double)s * N / (double)(longSamples + 1))));
+        Eigen::Vector2d c = localRef_[k].head<2>();
+        Eigen::Vector2d t = localTangent(localRef_, k);
+        Eigen::Vector2d n(-t.y(), t.x());
+        for (int li = -halfLat; li <= halfLat; ++li) {
+            double offset = (halfLat > 0) ? halfWidth * (double)li / (double)halfLat : 0.0;
+            addNode(c + offset * n, k, false, 0.0);
+        }
+    }
+
+    // Obstacle-induced connector samples, equivalent in spirit to Visibility-PRM
+    // guard/connector points around space-time obstacle tubes.
+    for (size_t j = 0; j < obsPredPos_.size(); ++j) {
+        int bestK = 0;
+        double bestClear = std::numeric_limits<double>::infinity();
+        for (int k = 0; k <= N && k < (int)obsPredPos_[j].size(); ++k) {
+            const double d = (localRef_[k].head<2>() - obsPredPos_[j][k].head<2>()).norm();
+            const double clear = d - (rUav_ + obsRadius_[j]);
+            if (clear < bestClear) { bestClear = clear; bestK = k; }
+        }
+        if (bestClear > halfWidth + rUav_ + obsRadius_[j] + 1.0) continue;
+
+        static const int timeOffsets[] = {-4, -2, 0, 2, 4};
+        for (int dk : timeOffsets) {
+            int k = std::max(1, std::min(N - 1, bestK + dk));
+            if (k >= (int)obsPredPos_[j].size()) continue;
+            Eigen::Vector2d t = localTangent(localRef_, k);
+            Eigen::Vector2d n(-t.y(), t.x());
+            double sep = rUav_ + obsRadius_[j] + std::max(0.55, 0.35 * goalLatSpread_);
+            Eigen::Vector2d o = obsPredPos_[j][k].head<2>();
+            addNode(o + sep * n, k, false, 0.0);
+            addNode(o - sep * n, k, false, 0.0);
+        }
+    }
+
+    if (goalGrid_.empty()) {
+        addNode(localRef_.back().head<2>(), N, true, 0.0);
+    } else {
+        for (const auto& g3 : goalGrid_) {
+            double cost = (g3.head<2>() - localRef_.back().head<2>()).norm();
+            addNode(g3.head<2>(), N, true, cost);
+        }
+    }
+    if (goalIds.empty()) {
+        ROS_WARN_THROTTLE(1.0, "[tmpcPlanner] guidance has no collision-free goals.");
+        return false;
+    }
+
+    auto edgeVisible = [&](int aId, int bId) -> bool {
+        const GuidanceNode& a = nodes[aId];
+        const GuidanceNode& b = nodes[bId];
+        if (b.k <= a.k) return false;
+        const double dtSpan = std::max(1e-3, (double)(b.k - a.k) * dt_);
+        if ((b.p - a.p).norm() / dtSpan > speedLimit) return false;
+
+        Eigen::Vector3d prev(a.p.x(), a.p.y(), zLap_);
+        for (int k = a.k; k <= b.k; ++k) {
+            double u = (double)(k - a.k) / (double)std::max(1, b.k - a.k);
+            Eigen::Vector2d p2 = a.p + u * (b.p - a.p);
+            Eigen::Vector3d p3(p2.x(), p2.y(), zLap_);
+            if (map_) {
+                if (map_->isInflatedOccupied(p3)) return false;
+                if ((p3 - prev).norm() > 1e-4 && map_->isInflatedOccupiedLine(prev, p3)) return false;
+            }
+            for (size_t j = 0; j < obsPredPos_.size(); ++j) {
+                if (k >= (int)obsPredPos_[j].size()) continue;
+                const double d = (p2 - obsPredPos_[j][k].head<2>()).norm();
+                if (d < rUav_ + obsRadius_[j] + dynMargin) return false;
+            }
+            prev = p3;
+        }
+        return true;
+    };
+
+    std::vector<std::vector<std::pair<int, double>>> adj(nodes.size());
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        for (size_t j = 0; j < nodes.size(); ++j) {
+            if (nodes[j].k <= nodes[i].k) continue;
+            if (!edgeVisible((int)i, (int)j)) continue;
+            double spatial = (nodes[j].p - nodes[i].p).norm();
+            double temporal = 0.02 * (double)(nodes[j].k - nodes[i].k);
+            double centerBias = 0.03 * (nodes[j].p - localRef_[nodes[j].k].head<2>()).norm();
+            double goalCost = nodes[j].goal ? nodes[j].goalCost : 0.0;
+            adj[i].push_back(std::make_pair((int)j, spatial + temporal + centerBias + goalCost));
+        }
+        std::sort(adj[i].begin(), adj[i].end(),
+                  [](const std::pair<int,double>& a, const std::pair<int,double>& b){
+                      return a.second < b.second;
+                  });
+    }
+
+    auto makeTrajectory = [&](const std::vector<int>& path) {
+        std::vector<Eigen::Vector3d> traj(N + 1);
+        for (int k = 0; k <= N; ++k) {
+            Eigen::Vector2d p = interpolateGuidancePath(nodes, path, k);
+            traj[k] = Eigen::Vector3d(p.x(), p.y(), zLap_);
+        }
+        return traj;
+    };
+
+    auto topologySignature = [&](const std::vector<Eigen::Vector3d>& traj) {
+        std::ostringstream oss;
+        int relevant = 0;
+        for (size_t j = 0; j < obsPredPos_.size(); ++j) {
+            double minClear = std::numeric_limits<double>::infinity();
+            double signedAtMin = 0.0;
+            for (int k = 0; k <= N && k < (int)obsPredPos_[j].size(); ++k) {
+                Eigen::Vector2d rel = traj[k].head<2>() - obsPredPos_[j][k].head<2>();
+                double clear = rel.norm() - (rUav_ + obsRadius_[j]);
+                if (clear < minClear) {
+                    minClear = clear;
+                    signedAtMin = cross2d(localTangent(localRef_, k), rel);
+                }
+            }
+            if (minClear < halfWidth + rUav_ + obsRadius_[j] + 0.8) {
+                oss << j << (signedAtMin >= 0.0 ? "L" : "R") << ";";
+                ++relevant;
+            }
+        }
+        if (relevant == 0) oss << "direct";
+        return oss.str();
+    };
+
+    struct SearchItem {
+        double cost = 0.0;
+        int node = 0;
+        std::vector<int> path;
+    };
+    struct SearchCompare {
+        bool operator()(const SearchItem& a, const SearchItem& b) const {
+            return a.cost > b.cost;
+        }
+    };
+
+    std::priority_queue<SearchItem, std::vector<SearchItem>, SearchCompare> open;
+    SearchItem root;
+    root.cost = 0.0;
+    root.node = startId;
+    root.path.push_back(startId);
+    open.push(root);
+    std::vector<GuidanceCandidate> candidates;
+    std::vector<std::string> seenSignatures;
+    int expansions = 0;
+    const int maxExpansions = 8000;
+
+    while (!open.empty() && (int)candidates.size() < std::max(1, numTrajP_) && expansions < maxExpansions) {
+        SearchItem cur = open.top();
+        open.pop();
+        ++expansions;
+
+        if (nodes[cur.node].goal) {
+            GuidanceCandidate cand;
+            cand.cost = cur.cost;
+            cand.nodes = cur.path;
+            cand.traj = makeTrajectory(cur.path);
+            cand.signature = topologySignature(cand.traj);
+            if (std::find(seenSignatures.begin(), seenSignatures.end(), cand.signature) == seenSignatures.end()) {
+                seenSignatures.push_back(cand.signature);
+                candidates.push_back(std::move(cand));
+            }
+            continue;
+        }
+
+        for (const auto& e : adj[cur.node]) {
+            SearchItem next;
+            next.cost = cur.cost + e.second;
+            next.node = e.first;
+            next.path = cur.path;
+            next.path.push_back(e.first);
+            open.push(std::move(next));
+        }
+    }
+
+    for (const auto& cand : candidates) {
+        TMPCBranch b;
+        b.guided = true;
+        b.classId = stableClassId(cand.signature);
+        b.guidanceTraj = cand.traj;
         branches_.push_back(std::move(b));
     }
-#else
-    ROS_ERROR_THROTTLE(2.0,
-        "[tmpcPlanner] T-MPC++ topology requires the official tud-amr/guidance_planner package; "
-        "install it in the catkin workspace instead of using a non-paper fallback.");
-    return false;
-#endif
 
-    if (branches_.empty()) return false;
+    if (branches_.empty()) {
+        ROS_WARN_THROTTLE(1.0,
+            "[tmpcPlanner] internal Visibility-PRM found no topology path "
+            "(nodes=%zu goals=%zu expansions=%d).",
+            nodes.size(), goalIds.size(), expansions);
+        return false;
+    }
 
     // T-MPC++ adds one non-guided local planner in parallel to the guided topology
     // branches; this is the official "++" behavior, not a replacement for topology.
@@ -787,12 +945,6 @@ void tmpcPlanner::decide() {
     if (bestIdx_ >= 0) {
         bestClassId_ = branches_[bestIdx_].classId;
         prevClassId_ = bestClassId_;
-#if TMPC_HAVE_GUIDANCE_PLANNER
-        if (guidance_) {
-            if (bestClassId_ >= 0) guidance_->OverrideSelectedTrajectory(bestClassId_);
-            else                  guidance_->OverrideSelectedTrajectory(0, true);
-        }
-#endif
     }
 }
 

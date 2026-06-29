@@ -38,12 +38,6 @@ find_package(catkin REQUIRED COMPONENTS
   dynamic_predictor
 )
 
-# ── Required: official topology guidance planner for T-MPC++ (M6_tmpc) ──────
-# T-MPC++ uses tud-amr/guidance_planner for Visibility-PRM + homotopy-distinct
-# guidance paths. We require it rather than falling back to a non-paper variant.
-find_package(guidance_planner REQUIRED)
-message(STATUS "T-MPC++: guidance_planner found at ${guidance_planner_INCLUDE_DIRS}")
-
 # OpenMP lets T-MPC++ solve its P+1 local-MPC branches in parallel (big speedup).
 # Optional: without it the branch loop runs sequentially (pragma is ignored).
 find_package(OpenMP QUIET)
@@ -163,7 +157,6 @@ include_directories(
   include/${PROJECT_NAME}/mpc_solver/qpoases
   include/${PROJECT_NAME}/mpc_solver/qpoases/INCLUDE
   include/${PROJECT_NAME}/mpc_solver/qpoases/SRC
-  ${guidance_planner_INCLUDE_DIRS}   # empty if guidance_planner not found
   # ${OsqpEigen_INCLUDE_DIRS}
 )
 
@@ -276,10 +269,6 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
   target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/third_party/lib/ARM/libosqp.so ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/third_party/lib/ARM/libOsqpEigen.so.0.8.0 ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/third_party/ACADO/libacado_toolkit_s.so)
 else()
     message("Unknown architecture: ${CMAKE_SYSTEM_PROCESSOR}")
-endif()
-# Link the official guidance planner used by T-MPC++.
-if(guidance_planner_FOUND)
-  target_link_libraries(${PROJECT_NAME} ${guidance_planner_LIBRARIES})
 endif()
 # Link OpenMP for parallel branch solves (defines _OPENMP, adds -fopenmp).
 if(OpenMP_CXX_FOUND)

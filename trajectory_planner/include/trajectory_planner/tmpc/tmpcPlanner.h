@@ -8,7 +8,7 @@
 
         1. setObstacles()  : detector obstacles -> constant-velocity predictions
         2. setReference()  : ref path + ego state -> static-aware local reference
-        3. runGuidance()   : guidance_planner -> P topology-distinct (x,y,t) trajs,
+        3. runGuidance()   : internal Visibility-PRM -> P topology-distinct (x,y,t) trajs,
                              lifted to 3D at z_lap
         4. optimizeBranches(): for each guidance traj i (plus 1 unguided in T-MPC++),
                              solve a local MPC warm-started from that traj and locked
@@ -16,16 +16,13 @@
         5. decide()        : i* = argmin_i w_i J_i  with consistency weighting (Eq.12).
 
     DESIGN STATUS (see trajectory_planner/docs/TMPC_INTEGRATION.md):
-      - The hard topology part (Visibility-PRM + H-signature + propagation) is the
-        VENDORED guidance_planner package (Apache-2.0), included via
-        <guidance_planner/global_guidance.h>. Do NOT reimplement it here.
+      - The topology part is implemented locally: a lightweight Visibility-PRM in
+        (x,y,t), graph search, and topology-signature filtering. This keeps the
+        benchmark self-contained while following the official T-MPC++ pipeline.
       - The local-planner homotopy constraint (Eq.8) enforcement is an OPEN FORK
         (ACADO cannot take runtime half-planes; OSQP path can). The class is written
         solver-agnostic: solveBranch() is the single hook to fill per the chosen option.
       - Obstacle prediction = constant velocity (locked decision).
-
-    If the official guidance_planner package is not available, this planner refuses
-    to run the topology stage instead of inventing a non-paper fallback.
 */
 
 #ifndef TMPC_PLANNER_H
@@ -45,20 +42,11 @@
 #include <trajectory_planner/mpcPlanner.h>      // local MPC (ACADO + OSQP paths)
 #include <trajectory_planner/utils.h>
 
-// Vendored topology planner (clone tud-amr/guidance_planner into the workspace).
-// Guarded so this header still parses before the package is present.
-#if __has_include(<guidance_planner/global_guidance.h>)
-  #include <guidance_planner/global_guidance.h>
-  #define TMPC_HAVE_GUIDANCE_PLANNER 1
-#else
-  #define TMPC_HAVE_GUIDANCE_PLANNER 0
-#endif
-
 namespace trajPlanner {
 
 // One candidate produced per planning iteration (per guidance branch + unguided).
 struct TMPCBranch {
-    int                            classId = -1;     // homotopy class id (from guidance)
+    int                            classId = -1;     // topology class id
     bool                           guided  = true;   // false for the T-MPC++ unguided branch
     bool                           overTake = false; // true = vertical "fly-over" branch (3D)
     bool                           feasible = false;
@@ -112,11 +100,11 @@ public:
 
 private:
     // ---- guidance --------------------------------------------------------------
-    // Calls the vendored guidance_planner; fills branches_ guidanceTraj + classId.
+    // Runs the internal Visibility-PRM topology search; fills branches_.
     bool runGuidance();
 
-    // Build constant-velocity obstacle predictions consumable by guidance_planner
-    // and by the local MPC homotopy constraints.
+    // Build constant-velocity obstacle predictions for the internal guidance PRM
+    // and the local MPC homotopy constraints.
     void buildConstantVelocityPredictions();
 
     // Place the goal grid along the reference path (Frenet: lateral spread + look-ahead).
@@ -233,10 +221,6 @@ private:
     // NOTE: even with separate instances, ACADO-generated code may share a global
     // workspace -> see docs §RISKS. solveSequential_ guards correctness.
     std::vector<std::shared_ptr<mpcPlanner>> localPlanners_;
-
-#if TMPC_HAVE_GUIDANCE_PLANNER
-    std::unique_ptr<GuidancePlanner::GlobalGuidance> guidance_;
-#endif
 };
 
 } // namespace trajPlanner
