@@ -49,6 +49,13 @@ else()
   message(STATUS "T-MPC++: guidance_planner NOT found - tmpcPlanner uses fallback branch.")
 endif()
 
+# OpenMP lets T-MPC++ solve its P+1 local-MPC branches in parallel (big speedup).
+# Optional: without it the branch loop runs sequentially (pragma is ignored).
+find_package(OpenMP QUIET)
+if(OpenMP_CXX_FOUND)
+  message(STATUS "T-MPC++: OpenMP found - parallel branch solves enabled.")
+endif()
+
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 # find_package(OsqpEigen REQUIRED)
@@ -278,6 +285,10 @@ endif()
 # Link the optional guidance planner used by T-MPC++ (no-op if not found).
 if(guidance_planner_FOUND)
   target_link_libraries(${PROJECT_NAME} ${guidance_planner_LIBRARIES})
+endif()
+# Link OpenMP for parallel branch solves (defines _OPENMP, adds -fopenmp).
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(${PROJECT_NAME} OpenMP::OpenMP_CXX)
 endif()
 # target_link_libraries(polyTrajSolver OsqpEigen::OsqpEigen)
 # target_link_libraries(polyTrajOctomap polyTrajSolver pwlTraj)

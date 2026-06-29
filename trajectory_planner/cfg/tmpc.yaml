@@ -19,7 +19,7 @@ tmpc:
   r_uav: 0.30                    # [m] robot disc radius
 
   # -- Guidance planner (Visibility-PRM + homotopy) -------------------
-  num_trajectories_P: 4          # P topology-distinct guidance trajectories (paper default)
+  num_trajectories_P: 3          # P topology-distinct guidance trajectories (paper uses 4; 3 is lighter)
   add_unguided_planner: true     # true = T-MPC++ (extra non-guided MPC in parallel)
   prm_samples_n: 100             # PRM sample budget (paper: n < 100 sufficient)
   homotopy_method: "h_signature" # h_signature | winding | uvd
@@ -34,9 +34,9 @@ tmpc:
 
   # -- Local planners (parallel ACADO MPC) ---------------------------
   beta_relax: 0.05               # homotopy-constraint relaxation 0..1 (Eq.8); ~0 = pure topology lock
-  parallel_threads: 5            # P + 1 (unguided). See ACADO thread-safety note in docs.
+  parallel_threads: 5            # informational; OpenMP uses the runtime's thread pool
   thread_timeout_ms: 50          # paper: drop threads exceeding control period, keep best finished
-  solve_sequential: true         # START sequential (ACADO solver not thread-safe). Optimize later.
+  solve_sequential: false        # false = solve branches in parallel (OpenMP). true = single-thread.
 
   # -- Decision making (Eq.12 consistency) ---------------------------
   consistency_ci: 0.75           # weight preferring the previously-executed homotopy class
@@ -70,4 +70,4 @@ tmpc:
   #   gt                : ground-truth future (algorithm upper bound)
   prediction_source: "constant_velocity"
   prediction_horizon_s: 1.9      # = horizon_steps * dt
-  max_obstacles: 12              # nearest-N obstacles considered (paper considers 12)
+  max_obstacles: 8               # nearest-N obstacles considered (fewer = faster QP; paper uses 12)

@@ -456,6 +456,15 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
     OsqpEigen::Solver solver;
     solver.settings()->setWarmStart(true);
     solver.settings()->setVerbosity(false);
+    // Speed: this QP is re-solved every cycle for every branch, so cap the work.
+    // Loose tolerances + no polish + a hard iteration/time cap keep each solve in
+    // the low-ms range instead of grinding to the 4000-iter default on tight/poorly
+    // conditioned branches (the usual cause of T-MPC lag).
+    solver.settings()->setMaxIteration(800);
+    solver.settings()->setAbsoluteTolerance(2e-3);
+    solver.settings()->setRelativeTolerance(2e-3);
+    solver.settings()->setPolish(false);
+    solver.settings()->setAdaptiveRho(true);
     solver.data()->setNumberOfVariables(nVar);
     solver.data()->setNumberOfConstraints(nCon);
     if (!solver.data()->setHessianMatrix(P))            { branch.feasible = false; return; }
@@ -513,9 +522,14 @@ bool tmpcPlanner::plan() {
     buildGoalGrid();
     if (!runGuidance()) { planTimeMs_ = 0.0; return false; }
 
-    // Solve each branch's local MPC. ACADO note does not apply (self-contained OSQP),
-    // but we still default to sequential solves for deterministic benchmark timing.
-    for (auto& b : branches_) solveBranch(b);
+    // Solve each branch's local MPC. Each OsqpEigen solver is constructed locally
+    // inside solveBranch (independent state), so the branches can be solved in
+    // parallel — this mirrors the paper's P+1 parallel local planners. Set
+    // solve_sequential:true for deterministic single-thread timing.
+#ifdef _OPENMP
+    #pragma omp parallel for schedule(dynamic) if(!solveSequential_)
+#endif
+    for (int i = 0; i < (int)branches_.size(); ++i) solveBranch(branches_[i]);
 
     decide();
 
