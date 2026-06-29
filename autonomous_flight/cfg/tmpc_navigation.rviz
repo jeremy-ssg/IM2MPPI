@@ -188,15 +188,23 @@ Visualization Manager:
       Namespaces: {}
       Queue Size: 100
       Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /tmpc/dynamic_obstacle_predictions
+      Name: T-MPC++ Obstacle Predictions
+      Namespaces:
+        tmpc_obstacles: true
+      Queue Size: 100
+      Value: true
 
     # ─── Detector / predictor (optional overlay) ──────────────────────
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /onboard_detector/GT_obstacle_bbox
       Name: GT Obstacles
       Namespaces: {}
       Queue Size: 100
-      Value: false
+      Value: true
     - Class: rviz/Marker
       Enabled: true
       Marker Topic: /tracking_controller/vel_and_acc_info

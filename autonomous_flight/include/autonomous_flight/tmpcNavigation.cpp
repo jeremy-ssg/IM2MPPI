@@ -259,9 +259,10 @@ void tmpcNavigation::visCB(const ros::TimerEvent&) {
     std::lock_guard<std::mutex> lk(this->planMutex_);
     if (this->bestTrajPub_.getNumSubscribers() > 0) this->publishBestTrajectory();
     if (this->refPathPub_.getNumSubscribers()  > 0) this->publishReferencePath();
-    // planner-owned markers (guidance / optimized / goal grid)
+    // planner-owned markers (guidance / optimized / goal grid / obstacle predictions)
     this->tmpc_->publishGuidancePaths();
     this->tmpc_->publishOptimizedTrajectories();
+    this->tmpc_->publishObstaclePredictions();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

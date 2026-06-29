@@ -85,6 +85,7 @@ void tmpcPlanner::registerPub() {
     guidancePathsPub_   = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/guidance_paths", 1);
     optimizedTrajPub_   = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/optimized_trajectories", 1);
     goalGridPub_        = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/goal", 1);
+    dynObsPub_          = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/dynamic_obstacle_predictions", 1);
 }
 
 void tmpcPlanner::updateCurrStates(const Eigen::Vector3d& pos,
@@ -172,33 +173,42 @@ void tmpcPlanner::buildGoalGrid() {
         return t.normalized();
     };
 
-    // local horizon reference: sample refPath forward by v_ref each step (cost target)
+    // Local horizon reference: resample refPath forward at v_ref*dt arc-length per
+    // step. We track segConsumed (distance already used inside the current segment)
+    // across steps so the cursor truly advances — without it, when the path's point
+    // spacing exceeds v_ref*dt the reference collapses onto a single point and the
+    // drone barely moves (the "very slow / very short trajectory" bug).
     {
-        double s = 0.0;
-        int i = nearest;
-        Eigen::Vector3d p = refPath_[nearest];
-        localRef_.push_back(p);
+        const double step = vRef_ * dt_;
+        const int    last = (int)refPath_.size() - 1;
+        int    i = nearest;          // current segment [i, i+1]
+        double segConsumed = 0.0;    // distance already consumed within segment i
+
+        Eigen::Vector3d p0 = refPath_[nearest]; p0.z() = zLap_;
+        localRef_.push_back(p0);
+
         for (int k = 1; k <= horizon_; ++k) {
-            double step = vRef_ * dt_;
-            // advance along the polyline by 'step'
-            double remaining = step;
-            while (i < (int)refPath_.size() - 1 && remaining > 0.0) {
+            double need = step;
+            while (i < last && need > 0.0) {
                 Eigen::Vector3d seg = refPath_[i + 1] - refPath_[i];
                 double segLen = seg.head<2>().norm();
-                if (segLen < 1e-9) { ++i; continue; }
-                if (remaining < segLen) {
-                    p = refPath_[i] + seg * (remaining / segLen);
-                    remaining = 0.0;
-                } else {
-                    remaining -= segLen;
-                    ++i;
-                    p = refPath_[std::min(i, (int)refPath_.size() - 1)];
-                }
+                double segRemain = segLen - segConsumed;
+                if (segRemain <= 1e-9) { ++i; segConsumed = 0.0; continue; }
+                if (need < segRemain) { segConsumed += need; need = 0.0; }
+                else                  { need -= segRemain; ++i; segConsumed = 0.0; }
+            }
+            Eigen::Vector3d p;
+            if (i >= last) {
+                p = refPath_[last];                    // reached the end of the path
+            } else {
+                Eigen::Vector3d seg = refPath_[i + 1] - refPath_[i];
+                double segLen = seg.head<2>().norm();
+                double frac = (segLen > 1e-9) ? (segConsumed / segLen) : 0.0;
+                p = refPath_[i] + seg * frac;
             }
             p.z() = zLap_;
             localRef_.push_back(p);
         }
-        (void)s;
     }
 
     // goal grid centered on the look-ahead point
@@ -558,6 +568,9 @@ bool tmpcPlanner::plan() {
 
     auto t1 = std::chrono::steady_clock::now();
     planTimeMs_ = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    ROS_INFO_THROTTLE(1.0,
+        "[tmpcPlanner] obs=%zu branches=%zu best=%d class=%d plan=%.1fms zLap=%.2f",
+        obsPredPos_.size(), branches_.size(), bestIdx_, bestClassId_, planTimeMs_, zLap_);
     return bestIdx_ >= 0;
 }
 
@@ -685,6 +698,46 @@ void tmpcPlanner::publishOptimizedTrajectories() const {
     }
 
     optimizedTrajPub_.publish(arr);
+}
+
+void tmpcPlanner::publishObstaclePredictions() const {
+    visualization_msgs::MarkerArray arr;
+
+    visualization_msgs::Marker del;
+    del.header.frame_id = "map";
+    del.ns = "tmpc_obstacles";
+    del.action = visualization_msgs::Marker::DELETEALL;
+    arr.markers.push_back(del);
+
+    int mid = 0;
+    for (size_t j = 0; j < obsPredPos_.size(); ++j) {
+        // predicted-motion line (constant velocity)
+        auto line = lineMarker(mid++, 1.0, 0.35, 0.2, 0.05, "tmpc_obstacles");
+        for (const auto& p : obsPredPos_[j]) {
+            geometry_msgs::Point pt; pt.x = p.x(); pt.y = p.y(); pt.z = zLap_;
+            line.points.push_back(pt);
+        }
+        arr.markers.push_back(line);
+
+        // disc at the current position (radius = horizontal obstacle radius)
+        visualization_msgs::Marker disc;
+        disc.header.frame_id = "map";
+        disc.header.stamp = ros::Time::now();
+        disc.ns = "tmpc_obstacles";
+        disc.id = mid++;
+        disc.type = visualization_msgs::Marker::CYLINDER;
+        disc.action = visualization_msgs::Marker::ADD;
+        disc.pose.position.x = obsPredPos_[j].front().x();
+        disc.pose.position.y = obsPredPos_[j].front().y();
+        disc.pose.position.z = zLap_;
+        disc.pose.orientation.w = 1.0;
+        disc.scale.x = disc.scale.y = 2.0 * obsRadius_[j];
+        disc.scale.z = 0.1;
+        disc.color.r = 1.0; disc.color.g = 0.35; disc.color.b = 0.2; disc.color.a = 0.5;
+        disc.lifetime = ros::Duration(0.5);
+        arr.markers.push_back(disc);
+    }
+    dynObsPub_.publish(arr);
 }
 
 } // namespace trajPlanner

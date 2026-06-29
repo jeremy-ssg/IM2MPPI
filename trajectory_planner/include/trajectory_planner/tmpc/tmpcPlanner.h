@@ -106,6 +106,7 @@ public:
     // visualization helpers (publish all P guidance + optimized branches)
     void publishGuidancePaths()       const;
     void publishOptimizedTrajectories() const;
+    void publishObstaclePredictions() const;   // /tmpc/dynamic_obstacle_predictions
 
 private:
     // ---- guidance --------------------------------------------------------------
@@ -151,6 +152,7 @@ private:
     ros::Publisher guidancePathsPub_;       // /tmpc/guidance_paths
     ros::Publisher optimizedTrajPub_;       // /tmpc/optimized_trajectories
     ros::Publisher goalGridPub_;            // /tmpc/goal
+    ros::Publisher dynObsPub_;              // /tmpc/dynamic_obstacle_predictions
 
     // --- parameters (from tmpc.yaml) -------------------------------------------
     double dt_              = 0.05;
