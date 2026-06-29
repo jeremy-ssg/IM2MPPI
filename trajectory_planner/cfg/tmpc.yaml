@@ -38,6 +38,15 @@ tmpc:
   thread_timeout_ms: 50          # paper: drop threads exceeding control period, keep best finished
   solve_sequential: false        # false = solve branches in parallel (OpenMP). true = single-thread.
 
+  # -- Static map avoidance ------------------------------------------
+  use_static_astar: true          # A* over inflated occupancy map before local optimization
+  static_astar_step: 0.20         # [m] A* grid resolution
+  static_astar_pool_xy: 80        # cells per x/y dimension in the local A* pool
+  static_astar_pool_z: 16         # cells in z dimension in the local A* pool
+  static_halfplane_search_radius: 0.8 # [m] scan radius around guidance for static half-planes
+  static_halfplane_clearance: 0.25    # [m] extra half-plane margin; map is already inflated
+  static_halfplane_rays: 16       # angular samples for local static half-plane constraints
+
   # -- Decision making (Eq.12 consistency) ---------------------------
   consistency_ci: 0.75           # weight preferring the previously-executed homotopy class
 
@@ -57,11 +66,9 @@ tmpc:
   v_ref: 1.5                     # reference cruise speed [m/s]
 
   # -- 3-D vertical avoidance (UAV) ----------------------------------
-  #   The local MPC optimizes full 3-D motion (x,y,z). On top of the horizontal
-  #   left/right homotopy branches, an extra "fly-over" branch is added that climbs
-  #   above obstacles where the path passes near them. Disable to force purely
-  #   horizontal (paper-faithful 2-D) avoidance.
-  enable_vertical_avoidance: true
+  #   Off by default because the paper/Open-source T-MPC++ topology planner is
+  #   2-D in (x,y,t). Turn on only for UAV-specific fly-over experiments.
+  enable_vertical_avoidance: false
   vertical_clearance: 0.4        # [m] required clearance above an obstacle's top
 
   # -- Obstacle prediction interface ---------------------------------

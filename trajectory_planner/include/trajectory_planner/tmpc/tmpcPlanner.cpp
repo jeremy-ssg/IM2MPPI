@@ -25,8 +25,15 @@
 */
 
 #include <trajectory_planner/tmpc/tmpcPlanner.h>
+#include <trajectory_planner/path_search/astarOcc.h>
 #include <trajectory_planner/third_party/OsqpEigen/OsqpEigen.h>
+#if TMPC_HAVE_GUIDANCE_PLANNER
+  #include <guidance_planner/config.h>
+  #include <ros_tools/spline.h>
+#endif
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -36,6 +43,94 @@ namespace trajPlanner {
 // State/control dimensions of the local MPC (3-D double integrator).
 static constexpr int NS = 6;   // [x, y, z, vx, vy, vz]
 static constexpr int NU = 3;   // [ax, ay, az]
+
+static std::vector<Eigen::Vector3d> resamplePolyline(
+    const std::vector<Eigen::Vector3d>& path, int count, double zFallback) {
+    std::vector<Eigen::Vector3d> out;
+    if (path.empty() || count <= 0) return out;
+    if (path.size() == 1 || count == 1) {
+        out.assign(std::max(1, count), path.front());
+        for (auto& p : out) p.z() = zFallback;
+        return out;
+    }
+
+    std::vector<double> s(path.size(), 0.0);
+    for (size_t i = 1; i < path.size(); ++i)
+        s[i] = s[i - 1] + (path[i].head<2>() - path[i - 1].head<2>()).norm();
+    const double total = s.back();
+    if (total < 1e-6) {
+        out.assign(count, path.front());
+        for (auto& p : out) p.z() = zFallback;
+        return out;
+    }
+
+    out.reserve(count);
+    size_t seg = 0;
+    for (int k = 0; k < count; ++k) {
+        const double target = total * (double)k / (double)std::max(1, count - 1);
+        while (seg + 1 < s.size() && s[seg + 1] < target) ++seg;
+        if (seg + 1 >= path.size()) {
+            out.push_back(path.back());
+        } else {
+            const double denom = std::max(1e-9, s[seg + 1] - s[seg]);
+            const double a = std::max(0.0, std::min(1.0, (target - s[seg]) / denom));
+            out.push_back(path[seg] + a * (path[seg + 1] - path[seg]));
+        }
+        out.back().z() = zFallback;
+    }
+    return out;
+}
+
+static Eigen::Vector2d localTangent(const std::vector<Eigen::Vector3d>& path, int k) {
+    if (path.size() < 2) return Eigen::Vector2d(1.0, 0.0);
+    const int n = (int)path.size();
+    const int a = std::max(0, k - 1);
+    const int b = std::min(n - 1, k + 1);
+    Eigen::Vector2d t = path[b].head<2>() - path[a].head<2>();
+    if (t.norm() < 1e-6) t = path[std::min(n - 1, k + 1)].head<2>() - path[k].head<2>();
+    if (t.norm() < 1e-6) return Eigen::Vector2d(1.0, 0.0);
+    return t.normalized();
+}
+
+#if TMPC_HAVE_GUIDANCE_PLANNER
+static std::string guidanceTopologyMethodName(std::string method) {
+    std::transform(method.begin(), method.end(), method.begin(),
+                   [](unsigned char c){ return (char)std::tolower(c); });
+    if (method == "winding" || method == "winding_angle") return "Winding";
+    if (method == "uvd") return "UVD";
+    return "Homology"; // h_signature / homology: official homology implementation.
+}
+
+static std::shared_ptr<RosTools::Spline2D> makeGuidanceReferenceSpline(
+    const std::vector<Eigen::Vector3d>& ref) {
+    std::vector<double> x;
+    std::vector<double> y;
+    std::vector<double> s;
+    x.reserve(ref.size());
+    y.reserve(ref.size());
+    s.reserve(ref.size());
+
+    double acc = 0.0;
+    Eigen::Vector2d prev = Eigen::Vector2d::Zero();
+    bool havePrev = false;
+    for (const auto& p3 : ref) {
+        Eigen::Vector2d p = p3.head<2>();
+        if (havePrev) {
+            const double ds = (p - prev).norm();
+            if (ds < 1e-4) continue;
+            acc += ds;
+        }
+        x.push_back(p.x());
+        y.push_back(p.y());
+        s.push_back(acc);
+        prev = p;
+        havePrev = true;
+    }
+
+    if (x.size() < 2 || s.back() <= 1e-4) return nullptr;
+    return std::make_shared<RosTools::Spline2D>(x, y, s);
+}
+#endif
 
 tmpcPlanner::tmpcPlanner(const ros::NodeHandle& nh) : nh_(nh) {}
 
@@ -64,16 +159,31 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/vz_max",              vzMax_,           1.0);
     nh_.param("tmpc/az_max",              azMax_,           2.0);
     nh_.param("tmpc/v_ref",               vRef_,            1.5);
-    nh_.param("tmpc/enable_vertical_avoidance", vertical_,  true);
+    nh_.param("tmpc/enable_vertical_avoidance", vertical_,  false);
     nh_.param("tmpc/vertical_clearance",  vClearance_,      0.4);
     nh_.param<std::string>("tmpc/prediction_source", predictionSource_, "constant_velocity");
     nh_.param("tmpc/max_obstacles",       maxObstacles_,    12);
-
+    nh_.param("tmpc/use_static_astar",    useStaticAstar_,  true);
+    nh_.param("tmpc/static_astar_step",   staticAstarStep_, 0.20);
+    nh_.param("tmpc/static_astar_pool_xy",staticAstarPoolXY_, 80);
+    nh_.param("tmpc/static_astar_pool_z", staticAstarPoolZ_, 16);
+    nh_.param("tmpc/static_halfplane_search_radius", staticHalfplaneSearchRadius_, 0.8);
+    nh_.param("tmpc/static_halfplane_clearance",     staticHalfplaneClearance_, 0.25);
+    nh_.param("tmpc/static_halfplane_rays",          staticHalfplaneRays_, 16);
     // cost weights
     nh_.param("tmpc/cost_weights/w_contour", wContour_, 1.0);
     nh_.param("tmpc/cost_weights/w_lag",     wLag_,     1.0);
     nh_.param("tmpc/cost_weights/w_vel",     wVel_,     0.1);
     nh_.param("tmpc/cost_weights/w_acc",     wAcc_,     0.05);
+
+    parallelThreads_ = std::max(1, parallelThreads_);
+    threadTimeoutMs_ = std::max(1, threadTimeoutMs_);
+    staticAstarStep_ = std::max(0.05, staticAstarStep_);
+    staticAstarPoolXY_ = std::max(20, staticAstarPoolXY_);
+    staticAstarPoolZ_ = std::max(3, staticAstarPoolZ_);
+    staticHalfplaneSearchRadius_ = std::max(0.0, staticHalfplaneSearchRadius_);
+    staticHalfplaneClearance_ = std::max(0.02, staticHalfplaneClearance_);
+    staticHalfplaneRays_ = std::max(4, staticHalfplaneRays_);
 
     ROS_INFO("[tmpcPlanner] init: P=%d unguided=%d horizon=%d dt=%.3f z_lap=%.2f pred=%s",
              numTrajP_, (int)addUnguided_, horizon_, dt_, zLap_, predictionSource_.c_str());
@@ -165,14 +275,6 @@ void tmpcPlanner::buildGoalGrid() {
         if (d < best) { best = d; nearest = (int)i; }
     }
 
-    // arc-length parametrization forward from nearest
-    auto refDir = [&](int i) -> Eigen::Vector2d {
-        int a = std::min<int>(i, (int)refPath_.size() - 2);
-        Eigen::Vector2d t = (refPath_[a + 1].head<2>() - refPath_[a].head<2>());
-        if (t.norm() < 1e-6) return Eigen::Vector2d(1, 0);
-        return t.normalized();
-    };
-
     // Local horizon reference: resample refPath forward at v_ref*dt arc-length per
     // step. We track segConsumed (distance already used inside the current segment)
     // across steps so the cursor truly advances — without it, when the path's point
@@ -211,17 +313,23 @@ void tmpcPlanner::buildGoalGrid() {
         }
     }
 
-    // goal grid centered on the look-ahead point
-    int lookIdx = nearest;
-    {
-        double remaining = goalLongDist_;
-        while (lookIdx < (int)refPath_.size() - 1 && remaining > 0.0) {
-            double segLen = (refPath_[lookIdx + 1].head<2>() - refPath_[lookIdx].head<2>()).norm();
-            remaining -= segLen; ++lookIdx;
-        }
+    buildGoalGridFromLocalRef();
+}
+
+void tmpcPlanner::buildGoalGridFromLocalRef() {
+    goalGrid_.clear();
+    if (localRef_.size() < 2) return;
+
+    // Goal grid centered on the look-ahead point of the final local reference.
+    int lookIdx = 0;
+    double remaining = goalLongDist_;
+    while (lookIdx < (int)localRef_.size() - 1 && remaining > 0.0) {
+        double segLen = (localRef_[lookIdx + 1].head<2>() - localRef_[lookIdx].head<2>()).norm();
+        remaining -= segLen;
+        ++lookIdx;
     }
-    Eigen::Vector2d center = refPath_[std::min(lookIdx, (int)refPath_.size() - 1)].head<2>();
-    Eigen::Vector2d tang   = refDir(lookIdx);
+    Eigen::Vector2d center = localRef_[std::min(lookIdx, (int)localRef_.size() - 1)].head<2>();
+    Eigen::Vector2d tang   = localTangent(localRef_, lookIdx);
     Eigen::Vector2d normal(-tang.y(), tang.x());
 
     for (int lo = 0; lo < goalGridLong_; ++lo) {
@@ -236,20 +344,103 @@ void tmpcPlanner::buildGoalGrid() {
     }
 }
 
+void tmpcPlanner::buildStaticAwareReference() {
+    if (!useStaticAstar_ || !map_ || localRef_.size() < 2) return;
+
+    Eigen::Vector3d start = currPos_;
+    Eigen::Vector3d goal = localRef_.back();
+    start.z() = zLap_;
+    goal.z() = zLap_;
+    if ((goal.head<2>() - start.head<2>()).norm() < 0.25) return;
+
+    bool directBlocked = false;
+    if (map_->isInflatedOccupied(start) || map_->isInflatedOccupied(goal)) {
+        directBlocked = true;
+    } else if (map_->isInflatedOccupiedLine(start, goal)) {
+        directBlocked = true;
+    } else {
+        for (const auto& p0 : localRef_) {
+            Eigen::Vector3d p = p0;
+            p.z() = zLap_;
+            if (map_->isInflatedOccupied(p)) { directBlocked = true; break; }
+        }
+    }
+    if (!directBlocked) return;
+
+    const double dist = std::max(1.0, (goal.head<2>() - start.head<2>()).norm());
+    const int xyPool = std::max(staticAstarPoolXY_,
+        (int)std::ceil(dist / staticAstarStep_) + 24);
+    const double minH = std::max(0.05, zLap_ - 0.35);
+    const double maxH = zLap_ + (vertical_ ? std::max(0.8, vClearance_ + 0.8) : 0.35);
+
+    AStar astar;
+    astar.initGridMap(map_, Eigen::Vector3i(xyPool, xyPool, staticAstarPoolZ_),
+                      minH, maxH);
+    if (!astar.AstarSearch(staticAstarStep_, start, goal)) {
+        ROS_WARN_THROTTLE(1.0,
+            "[tmpcPlanner] static A* failed; keeping reference and relying on static constraints.");
+        return;
+    }
+
+    std::vector<Eigen::Vector3d> astarPath = astar.getPath();
+    if (astarPath.size() < 2) return;
+    std::vector<Eigen::Vector3d> ref = resamplePolyline(astarPath, horizon_ + 1, zLap_);
+    if ((int)ref.size() == horizon_ + 1) {
+        ref.front() = start;
+        ref.back() = goal;
+        localRef_ = ref;
+        ROS_INFO_THROTTLE(1.0,
+            "[tmpcPlanner] static A* reference active: %zu raw points -> %zu horizon points",
+            astarPath.size(), localRef_.size());
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Guidance: call the vendored guidance_planner to get P topology-distinct
-// trajectories. Fallback (package absent / failure): a single straight branch to
-// the central look-ahead goal so the local MPC still runs.
+// trajectories. If the official package is absent or returns no path, do not
+// invent a non-paper fallback topology.
 // ---------------------------------------------------------------------------
 bool tmpcPlanner::runGuidance() {
     branches_.clear();
 
 #if TMPC_HAVE_GUIDANCE_PLANNER
-    if (!guidance_) guidance_.reset(new GuidancePlanner::GlobalGuidance());
+    const int guidanceVerticalGoals = (goalGridLat_ % 2 == 1)
+                                    ? std::max(1, goalGridLat_)
+                                    : std::max(1, goalGridLat_ + 1);
+    if (!guidance_) {
+        nh_.setParam("/guidance_planner/N", horizon_);
+        nh_.setParam("/guidance_planner/T", dt_ * (double)horizon_);
+        nh_.setParam("/guidance_planner/sampling/n_samples", std::max(1, prmSamplesN_));
+        nh_.setParam("/guidance_planner/homotopy/n_paths", std::max(1, numTrajP_));
+        nh_.setParam("/guidance_planner/homotopy/comparison_function",
+                     guidanceTopologyMethodName(homotopyMethod_));
+        nh_.setParam("/guidance_planner/goals/longitudinal", std::max(2, goalGridLong_));
+        nh_.setParam("/guidance_planner/goals/vertical", guidanceVerticalGoals);
+        nh_.setParam("/guidance_planner/max_velocity", vMax_);
+        nh_.setParam("/guidance_planner/max_acceleration", aMax_);
+        nh_.setParam("/guidance_planner/predictions_are_constant_velocity", true);
+        nh_.setParam("/clock_frequency", 1.0 / std::max(1e-3, dt_));
+        guidance_.reset(new GuidancePlanner::GlobalGuidance());
+    }
+    GuidancePlanner::Config* gCfg = guidance_->GetConfig();
+    GuidancePlanner::Config::N = horizon_;
+    GuidancePlanner::Config::DT = dt_;
+    GuidancePlanner::Config::CONTROL_DT = dt_;
+    gCfg->T_ = dt_ * (double)horizon_;
+    gCfg->n_paths_ = std::max(1, numTrajP_);
+    gCfg->n_samples_ = std::max(1, prmSamplesN_);
+    gCfg->longitudinal_goals_ = std::max(2, goalGridLong_);
+    gCfg->vertical_goals_ = guidanceVerticalGoals;
+    gCfg->topology_comparison_function_ = guidanceTopologyMethodName(homotopyMethod_);
+    gCfg->selection_weight_consistency_ = std::max(1e-3, consistencyCi_);
+    gCfg->max_velocity_ = vMax_;
+    gCfg->max_acceleration_ = aMax_;
+    gCfg->assume_constant_velocity_ = true;
 
     // start
     guidance_->SetStart(currPos_.head<2>(), currYaw_, currVel_.head<2>().norm());
     guidance_->SetReferenceVelocity(vRef_);
+    guidance_->SetPlanningFrequency(1.0 / std::max(1e-3, dt_));
 
     // obstacles via constant-velocity constructor (id, start, vel, DT, N, radius)
     std::vector<GuidancePlanner::Obstacle> gObs;
@@ -262,37 +453,49 @@ bool tmpcPlanner::runGuidance() {
     std::vector<GuidancePlanner::Halfspace> staticObs;   // (static map handled by local MPC)
     guidance_->LoadObstacles(gObs, staticObs);
 
-    // goals
-    std::vector<GuidancePlanner::Goal> goals;
-    for (size_t i = 0; i < goalGrid_.size(); ++i) {
-        // cost = distance of this goal to the ideal look-ahead point on the ref path
-        double cost = (goalGrid_[i].head<2>() - localRef_.back().head<2>()).norm();
-        goals.emplace_back(goalGrid_[i].head<2>(), cost);
+    auto refSpline = makeGuidanceReferenceSpline(localRef_);
+    if (!refSpline) {
+        ROS_WARN_THROTTLE(1.0, "[tmpcPlanner] cannot build guidance reference spline.");
+        return false;
     }
-    guidance_->SetGoals(goals);
+
+    // Official guidance_planner path: LoadReferencePath samples the Visibility-PRM
+    // along the reference and constructs the goal grid internally, matching the
+    // open-source T-MPC++ stack more closely than manually injecting goals.
+    guidance_->LoadReferencePath(0.0, refSpline, std::max(0.5, goalLatSpread_));
 
     if (!guidance_->Update() || guidance_->NumberOfGuidanceTrajectories() == 0) {
-        ROS_WARN_THROTTLE(2.0, "[tmpcPlanner] guidance produced no trajectories; using fallback branch.");
-    } else {
-        int nTraj = std::min(numTrajP_, guidance_->NumberOfGuidanceTrajectories());
-        for (int i = 0; i < nTraj; ++i) {
-            auto& out = guidance_->GetGuidanceTrajectory(i);
-            auto traj2d = out.spline.GetTrajectory();
-            TMPCBranch b;
-            b.guided  = true;
-            b.classId = out.topology_class;
-            b.guidanceTraj.resize(horizon_ + 1);
-            for (int k = 0; k <= horizon_; ++k) {
-                Eigen::Vector2d p = traj2d.getPoint(k * dt_);
-                b.guidanceTraj[k] = Eigen::Vector3d(p.x(), p.y(), zLap_);
-            }
-            branches_.push_back(std::move(b));
-        }
+        ROS_WARN_THROTTLE(1.0,
+            "[tmpcPlanner] official guidance_planner produced no topology paths; skipping this plan.");
+        return false;
     }
+
+    int nTraj = std::min(numTrajP_, guidance_->NumberOfGuidanceTrajectories());
+    for (int i = 0; i < nTraj; ++i) {
+        auto& out = guidance_->GetGuidanceTrajectory(i);
+        auto& traj2d = out.spline.GetTrajectory();
+        TMPCBranch b;
+        b.guided  = true;
+        b.classId = out.topology_class;
+        b.guidanceTraj.resize(horizon_ + 1);
+        for (int k = 0; k <= horizon_; ++k) {
+            Eigen::Vector2d p = traj2d.getPoint(k * dt_);
+            b.guidanceTraj[k] = Eigen::Vector3d(p.x(), p.y(), zLap_);
+        }
+        branches_.push_back(std::move(b));
+    }
+#else
+    ROS_ERROR_THROTTLE(2.0,
+        "[tmpcPlanner] T-MPC++ topology requires the official tud-amr/guidance_planner package; "
+        "install it in the catkin workspace instead of using a non-paper fallback.");
+    return false;
 #endif
 
-    // Unguided branch (T-MPC++) and/or fallback: warm-start from the reference path.
-    if (branches_.empty() || addUnguided_) {
+    if (branches_.empty()) return false;
+
+    // T-MPC++ adds one non-guided local planner in parallel to the guided topology
+    // branches; this is the official "++" behavior, not a replacement for topology.
+    if (addUnguided_) {
         TMPCBranch b;
         b.guided  = false;
         b.classId = -1;
@@ -463,6 +666,44 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
         }
     }
 
+    if (map_ && staticHalfplaneSearchRadius_ > 1e-3) {
+        const int rays = std::max(4, staticHalfplaneRays_);
+        const double step = std::max(0.05, map_->getRes());
+        const int radialSteps = std::max(1, (int)std::ceil(staticHalfplaneSearchRadius_ / step));
+        const double clearance = std::max(0.02, staticHalfplaneClearance_);
+
+        for (int k = 0; k <= N && k < (int)branch.guidanceTraj.size(); ++k) {
+            Eigen::Vector3d gp3 = branch.guidanceTraj[k];
+            gp3.z() = zLap_;
+            for (int r = 0; r < rays; ++r) {
+                const double th = 2.0 * M_PI * (double)r / (double)rays;
+                const Eigen::Vector2d dir(std::cos(th), std::sin(th));
+                Eigen::Vector3d occ = gp3;
+                bool found = false;
+                for (int s = 1; s <= radialSteps; ++s) {
+                    Eigen::Vector3d q = gp3;
+                    q.x() += dir.x() * step * (double)s;
+                    q.y() += dir.y() * step * (double)s;
+                    if (map_->isInflatedOccupied(q)) {
+                        occ = q;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) continue;
+                const Eigen::Vector2d diff = occ.head<2>() - gp3.head<2>();
+                const double dn = diff.norm();
+                if (dn < clearance + 1e-4) continue;
+                const Eigen::Vector2d A = diff / dn;
+                const double b = A.dot(occ.head<2>() - A * clearance);
+                Atr.emplace_back(row, xi(k)+0, A.x());
+                Atr.emplace_back(row, xi(k)+1, A.y());
+                addBound(-INF, b);
+                ++row;
+            }
+        }
+    }
+
     const int nCon = row;
     Eigen::SparseMatrix<double> Ac(nCon, nVar);
     Ac.setFromTriplets(Atr.begin(), Atr.end());
@@ -482,6 +723,7 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
     solver.settings()->setRelativeTolerance(2e-3);
     solver.settings()->setPolish(false);
     solver.settings()->setAdaptiveRho(true);
+    solver.settings()->setTimeLimit(0.001 * (double)threadTimeoutMs_);
     solver.data()->setNumberOfVariables(nVar);
     solver.data()->setNumberOfConstraints(nCon);
     if (!solver.data()->setHessianMatrix(P))            { branch.feasible = false; return; }
@@ -519,6 +761,13 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
              sol(xi(k)+3), sol(xi(k)+4), sol(xi(k)+5);
         branch.statesSol[k] = s;
     }
+
+    if (trajectoryHitsStaticMap(branch.statesSol)) {
+        branch.feasible = false;
+        branch.cost = std::numeric_limits<double>::infinity();
+        branch.statesSol.clear();
+        branch.controlsSol.clear();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -538,6 +787,12 @@ void tmpcPlanner::decide() {
     if (bestIdx_ >= 0) {
         bestClassId_ = branches_[bestIdx_].classId;
         prevClassId_ = bestClassId_;
+#if TMPC_HAVE_GUIDANCE_PLANNER
+        if (guidance_) {
+            if (bestClassId_ >= 0) guidance_->OverrideSelectedTrajectory(bestClassId_);
+            else                  guidance_->OverrideSelectedTrajectory(0, true);
+        }
+#endif
     }
 }
 
@@ -546,6 +801,8 @@ bool tmpcPlanner::plan() {
 
     buildConstantVelocityPredictions();
     buildGoalGrid();
+    buildStaticAwareReference();
+    buildGoalGridFromLocalRef();
     if ((int)localRef_.size() < horizon_ + 1) {   // no valid reference path was set
         ROS_WARN_THROTTLE(2.0, "[tmpcPlanner] empty/short local reference "
                                "(reference path not set?); skipping plan - drone holds.");
@@ -560,7 +817,7 @@ bool tmpcPlanner::plan() {
     // parallel — this mirrors the paper's P+1 parallel local planners. Set
     // solve_sequential:true for deterministic single-thread timing.
 #ifdef _OPENMP
-    #pragma omp parallel for schedule(dynamic) if(!solveSequential_)
+    #pragma omp parallel for schedule(dynamic) num_threads(parallelThreads_) if(!solveSequential_)
 #endif
     for (int i = 0; i < (int)branches_.size(); ++i) solveBranch(branches_[i]);
 
@@ -587,6 +844,27 @@ bool tmpcPlanner::getBestStates(std::vector<Eigen::VectorXd>& states) const {
     if (bestIdx_ < 0) return false;
     states = branches_[bestIdx_].statesSol;
     return true;
+}
+
+bool tmpcPlanner::getLocalReference(std::vector<Eigen::Vector3d>& ref) const {
+    ref = localRef_;
+    return !ref.empty();
+}
+
+bool tmpcPlanner::trajectoryHitsStaticMap(const std::vector<Eigen::VectorXd>& states) const {
+    if (!map_) return false;
+    Eigen::Vector3d prev = Eigen::Vector3d::Zero();
+    bool havePrev = false;
+    for (const auto& s : states) {
+        if (s.size() < 3 || !s.allFinite()) return true;
+        Eigen::Vector3d p(s(0), s(1), s(2));
+        if (map_->isInflatedOccupied(p)) return true;
+        if (havePrev && (p - prev).norm() > 1e-4 && map_->isInflatedOccupiedLine(prev, p))
+            return true;
+        prev = p;
+        havePrev = true;
+    }
+    return false;
 }
 
 bool tmpcPlanner::getBestTrajectory(nav_msgs::Path& traj) const {

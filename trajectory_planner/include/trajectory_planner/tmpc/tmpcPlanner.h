@@ -7,7 +7,7 @@
     This class orchestrates one planning iteration of T-MPC++:
 
         1. setObstacles()  : detector obstacles -> constant-velocity predictions
-        2. setReference()  : ref path + ego state -> goal grid (Frenet)
+        2. setReference()  : ref path + ego state -> static-aware local reference
         3. runGuidance()   : guidance_planner -> P topology-distinct (x,y,t) trajs,
                              lifted to 3D at z_lap
         4. optimizeBranches(): for each guidance traj i (plus 1 unguided in T-MPC++),
@@ -24,8 +24,8 @@
         solver-agnostic: solveBranch() is the single hook to fill per the chosen option.
       - Obstacle prediction = constant velocity (locked decision).
 
-    THIS HEADER IS A CONTRACT/SKELETON. tmpcPlanner.cpp is not yet implemented.
-    Method bodies below are declared only; fill them in cpp after resolving the fork.
+    If the official guidance_planner package is not available, this planner refuses
+    to run the topology stage instead of inventing a non-paper fallback.
 */
 
 #ifndef TMPC_PLANNER_H
@@ -35,6 +35,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <limits>
 #include <Eigen/Dense>
 
 #include <nav_msgs/Path.h>
@@ -97,6 +98,7 @@ public:
     // ---- outputs -------------------------------------------------------------
     bool   getBestTrajectory(nav_msgs::Path& traj) const;          // /tmpc/best_trajectory
     bool   getBestTrajectory(std::vector<Eigen::Vector3d>& traj) const;
+    bool   getLocalReference(std::vector<Eigen::Vector3d>& ref) const;
     // Full best-branch state sequence: each entry is [x,y,z,vx,vy,vz].
     bool   getBestStates(std::vector<Eigen::VectorXd>& states) const;
     double getDt() const { return dt_; }
@@ -119,6 +121,11 @@ private:
 
     // Place the goal grid along the reference path (Frenet: lateral spread + look-ahead).
     void buildGoalGrid();
+    void buildGoalGridFromLocalRef();
+
+    // Static-map guard: replace the local tracking reference with an A* path through
+    // the inflated occupancy map when the direct local segment is blocked.
+    void buildStaticAwareReference();
 
     // ---- local optimization ----------------------------------------------------
     // Solve ONE branch's local MPC, warm-started from guidanceTraj, locked to its
@@ -143,6 +150,8 @@ private:
     // i* = argmin_i w_i J_i ; w_i = consistency_ci if branch i is the previously
     // executed homotopy class, else 1. Sets bestIdx_/bestClassId_.
     void decide();
+
+    bool trajectoryHitsStaticMap(const std::vector<Eigen::VectorXd>& states) const;
 
     // ===========================================================================
     ros::NodeHandle nh_;
@@ -188,6 +197,15 @@ private:
     double wAcc_           = 0.05;
     std::string predictionSource_ = "constant_velocity";
     int    maxObstacles_   = 12;
+
+    // Static-map avoidance (inflated occupancy map).
+    bool   useStaticAstar_ = true;
+    double staticAstarStep_ = 0.20;
+    int    staticAstarPoolXY_ = 80;
+    int    staticAstarPoolZ_ = 16;
+    double staticHalfplaneSearchRadius_ = 0.8;
+    double staticHalfplaneClearance_ = 0.25;
+    int    staticHalfplaneRays_ = 16;
 
     // --- per-iteration state ---------------------------------------------------
     Eigen::Vector3d currPos_ = Eigen::Vector3d::Zero();

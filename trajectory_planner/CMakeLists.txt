@@ -38,16 +38,11 @@ find_package(catkin REQUIRED COMPONENTS
   dynamic_predictor
 )
 
-# ── Optional: topology guidance planner for T-MPC++ (M6_tmpc) ───────────────
-# Vendor tud-amr/guidance_planner into the workspace. If absent, tmpcPlanner
-# compiles a fallback branch (see __has_include guard in tmpc/tmpcPlanner.h),
-# so the rest of the package still builds.
-find_package(guidance_planner QUIET)
-if(guidance_planner_FOUND)
-  message(STATUS "T-MPC++: guidance_planner found at ${guidance_planner_INCLUDE_DIRS}")
-else()
-  message(STATUS "T-MPC++: guidance_planner NOT found - tmpcPlanner uses fallback branch.")
-endif()
+# ── Required: official topology guidance planner for T-MPC++ (M6_tmpc) ──────
+# T-MPC++ uses tud-amr/guidance_planner for Visibility-PRM + homotopy-distinct
+# guidance paths. We require it rather than falling back to a non-paper variant.
+find_package(guidance_planner REQUIRED)
+message(STATUS "T-MPC++: guidance_planner found at ${guidance_planner_INCLUDE_DIRS}")
 
 # OpenMP lets T-MPC++ solve its P+1 local-MPC branches in parallel (big speedup).
 # Optional: without it the branch loop runs sequentially (pragma is ignored).
@@ -282,7 +277,7 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
 else()
     message("Unknown architecture: ${CMAKE_SYSTEM_PROCESSOR}")
 endif()
-# Link the optional guidance planner used by T-MPC++ (no-op if not found).
+# Link the official guidance planner used by T-MPC++.
 if(guidance_planner_FOUND)
   target_link_libraries(${PROJECT_NAME} ${guidance_planner_LIBRARIES})
 endif()

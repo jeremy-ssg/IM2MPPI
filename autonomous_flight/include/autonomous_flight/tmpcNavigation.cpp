@@ -150,6 +150,7 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
 
         if (success) {
             this->tmpc_->getBestStates(states);
+            this->tmpc_->getLocalReference(this->lastReferencePath_);
             traj_dt = this->tmpc_->getDt();
             if (!states.empty()) {
                 const Eigen::Vector3d endP(states.back()(0), states.back()(1), states.back()(2));
@@ -259,10 +260,10 @@ void tmpcNavigation::visCB(const ros::TimerEvent&) {
     std::lock_guard<std::mutex> lk(this->planMutex_);
     if (this->bestTrajPub_.getNumSubscribers() > 0) this->publishBestTrajectory();
     if (this->refPathPub_.getNumSubscribers()  > 0) this->publishReferencePath();
-    // planner-owned markers (guidance / optimized / goal grid / obstacle predictions)
+    // Planner-owned markers. Dynamic obstacles are shown as detector bounding boxes
+    // in RViz; T-MPC++ itself only consumes constant-velocity bbox states.
     this->tmpc_->publishGuidancePaths();
     this->tmpc_->publishOptimizedTrajectories();
-    this->tmpc_->publishObstaclePredictions();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -272,7 +273,11 @@ void tmpcNavigation::getObstacles(std::vector<Eigen::Vector3d>& pos,
                                   std::vector<Eigen::Vector3d>& vel,
                                   std::vector<Eigen::Vector3d>& size) const {
     pos.clear(); vel.clear(); size.clear();
-    if (!this->useFakeDetector_ || !this->detector_) return;
+    if (!this->useFakeDetector_) {
+        if (this->map_) this->map_->getDynamicObstacles(pos, vel, size);
+        return;
+    }
+    if (!this->detector_) return;
 
     Eigen::Vector3d robotSize(0.0, 0.0, 0.0);
     if (this->map_) this->map_->getRobotSize(robotSize);
