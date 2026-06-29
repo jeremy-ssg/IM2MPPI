@@ -113,9 +113,29 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
         this->getObstacles(oPos, oVel, oSize);
         this->tmpc_->setObstacles(oPos, oVel, oSize);
 
-        // 3. reference (re-set each cycle is cheap and robust to path repeats)
-        if (this->usePredefinedGoal_)
-            this->tmpc_->setReference(this->refPathAsVector());
+        // 3. reference path for the planner. Predefined lap if available, otherwise a
+        //    straight line from the current position to the active goal. If neither is
+        //    available the reference is empty and plan() skips (drone holds position) —
+        //    this prevents the empty-reference garbage that flew the drone away.
+        std::vector<Eigen::Vector3d> ref;
+        if (this->usePredefinedGoal_ && !this->predefinedGoal_.poses.empty()) {
+            ref = this->refPathAsVector();
+        } else if (this->goalReceived_) {
+            const Eigen::Vector3d g(this->goal_.pose.position.x,
+                                    this->goal_.pose.position.y,
+                                    this->goal_.pose.position.z);
+            const int n = 20;
+            for (int s = 0; s <= n; ++s)
+                ref.push_back(this->currPos_ + (g - this->currPos_) * ((double)s / n));
+        }
+        if (ref.empty()) {
+            ROS_WARN_THROTTLE(2.0, "[T-MPC++ Nav] no reference path "
+                "(use_predefined_goal=%d, ref waypoints=%zu, goalReceived=%d); holding.",
+                (int)this->usePredefinedGoal_, this->predefinedGoal_.poses.size(),
+                (int)this->goalReceived_);
+        }
+        this->tmpc_->setReference(ref);
+        this->lastReferencePath_ = ref;   // also drives the /tmpc/reference_path viz
 
         // 4. facing yaw toward the local horizon end
         std::vector<Eigen::Vector3d> bestPos;

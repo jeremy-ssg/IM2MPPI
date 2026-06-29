@@ -327,6 +327,13 @@ bool tmpcPlanner::homotopyHalfPlane(const Eigen::Vector2d& guidancePt,
 //   z = [X ; U],  X = [x_0..x_N] (NS each),  U = [u_0..u_{N-1}] (NU each)
 // ---------------------------------------------------------------------------
 void tmpcPlanner::solveBranch(TMPCBranch& branch) {
+    // No valid reference -> never solve (reading an empty localRef_ would be UB and
+    // produce garbage setpoints that fly the drone away).
+    if ((int)localRef_.size() < horizon_ + 1) {
+        branch.feasible = false;
+        branch.cost = std::numeric_limits<double>::infinity();
+        return;
+    }
     const int N   = horizon_;
     const int nX  = NS * (N + 1);                       // NS=6: [x,y,z,vx,vy,vz]
     const int nU  = NU * N;                             // NU=3: [ax,ay,az]
@@ -481,6 +488,15 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
     }
     const Eigen::VectorXd sol = solver.getSolution();
 
+    // Reject garbage solutions (non-finite or absurdly large). Without this a failed
+    // / diverged solve could be streamed to the controller as a setpoint and fly the
+    // drone off into space. World is ~+-15 m, so 1e4 only catches true garbage.
+    if (!sol.allFinite() || sol.cwiseAbs().maxCoeff() > 1e4) {
+        branch.feasible = false;
+        branch.cost = std::numeric_limits<double>::infinity();
+        return;
+    }
+
     // optimal cost J = 0.5 z'Pz + q'z  (constant ref term dropped; equal for all branches)
     branch.cost = 0.5 * sol.dot(P * sol) + q.dot(sol);
     branch.feasible = true;
@@ -520,6 +536,13 @@ bool tmpcPlanner::plan() {
 
     buildConstantVelocityPredictions();
     buildGoalGrid();
+    if ((int)localRef_.size() < horizon_ + 1) {   // no valid reference path was set
+        ROS_WARN_THROTTLE(2.0, "[tmpcPlanner] empty/short local reference "
+                               "(reference path not set?); skipping plan - drone holds.");
+        planTimeMs_ = 0.0;
+        bestIdx_ = -1;
+        return false;
+    }
     if (!runGuidance()) { planTimeMs_ = 0.0; return false; }
 
     // Solve each branch's local MPC. Each OsqpEigen solver is constructed locally
