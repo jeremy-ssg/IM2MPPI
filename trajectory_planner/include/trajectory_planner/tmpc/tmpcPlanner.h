@@ -1,0 +1,223 @@
+/*
+    FILE: tmpcPlanner.h
+    ----------------------------------------------------------------------------
+    T-MPC++  (Topology-driven Model Predictive Control, de Groot et al.,
+    IEEE T-RO vol.41 2025).  Benchmark method id: M6_tmpc.
+
+    This class orchestrates one planning iteration of T-MPC++:
+
+        1. setObstacles()  : detector obstacles -> constant-velocity predictions
+        2. setReference()  : ref path + ego state -> goal grid (Frenet)
+        3. runGuidance()   : guidance_planner -> P topology-distinct (x,y,t) trajs,
+                             lifted to 3D at z_lap
+        4. optimizeBranches(): for each guidance traj i (plus 1 unguided in T-MPC++),
+                             solve a local MPC warm-started from that traj and locked
+                             to its homotopy class; record optimal cost J_i.
+        5. decide()        : i* = argmin_i w_i J_i  with consistency weighting (Eq.12).
+
+    DESIGN STATUS (see trajectory_planner/docs/TMPC_INTEGRATION.md):
+      - The hard topology part (Visibility-PRM + H-signature + propagation) is the
+        VENDORED guidance_planner package (Apache-2.0), included via
+        <guidance_planner/global_guidance.h>. Do NOT reimplement it here.
+      - The local-planner homotopy constraint (Eq.8) enforcement is an OPEN FORK
+        (ACADO cannot take runtime half-planes; OSQP path can). The class is written
+        solver-agnostic: solveBranch() is the single hook to fill per the chosen option.
+      - Obstacle prediction = constant velocity (locked decision).
+
+    THIS HEADER IS A CONTRACT/SKELETON. tmpcPlanner.cpp is not yet implemented.
+    Method bodies below are declared only; fill them in cpp after resolving the fork.
+*/
+
+#ifndef TMPC_PLANNER_H
+#define TMPC_PLANNER_H
+
+#include <ros/ros.h>
+#include <memory>
+#include <vector>
+#include <string>
+#include <Eigen/Dense>
+
+#include <nav_msgs/Path.h>
+#include <visualization_msgs/MarkerArray.h>
+
+#include <map_manager/occupancyMap.h>
+#include <trajectory_planner/mpcPlanner.h>      // local MPC (ACADO + OSQP paths)
+#include <trajectory_planner/utils.h>
+
+// Vendored topology planner (clone tud-amr/guidance_planner into the workspace).
+// Guarded so this header still parses before the package is present.
+#if __has_include(<guidance_planner/global_guidance.h>)
+  #include <guidance_planner/global_guidance.h>
+  #define TMPC_HAVE_GUIDANCE_PLANNER 1
+#else
+  #define TMPC_HAVE_GUIDANCE_PLANNER 0
+#endif
+
+namespace trajPlanner {
+
+// One candidate produced per planning iteration (per guidance branch + unguided).
+struct TMPCBranch {
+    int                            classId = -1;     // homotopy class id (from guidance)
+    bool                           guided  = true;   // false for the T-MPC++ unguided branch
+    bool                           overTake = false; // true = vertical "fly-over" branch (3D)
+    bool                           feasible = false;
+    double                         cost = std::numeric_limits<double>::infinity(); // J_i*
+    std::vector<Eigen::Vector3d>   guidanceTraj;     // 3D, z=z_lap (warm start source)
+    std::vector<Eigen::VectorXd>   statesSol;        // local-MPC optimized states
+    std::vector<Eigen::VectorXd>   controlsSol;
+};
+
+class tmpcPlanner {
+public:
+    explicit tmpcPlanner(const ros::NodeHandle& nh);
+
+    void initParam();                                          // read tmpc.yaml
+    void setMap(const std::shared_ptr<mapManager::occMap>& map);
+    void registerPub();                                        // /tmpc/* rviz topics
+
+    // ---- per-iteration inputs ------------------------------------------------
+    void updateCurrStates(const Eigen::Vector3d& pos,
+                          const Eigen::Vector3d& vel,
+                          double yaw);
+
+    // Detector obstacles -> constant-velocity predictions over the horizon.
+    // pos[j], vel[j], size[j] are current per-obstacle values.
+    void setObstacles(const std::vector<Eigen::Vector3d>& obstaclesPos,
+                      const std::vector<Eigen::Vector3d>& obstaclesVel,
+                      const std::vector<Eigen::Vector3d>& obstaclesSize);
+
+    // Reference path (lap) -> builds the goal grid in Frenet coords around the
+    // look-ahead point; also stores the local horizon reference for the local MPC.
+    void setReference(const std::vector<Eigen::Vector3d>& refPath);
+
+    // ---- main pipeline -------------------------------------------------------
+    // Returns true if at least one branch produced a feasible trajectory.
+    bool plan();
+
+    // ---- outputs -------------------------------------------------------------
+    bool   getBestTrajectory(nav_msgs::Path& traj) const;          // /tmpc/best_trajectory
+    bool   getBestTrajectory(std::vector<Eigen::Vector3d>& traj) const;
+    // Full best-branch state sequence: each entry is [x,y,z,vx,vy,vz].
+    bool   getBestStates(std::vector<Eigen::VectorXd>& states) const;
+    double getDt() const { return dt_; }
+    int    getBestClassId() const { return bestClassId_; }
+    double getPlanTimeMs()  const { return planTimeMs_; }
+
+    // visualization helpers (publish all P guidance + optimized branches)
+    void publishGuidancePaths()       const;
+    void publishOptimizedTrajectories() const;
+
+private:
+    // ---- guidance --------------------------------------------------------------
+    // Calls the vendored guidance_planner; fills branches_ guidanceTraj + classId.
+    bool runGuidance();
+
+    // Build constant-velocity obstacle predictions consumable by guidance_planner
+    // and by the local MPC homotopy constraints.
+    void buildConstantVelocityPredictions();
+
+    // Place the goal grid along the reference path (Frenet: lateral spread + look-ahead).
+    void buildGoalGrid();
+
+    // ---- local optimization ----------------------------------------------------
+    // Solve ONE branch's local MPC, warm-started from guidanceTraj, locked to its
+    // homotopy class via Eq.8 half-plane constraints (xy only). Sets feasible/cost/
+    // statesSol/controlsSol on the branch.
+    //
+    // ***OPEN FORK*** (docs §8): implement via OSQP path (recommended) OR ACADO+soft
+    // penalty (approximation). This is the single function whose body depends on the
+    // chosen option; everything else in this class is solver-agnostic.
+    void solveBranch(TMPCBranch& branch);
+
+    // Build the Eq.8 half-plane constraint (A_k, b_k) for step k against one obstacle.
+    //   n   = (o_k - tau_k)/||o_k - tau_k||
+    //   A_k = n ; b_k = n . (o_k - n*beta*(r_uav+r_obs))
+    // (xy only; returns false if guidance point coincides with obstacle center.)
+    bool homotopyHalfPlane(const Eigen::Vector2d& guidancePt,
+                           const Eigen::Vector2d& obstaclePt,
+                           double rSum,
+                           Eigen::Vector2d& A_k, double& b_k) const;
+
+    // ---- decision (Eq.12) ------------------------------------------------------
+    // i* = argmin_i w_i J_i ; w_i = consistency_ci if branch i is the previously
+    // executed homotopy class, else 1. Sets bestIdx_/bestClassId_.
+    void decide();
+
+    // ===========================================================================
+    ros::NodeHandle nh_;
+    std::shared_ptr<mapManager::occMap> map_;
+
+    // publishers
+    ros::Publisher guidancePathsPub_;       // /tmpc/guidance_paths
+    ros::Publisher optimizedTrajPub_;       // /tmpc/optimized_trajectories
+    ros::Publisher goalGridPub_;            // /tmpc/goal
+
+    // --- parameters (from tmpc.yaml) -------------------------------------------
+    double dt_              = 0.05;
+    int    horizon_        = 38;
+    double zLap_           = 1.0;
+    double rUav_           = 0.30;
+    int    numTrajP_       = 4;
+    bool   addUnguided_    = true;      // T-MPC++
+    int    prmSamplesN_    = 100;
+    std::string homotopyMethod_ = "h_signature";
+    double visibilityDt_   = 0.20;
+    double smoothingRes_   = 0.05;
+    int    goalGridLat_    = 5;
+    int    goalGridLong_   = 3;
+    double goalLatSpread_  = 2.0;
+    double goalLongDist_   = 4.0;
+    double betaRelax_      = 0.05;
+    int    parallelThreads_ = 5;
+    int    threadTimeoutMs_ = 50;
+    bool   solveSequential_ = true;     // ACADO not thread-safe; start sequential
+    double consistencyCi_  = 0.75;
+    double vMax_           = 2.0;
+    double aMax_           = 3.0;
+    double vzMax_          = 1.0;       // vertical speed limit [m/s]
+    double azMax_          = 2.0;       // vertical accel limit [m/s^2]
+    double vRef_           = 1.5;
+    bool   vertical_       = true;      // enable 3D vertical "fly-over" branch
+    double vClearance_     = 0.4;       // vertical clearance above obstacle top [m]
+    // local-MPC cost weights (cost_weights/* in tmpc.yaml)
+    double wContour_       = 1.0;
+    double wLag_           = 1.0;
+    double wVel_           = 0.1;
+    double wAcc_           = 0.05;
+    std::string predictionSource_ = "constant_velocity";
+    int    maxObstacles_   = 12;
+
+    // --- per-iteration state ---------------------------------------------------
+    Eigen::Vector3d currPos_ = Eigen::Vector3d::Zero();
+    Eigen::Vector3d currVel_ = Eigen::Vector3d::Zero();
+    double          currYaw_ = 0.0;
+
+    std::vector<Eigen::Vector3d> refPath_;                 // full lap reference
+    std::vector<Eigen::Vector3d> localRef_;                // sliced horizon reference
+    std::vector<Eigen::Vector3d> goalGrid_;                // candidate goals
+
+    // obstacle current values + constant-velocity predictions [obstacle][step]
+    std::vector<Eigen::Vector3d>              obsPos_, obsVel_, obsSize_;
+    std::vector<std::vector<Eigen::Vector3d>> obsPredPos_;  // [j][k] predicted center (xy used)
+    std::vector<double>                       obsRadius_;   // [j] horizontal disc radius
+    std::vector<double>                       obsTop_;      // [j] obstacle top altitude [m]
+
+    // candidates this iteration
+    std::vector<TMPCBranch> branches_;
+    int  bestIdx_      = -1;
+    int  bestClassId_  = -1;
+    int  prevClassId_  = -1;     // executed class last iteration (consistency)
+    double planTimeMs_ = 0.0;
+
+    // pool of local MPC solvers (one per branch; ACADO state is per-instance).
+    // NOTE: even with separate instances, ACADO-generated code may share a global
+    // workspace -> see docs §RISKS. solveSequential_ guards correctness.
+    std::vector<std::shared_ptr<mpcPlanner>> localPlanners_;
+
+#if TMPC_HAVE_GUIDANCE_PLANNER
+    std::unique_ptr<GuidancePlanner::GlobalGuidance> guidance_;
+#endif
+};
+
+} // namespace trajPlanner
+#endif // TMPC_PLANNER_H

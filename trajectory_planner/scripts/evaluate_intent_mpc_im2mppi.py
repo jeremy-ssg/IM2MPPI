@@ -312,6 +312,8 @@ class Evaluator:
     def default_path_topic(algorithm):
         if algorithm in ("intent_mpc", "intend_mpc", "mpc"):
             return "/mpcNavigation/mpc_trajectory"
+        if algorithm in ("tmpc", "t_mpc", "tmpc++", "t-mpc++"):
+            return "/tmpc/best_trajectory"
         return "/im2mppi/best_trajectory"
 
     def now_rel(self):

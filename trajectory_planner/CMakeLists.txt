@@ -38,6 +38,17 @@ find_package(catkin REQUIRED COMPONENTS
   dynamic_predictor
 )
 
+# ── Optional: topology guidance planner for T-MPC++ (M6_tmpc) ───────────────
+# Vendor tud-amr/guidance_planner into the workspace. If absent, tmpcPlanner
+# compiles a fallback branch (see __has_include guard in tmpc/tmpcPlanner.h),
+# so the rest of the package still builds.
+find_package(guidance_planner QUIET)
+if(guidance_planner_FOUND)
+  message(STATUS "T-MPC++: guidance_planner found at ${guidance_planner_INCLUDE_DIRS}")
+else()
+  message(STATUS "T-MPC++: guidance_planner NOT found - tmpcPlanner uses fallback branch.")
+endif()
+
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 # find_package(OsqpEigen REQUIRED)
@@ -148,8 +159,9 @@ include_directories(
   include/${PROJECT_NAME}/third_party/ACADO
   include/${PROJECT_NAME}/mpc_solver
   include/${PROJECT_NAME}/mpc_solver/qpoases
-  include/${PROJECT_NAME}/mpc_solver/qpoases/INCLUDE 
+  include/${PROJECT_NAME}/mpc_solver/qpoases/INCLUDE
   include/${PROJECT_NAME}/mpc_solver/qpoases/SRC
+  ${guidance_planner_INCLUDE_DIRS}   # empty if guidance_planner not found
   # ${OsqpEigen_INCLUDE_DIRS}
 )
 
@@ -172,6 +184,9 @@ add_library(
   include/${PROJECT_NAME}/clustering/Kmeans.cpp
   include/${PROJECT_NAME}/clustering/obstacleClustering.cpp
   include/${PROJECT_NAME}/mpcPlanner.cpp
+
+  # T-MPC++ (M6_tmpc) topology-driven parallel MPC orchestrator
+  include/${PROJECT_NAME}/tmpc/tmpcPlanner.cpp
   include/${PROJECT_NAME}/obstacle_test/dynamicObstacleGenerator.cpp
 
   # IM2-MPPI planner (point-mass MPPI; no ACADO/OSQP dependency)
@@ -259,6 +274,10 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
   target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/third_party/lib/ARM/libosqp.so ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/third_party/lib/ARM/libOsqpEigen.so.0.8.0 ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/third_party/ACADO/libacado_toolkit_s.so)
 else()
     message("Unknown architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+# Link the optional guidance planner used by T-MPC++ (no-op if not found).
+if(guidance_planner_FOUND)
+  target_link_libraries(${PROJECT_NAME} ${guidance_planner_LIBRARIES})
 endif()
 # target_link_libraries(polyTrajSolver OsqpEigen::OsqpEigen)
 # target_link_libraries(polyTrajOctomap polyTrajSolver pwlTraj)

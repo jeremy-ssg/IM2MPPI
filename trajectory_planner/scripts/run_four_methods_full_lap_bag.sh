@@ -55,6 +55,7 @@ WORLD_FILE="${WORLD_FILE:-}"
 
 INTENT_MPC_LAUNCH="${INTENT_MPC_LAUNCH:-autonomous_flight intent_mpc_demo.launch}"
 IM2_MPPI_LAUNCH="${IM2_MPPI_LAUNCH:-autonomous_flight im2_mppi_demo.launch enable_rviz:=${ENABLE_RVIZ}}"
+TMPC_LAUNCH="${TMPC_LAUNCH:-autonomous_flight tmpc_demo.launch enable_rviz:=${ENABLE_RVIZ}}"
 
 if [[ -n "${OUT_DIR_OVERRIDE:-}" ]]; then
     OUT_DIR="${OUT_DIR_OVERRIDE}"
@@ -79,12 +80,13 @@ REF_TRAJ="$(rospack find autonomous_flight)/cfg/mpc_navigation/ref_trajectory.tx
 # Ego: odom/pose/vel/acc and target_state
 # Planned trajectories: Intent-MPC and IM2-MPPI trajectory topics
 # MPPI samples/intent: sampled_rollouts and dynamic_obstacle_predictions
-BAG_TOPIC_REGEX='^(/clock|/tf|/tf_static|/gazebo/model_states|/move_base_simple/goal|/CERLAB/quadcopter/(odom|pose|vel|acc)|/autonomous_flight/target_state|/onboard_detector/(GT_obstacle_bbox|history_trajectories|dynamic_bboxes|tracked_bboxes|velocity_visualizaton)|/dynamic_map/(inflated_voxel_map|voxel_map|explored_voxel_map|2D_occupancy_map)|/im2mppi/(best_trajectory|sampled_rollouts|reference_path|dynamic_obstacle_predictions|goal|plan_time_ms)|/mpcNavigation/(mpc_trajectory|input_trajectory|pwl_trajectory|poly_traj|rrt_path|goal|plan_time_ms))$'
+BAG_TOPIC_REGEX='^(/clock|/tf|/tf_static|/gazebo/model_states|/move_base_simple/goal|/CERLAB/quadcopter/(odom|pose|vel|acc)|/autonomous_flight/target_state|/onboard_detector/(GT_obstacle_bbox|history_trajectories|dynamic_bboxes|tracked_bboxes|velocity_visualizaton)|/dynamic_map/(inflated_voxel_map|voxel_map|explored_voxel_map|2D_occupancy_map)|/im2mppi/(best_trajectory|sampled_rollouts|reference_path|dynamic_obstacle_predictions|goal|plan_time_ms)|/tmpc/(best_trajectory|guidance_paths|optimized_trajectories|reference_path|goal|plan_time_ms)|/mpcNavigation/(mpc_trajectory|input_trajectory|pwl_trajectory|poly_traj|rrt_path|goal|plan_time_ms))$'
 
 CONFIGS=(
   "M0_intent_mpc|Intent-MPC|${INTENT_MPC_LAUNCH}|N/A|N/A|N/A|intent_mpc"
   "M1_vanilla|MPPI|${IM2_MPPI_LAUNCH}|vanilla_mppi|soft|true|im2_mppi"
   "M5_dra_mppi|DRA-MPPI|${IM2_MPPI_LAUNCH}|dra_mppi|soft|false|im2_mppi"
+  "M6_tmpc|T-MPC++|${TMPC_LAUNCH}|N/A|N/A|N/A|tmpc"
   "M4_im2_full|Ours|${IM2_MPPI_LAUNCH}|cvar_mppi|adaptive|true|im2_mppi"
 )
 

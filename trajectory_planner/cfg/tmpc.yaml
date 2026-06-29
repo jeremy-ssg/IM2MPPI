@@ -1,0 +1,73 @@
+# =====================================================================
+#  T-MPC++ planner parameters
+#  Topology-driven Model Predictive Control (de Groot et al., IEEE T-RO
+#  vol.41 2025). Benchmark method id: M6_tmpc, display name "T-MPC++".
+#
+#  All keys live under the "tmpc" namespace. This file is loaded by
+#  autonomous_flight/launch/tmpc_demo.launch and consumed by
+#  trajPlanner::tmpcPlanner / AutoFlight::tmpcNavigation.
+#
+#  Design notes: see trajectory_planner/docs/TMPC_INTEGRATION.md
+# =====================================================================
+tmpc:
+  # -- Horizon (kept equal to IM2-MPPI for a fair comparison) ----------
+  dt: 0.05
+  horizon_steps: 38              # matches im2_mppi.yaml horizon_steps
+
+  # -- Lap geometry (UAV flies the lap at a fixed altitude) ------------
+  z_lap: 1.0                     # [m] horizontal-plane altitude for guidance + z_ref
+  r_uav: 0.30                    # [m] robot disc radius
+
+  # -- Guidance planner (Visibility-PRM + homotopy) -------------------
+  num_trajectories_P: 4          # P topology-distinct guidance trajectories (paper default)
+  add_unguided_planner: true     # true = T-MPC++ (extra non-guided MPC in parallel)
+  prm_samples_n: 100             # PRM sample budget (paper: n < 100 sufficient)
+  homotopy_method: "h_signature" # h_signature | winding | uvd
+  visibility_dt: 0.20            # [s] time resolution for (x,y,t) visibility checks
+  smoothing_resolution: 0.05     # [s] cubic-spline resampling of guidance trajectories
+
+  # -- Goal grid along the reference path (Frenet placement) ----------
+  goal_grid_lat: 5               # lateral goal count (across ref normal)
+  goal_grid_long: 3              # longitudinal goal count (along ref progress)
+  goal_lat_spread: 2.0           # [m] total lateral coverage of the grid
+  goal_long_distance: 4.0        # [m] look-ahead of the nearest goal row
+
+  # -- Local planners (parallel ACADO MPC) ---------------------------
+  beta_relax: 0.05               # homotopy-constraint relaxation 0..1 (Eq.8); ~0 = pure topology lock
+  parallel_threads: 5            # P + 1 (unguided). See ACADO thread-safety note in docs.
+  thread_timeout_ms: 50          # paper: drop threads exceeding control period, keep best finished
+  solve_sequential: true         # START sequential (ACADO solver not thread-safe). Optimize later.
+
+  # -- Decision making (Eq.12 consistency) ---------------------------
+  consistency_ci: 0.75           # weight preferring the previously-executed homotopy class
+
+  # -- Local MPC cost weights (same cost as baseline MPC; only tuning) -
+  cost_weights:
+    w_contour: 1.0               # lateral (contour) path-following error
+    w_lag:     1.0               # longitudinal (lag) path-following error
+    w_vel:     0.1               # reference-velocity tracking
+    w_omega:   0.05              # yaw-rate input
+    w_acc:     0.05              # acceleration input
+
+  # -- Kinematic limits (aligned with all other methods) -------------
+  v_max: 2.0                     # horizontal speed limit [m/s]
+  a_max: 3.0                     # horizontal accel limit [m/s^2]
+  vz_max: 1.0                    # vertical speed limit [m/s]
+  az_max: 2.0                    # vertical accel limit [m/s^2]
+  v_ref: 1.5                     # reference cruise speed [m/s]
+
+  # -- 3-D vertical avoidance (UAV) ----------------------------------
+  #   The local MPC optimizes full 3-D motion (x,y,z). On top of the horizontal
+  #   left/right homotopy branches, an extra "fly-over" branch is added that climbs
+  #   above obstacles where the path passes near them. Disable to force purely
+  #   horizontal (paper-faithful 2-D) avoidance.
+  enable_vertical_avoidance: true
+  vertical_clearance: 0.4        # [m] required clearance above an obstacle's top
+
+  # -- Obstacle prediction interface ---------------------------------
+  #   constant_velocity : propagate detector pose+vel linearly (paper-faithful, DEFAULT)
+  #   intent_mean       : highest-probability intent mode mean (future second table)
+  #   gt                : ground-truth future (algorithm upper bound)
+  prediction_source: "constant_velocity"
+  prediction_horizon_s: 1.9      # = horizon_steps * dt
+  max_obstacles: 12              # nearest-N obstacles considered (paper considers 12)
