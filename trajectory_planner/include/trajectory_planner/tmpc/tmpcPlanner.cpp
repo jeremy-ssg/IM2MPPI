@@ -293,7 +293,8 @@ void tmpcPlanner::buildGoalGrid() {
         int    i = nearest;          // current segment [i, i+1]
         double segConsumed = 0.0;    // distance already consumed within segment i
 
-        Eigen::Vector3d p0 = refPath_[nearest]; p0.z() = zLap_;
+        Eigen::Vector3d p0 = currPos_;
+        p0.z() = zLap_;
         localRef_.push_back(p0);
 
         for (int k = 1; k <= horizon_; ++k) {
@@ -416,7 +417,7 @@ bool tmpcPlanner::runGuidance() {
     const int N = horizon_;
     const double halfWidth = std::max(0.5, 0.5 * goalLatSpread_);
     const double dynMargin = 0.10;
-    const double speedLimit = std::max(vMax_ * 1.35, vRef_ * 1.75);
+    const double speedLimit = std::max(4.0, std::max(vMax_ * 2.5, vRef_ * 3.0));
     std::vector<GuidanceNode> nodes;
     std::vector<int> goalIds;
 
@@ -497,9 +498,8 @@ bool tmpcPlanner::runGuidance() {
         }
     }
 
-    if (goalGrid_.empty()) {
-        addNode(localRef_.back().head<2>(), N, true, 0.0);
-    } else {
+    addNode(localRef_.back().head<2>(), N, true, 0.0);
+    if (!goalGrid_.empty()) {
         for (const auto& g3 : goalGrid_) {
             double cost = (g3.head<2>() - localRef_.back().head<2>()).norm();
             addNode(g3.head<2>(), N, true, cost);
@@ -596,20 +596,86 @@ bool tmpcPlanner::runGuidance() {
         }
     };
 
+    struct DistItem {
+        double cost = 0.0;
+        int node = 0;
+    };
+    struct DistCompare {
+        bool operator()(const DistItem& a, const DistItem& b) const {
+            return a.cost > b.cost;
+        }
+    };
+
+    std::vector<GuidanceCandidate> candidates;
+    std::vector<std::string> seenSignatures;
+
+    // First run ordinary Dijkstra to guarantee we get one reachable topology if
+    // the Visibility-PRM graph is connected. The later queue enumerator is only
+    // for additional distinct classes.
+    {
+        std::vector<double> dist(nodes.size(), std::numeric_limits<double>::infinity());
+        std::vector<int> parent(nodes.size(), -1);
+        std::priority_queue<DistItem, std::vector<DistItem>, DistCompare> pq;
+        dist[startId] = 0.0;
+        DistItem rootDist;
+        rootDist.cost = 0.0;
+        rootDist.node = startId;
+        pq.push(rootDist);
+
+        int bestGoal = -1;
+        while (!pq.empty()) {
+            DistItem cur = pq.top();
+            pq.pop();
+            if (cur.cost > dist[cur.node] + 1e-9) continue;
+            if (nodes[cur.node].goal) { bestGoal = cur.node; break; }
+            for (const auto& e : adj[cur.node]) {
+                const int nb = e.first;
+                const double nextCost = cur.cost + e.second;
+                if (nextCost + 1e-9 < dist[nb]) {
+                    dist[nb] = nextCost;
+                    parent[nb] = cur.node;
+                    DistItem item;
+                    item.cost = nextCost;
+                    item.node = nb;
+                    pq.push(item);
+                }
+            }
+        }
+
+        if (bestGoal >= 0) {
+            std::vector<int> path;
+            for (int v = bestGoal; v >= 0; v = parent[v]) {
+                path.push_back(v);
+                if (v == startId) break;
+            }
+            if (!path.empty() && path.back() == startId) {
+                std::reverse(path.begin(), path.end());
+                GuidanceCandidate cand;
+                cand.cost = dist[bestGoal];
+                cand.nodes = path;
+                cand.traj = makeTrajectory(path);
+                cand.signature = topologySignature(cand.traj);
+                seenSignatures.push_back(cand.signature);
+                candidates.push_back(std::move(cand));
+            }
+        }
+    }
+
     std::priority_queue<SearchItem, std::vector<SearchItem>, SearchCompare> open;
     SearchItem root;
     root.cost = 0.0;
     root.node = startId;
     root.path.push_back(startId);
     open.push(root);
-    std::vector<GuidanceCandidate> candidates;
-    std::vector<std::string> seenSignatures;
+    std::vector<int> poppedPerNode(nodes.size(), 0);
     int expansions = 0;
-    const int maxExpansions = 8000;
+    const int maxExpansions = candidates.empty() ? 8000 : 1600;
+    const int maxPopsPerNode = 8;
 
     while (!open.empty() && (int)candidates.size() < std::max(1, numTrajP_) && expansions < maxExpansions) {
         SearchItem cur = open.top();
         open.pop();
+        if (poppedPerNode[cur.node]++ >= maxPopsPerNode) continue;
         ++expansions;
 
         if (nodes[cur.node].goal) {
@@ -645,10 +711,10 @@ bool tmpcPlanner::runGuidance() {
 
     if (branches_.empty()) {
         ROS_WARN_THROTTLE(1.0,
-            "[tmpcPlanner] internal Visibility-PRM found no topology path "
-            "(nodes=%zu goals=%zu expansions=%d).",
+            "[tmpcPlanner] internal Visibility-PRM found no guided topology path "
+            "(nodes=%zu goals=%zu expansions=%d); continuing with unguided branch.",
             nodes.size(), goalIds.size(), expansions);
-        return false;
+        if (!addUnguided_ && !(vertical_ && !obsPredPos_.empty())) return false;
     }
 
     // T-MPC++ adds one non-guided local planner in parallel to the guided topology
