@@ -188,23 +188,34 @@ Visualization Manager:
       Namespaces: {}
       Queue Size: 100
       Value: true
+    # In-view (FOV-filtered) dynamic obstacles, same source/style as the other
+    # methods, WITHOUT intent prediction. Published by filter_visible_dynamic_bboxes.
     - Class: rviz/MarkerArray
       Enabled: true
-      Marker Topic: /tmpc/dynamic_obstacle_predictions
-      Name: T-MPC++ Obstacle Predictions
-      Namespaces:
-        tmpc_obstacles: true
-      Queue Size: 100
-      Value: true
-
-    # ─── Detector / predictor (optional overlay) ──────────────────────
-    - Class: rviz/MarkerArray
-      Enabled: true
-      Marker Topic: /onboard_detector/GT_obstacle_bbox
-      Name: GT Obstacles
+      Marker Topic: /onboard_detector/visible_dynamic_bboxes
+      Name: Dynamic Obstacles (FOV)
       Namespaces: {}
       Queue Size: 100
       Value: true
+
+    # ─── Optional overlays (off by default) ───────────────────────────
+    # T-MPC++ internal constant-velocity obstacle model (red discs) - debug only.
+    - Class: rviz/MarkerArray
+      Enabled: false
+      Marker Topic: /tmpc/dynamic_obstacle_predictions
+      Name: T-MPC++ Obstacle Model (debug)
+      Namespaces:
+        tmpc_obstacles: true
+      Queue Size: 100
+      Value: false
+    # All ground-truth obstacles (not FOV-filtered) - off by default.
+    - Class: rviz/MarkerArray
+      Enabled: false
+      Marker Topic: /onboard_detector/GT_obstacle_bbox
+      Name: GT Obstacles (all)
+      Namespaces: {}
+      Queue Size: 100
+      Value: false
     - Class: rviz/Marker
       Enabled: true
       Marker Topic: /tracking_controller/vel_and_acc_info
