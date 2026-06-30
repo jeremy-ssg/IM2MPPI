@@ -19,9 +19,11 @@ tmpc:
   r_uav: 0.30                    # [m] robot disc radius
 
   # -- Guidance planner (Visibility-PRM + homotopy) -------------------
-  num_trajectories_P: 3          # P topology-distinct guidance trajectories (paper uses 4; 3 is lighter)
+  num_trajectories_P: 2          # P topology-distinct guidance trajectories; 2 + FREE is lighter for RViz runs
   add_unguided_planner: true     # true = T-MPC++ (extra non-guided MPC in parallel)
-  prm_samples_n: 100             # PRM sample budget (paper: n < 100 sufficient)
+  prm_samples_n: 70              # PRM sample budget; lower keeps the 10 Hz loop from starving RViz/Gazebo
+  prm_max_edges_per_node: 18     # cap successful visibility edges per PRM node
+  prm_max_edge_checks_per_node: 64 # cap expensive visibility tests per PRM node
   homotopy_method: "h_signature" # h_signature | winding | uvd
   visibility_dt: 0.20            # [s] time resolution for (x,y,t) visibility checks
   smoothing_resolution: 0.05     # [s] cubic-spline resampling of guidance trajectories
@@ -38,9 +40,10 @@ tmpc:
                                  # collision constraint (9d), so this half-plane MUST give
                                  # the clearance -> keep at 1.0 (0.05 = topology-only = crashes).
   safety_margin: 0.25            # extra clearance [m] beyond r_uav + r_obs (linearization buffer)
-  parallel_threads: 5            # informational; OpenMP uses the runtime's thread pool
-  thread_timeout_ms: 50          # paper: drop threads exceeding control period, keep best finished
+  parallel_threads: 3            # leave CPU headroom for Gazebo/RViz/detector callbacks
+  thread_timeout_ms: 35          # per-branch OSQP cap; whole plan also includes PRM + matrix setup
   solve_sequential: false        # false = solve branches in parallel (OpenMP). true = single-thread.
+  fail_hold_time: 0.35           # [s] keep the last good trajectory through brief replanning misses
 
   # -- Static map avoidance ------------------------------------------
   use_static_astar: true          # A* over inflated occupancy map before local optimization
@@ -82,3 +85,9 @@ tmpc:
   prediction_source: "constant_velocity"
   prediction_horizon_s: 1.9      # = horizon_steps * dt
   max_obstacles: 8               # nearest-N obstacles considered (fewer = faster QP; paper uses 12)
+
+  # -- RViz/debug publishing ------------------------------------------
+  visualization_period: 0.5      # [s] debug path publishing; bbox obstacles come from detector topics
+  publish_guidance_markers: false
+  publish_optimized_markers: false
+  publish_obstacle_prediction_markers: false

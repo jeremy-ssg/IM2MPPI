@@ -149,6 +149,8 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/num_trajectories_P",  numTrajP_,        4);
     nh_.param("tmpc/add_unguided_planner",addUnguided_,     true);
     nh_.param("tmpc/prm_samples_n",       prmSamplesN_,     100);
+    nh_.param("tmpc/prm_max_edges_per_node", prmMaxEdgesPerNode_, 18);
+    nh_.param("tmpc/prm_max_edge_checks_per_node", prmMaxEdgeChecksPerNode_, 64);
     nh_.param<std::string>("tmpc/homotopy_method", homotopyMethod_, "h_signature");
     nh_.param("tmpc/visibility_dt",       visibilityDt_,    0.20);
     nh_.param("tmpc/smoothing_resolution",smoothingRes_,    0.05);
@@ -178,6 +180,9 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/static_halfplane_search_radius", staticHalfplaneSearchRadius_, 0.8);
     nh_.param("tmpc/static_halfplane_clearance",     staticHalfplaneClearance_, 0.25);
     nh_.param("tmpc/static_halfplane_rays",          staticHalfplaneRays_, 16);
+    nh_.param("tmpc/publish_guidance_markers", publishGuidanceMarkers_, false);
+    nh_.param("tmpc/publish_optimized_markers", publishOptimizedMarkers_, false);
+    nh_.param("tmpc/publish_obstacle_prediction_markers", publishObstaclePredictionMarkers_, false);
     // cost weights
     nh_.param("tmpc/cost_weights/w_contour", wContour_, 1.0);
     nh_.param("tmpc/cost_weights/w_lag",     wLag_,     1.0);
@@ -186,6 +191,9 @@ void tmpcPlanner::initParam() {
 
     parallelThreads_ = std::max(1, parallelThreads_);
     threadTimeoutMs_ = std::max(1, threadTimeoutMs_);
+    prmMaxEdgesPerNode_ = std::max(1, prmMaxEdgesPerNode_);
+    prmMaxEdgeChecksPerNode_ = std::max(prmMaxEdgesPerNode_, prmMaxEdgeChecksPerNode_);
+    visibilityDt_ = std::max(dt_, visibilityDt_);
     staticAstarStep_ = std::max(0.05, staticAstarStep_);
     staticAstarPoolXY_ = std::max(20, staticAstarPoolXY_);
     staticAstarPoolZ_ = std::max(3, staticAstarPoolZ_);
@@ -519,29 +527,59 @@ bool tmpcPlanner::runGuidance() {
         if ((b.p - a.p).norm() / dtSpan > speedLimit) return false;
 
         Eigen::Vector3d prev(a.p.x(), a.p.y(), zLap_);
-        for (int k = a.k; k <= b.k; ++k) {
+        const int visStep = std::max(1, (int)std::round(visibilityDt_ / dt_));
+        auto checkAt = [&](int k) -> bool {
             double u = (double)(k - a.k) / (double)std::max(1, b.k - a.k);
             Eigen::Vector2d p2 = a.p + u * (b.p - a.p);
             Eigen::Vector3d p3(p2.x(), p2.y(), zLap_);
             if (map_) {
-                if (map_->isInflatedOccupied(p3)) return false;
-                if ((p3 - prev).norm() > 1e-4 && map_->isInflatedOccupiedLine(prev, p3)) return false;
+                if (map_->isInflatedOccupied(p3)) return true;
+                if ((p3 - prev).norm() > 1e-4 && map_->isInflatedOccupiedLine(prev, p3)) return true;
             }
             for (size_t j = 0; j < obsPredPos_.size(); ++j) {
                 if (k >= (int)obsPredPos_[j].size()) continue;
                 const double d = (p2 - obsPredPos_[j][k].head<2>()).norm();
-                if (d < rUav_ + obsRadius_[j] + dynMargin) return false;
+                if (d < rUav_ + obsRadius_[j] + dynMargin) return true;
             }
             prev = p3;
+            return false;
+        };
+
+        for (int k = a.k; k <= b.k; k += visStep) {
+            if (checkAt(k)) return false;
+        }
+        if ((b.k - a.k) % visStep != 0) {
+            if (checkAt(b.k)) return false;
         }
         return true;
     };
 
     std::vector<std::vector<std::pair<int, double>>> adj(nodes.size());
     for (size_t i = 0; i < nodes.size(); ++i) {
+        struct EdgeCandidate {
+            int id = -1;
+            double key = 0.0;
+        };
+        std::vector<EdgeCandidate> edgeCandidates;
+        edgeCandidates.reserve(nodes.size());
         for (size_t j = 0; j < nodes.size(); ++j) {
             if (nodes[j].k <= nodes[i].k) continue;
-            if (!edgeVisible((int)i, (int)j)) continue;
+            const double spatial = (nodes[j].p - nodes[i].p).norm();
+            const double temporal = std::abs(nodes[j].k - nodes[i].k);
+            const double refBias = (nodes[j].p - localRef_[nodes[j].k].head<2>()).norm();
+            edgeCandidates.push_back({(int)j, spatial + 0.08 * temporal + 0.04 * refBias});
+        }
+        std::sort(edgeCandidates.begin(), edgeCandidates.end(),
+                  [](const EdgeCandidate& a, const EdgeCandidate& b){
+                      return a.key < b.key;
+                  });
+
+        int checked = 0;
+        for (const auto& cand : edgeCandidates) {
+            if (checked++ >= prmMaxEdgeChecksPerNode_) break;
+            if ((int)adj[i].size() >= prmMaxEdgesPerNode_) break;
+            const int j = cand.id;
+            if (!edgeVisible((int)i, j)) continue;
             double spatial = (nodes[j].p - nodes[i].p).norm();
             double temporal = 0.02 * (double)(nodes[j].k - nodes[i].k);
             double centerBias = 0.03 * (nodes[j].p - localRef_[nodes[j].k].head<2>()).norm();
@@ -1007,7 +1045,8 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
         branch.statesSol[k] = s;
     }
 
-    if (trajectoryHitsStaticMap(branch.statesSol)) {
+    if (trajectoryHitsStaticMap(branch.statesSol) ||
+        trajectoryHitsDynamicObstacles(branch.statesSol, branch.overTake)) {
         branch.feasible = false;
         branch.cost = std::numeric_limits<double>::infinity();
         branch.statesSol.clear();
@@ -1106,6 +1145,28 @@ bool tmpcPlanner::trajectoryHitsStaticMap(const std::vector<Eigen::VectorXd>& st
     return false;
 }
 
+bool tmpcPlanner::trajectoryHitsDynamicObstacles(const std::vector<Eigen::VectorXd>& states,
+                                                 bool allowVerticalOvertake) const {
+    if (obsPredPos_.empty()) return false;
+    for (size_t k = 0; k < states.size(); ++k) {
+        const auto& s = states[k];
+        if (s.size() < 3 || !s.allFinite()) return true;
+        const Eigen::Vector2d p(s(0), s(1));
+        for (size_t j = 0; j < obsPredPos_.size(); ++j) {
+            if (k >= obsPredPos_[j].size()) continue;
+            const double required = rUav_ + obsRadius_[j] + safetyMargin_;
+            const double dxy = (p - obsPredPos_[j][k].head<2>()).norm();
+            if (dxy >= required) continue;
+            if (allowVerticalOvertake && j < obsTop_.size() &&
+                s(2) >= obsTop_[j] + vClearance_) {
+                continue;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 bool tmpcPlanner::getBestTrajectory(nav_msgs::Path& traj) const {
     traj.poses.clear();
     traj.header.stamp = ros::Time::now();
@@ -1140,6 +1201,7 @@ static visualization_msgs::Marker lineMarker(int id, double r, double g, double 
 }
 
 void tmpcPlanner::publishGuidancePaths() const {
+    if (!publishGuidanceMarkers_) return;
     if (guidancePathsPub_.getNumSubscribers() == 0) return;
     visualization_msgs::MarkerArray arr;
     for (size_t i = 0; i < branches_.size(); ++i) {
@@ -1167,6 +1229,7 @@ static void tmpcBranchColor(const TMPCBranch& b, double rgb[3]) {
 }
 
 void tmpcPlanner::publishOptimizedTrajectories() const {
+    if (!publishOptimizedMarkers_) return;
     if (optimizedTrajPub_.getNumSubscribers() == 0) return;
     visualization_msgs::MarkerArray arr;
 
@@ -1220,6 +1283,7 @@ void tmpcPlanner::publishOptimizedTrajectories() const {
 }
 
 void tmpcPlanner::publishObstaclePredictions() const {
+    if (!publishObstaclePredictionMarkers_) return;
     if (dynObsPub_.getNumSubscribers() == 0) return;
     visualization_msgs::MarkerArray arr;
 
@@ -1258,6 +1322,12 @@ void tmpcPlanner::publishObstaclePredictions() const {
         arr.markers.push_back(disc);
     }
     dynObsPub_.publish(arr);
+}
+
+bool tmpcPlanner::hasVisualizationSubscribers() const {
+    return (publishGuidanceMarkers_ && guidancePathsPub_.getNumSubscribers() > 0) ||
+           (publishOptimizedMarkers_ && optimizedTrajPub_.getNumSubscribers() > 0) ||
+           (publishObstaclePredictionMarkers_ && dynObsPub_.getNumSubscribers() > 0);
 }
 
 } // namespace trajPlanner

@@ -80,6 +80,8 @@ private:
     bool        usePredefinedGoal_ = false;
     double      desiredVel_        = 1.5;
     int         repeatPathNum_     = 1;
+    double      visPeriod_         = 0.5;
+    double      failHoldTime_      = 0.35;
     std::string refTrajPath_;
     nav_msgs::Path predefinedGoal_;
 
@@ -95,6 +97,7 @@ private:
     double                 activeFacingYaw_ = 0.0;
     ros::Time              trajStartTime_;
     double                 facingYaw_ = 0.0;
+    int                    consecutivePlanFailures_ = 0;
     std::vector<Eigen::Vector3d> lastReferencePath_;
 
     // yaw rate limiter state

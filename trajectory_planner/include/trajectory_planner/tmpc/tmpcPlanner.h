@@ -97,6 +97,7 @@ public:
     void publishGuidancePaths()       const;
     void publishOptimizedTrajectories() const;
     void publishObstaclePredictions() const;   // /tmpc/dynamic_obstacle_predictions
+    bool hasVisualizationSubscribers() const;
 
 private:
     // ---- guidance --------------------------------------------------------------
@@ -140,6 +141,8 @@ private:
     void decide();
 
     bool trajectoryHitsStaticMap(const std::vector<Eigen::VectorXd>& states) const;
+    bool trajectoryHitsDynamicObstacles(const std::vector<Eigen::VectorXd>& states,
+                                        bool allowVerticalOvertake) const;
 
     // ===========================================================================
     ros::NodeHandle nh_;
@@ -159,6 +162,8 @@ private:
     int    numTrajP_       = 4;
     bool   addUnguided_    = true;      // T-MPC++
     int    prmSamplesN_    = 100;
+    int    prmMaxEdgesPerNode_ = 18;
+    int    prmMaxEdgeChecksPerNode_ = 64;
     std::string homotopyMethod_ = "h_signature";
     double visibilityDt_   = 0.20;
     double smoothingRes_   = 0.05;
@@ -195,6 +200,9 @@ private:
     double staticHalfplaneSearchRadius_ = 0.8;
     double staticHalfplaneClearance_ = 0.25;
     int    staticHalfplaneRays_ = 16;
+    bool   publishGuidanceMarkers_ = false;
+    bool   publishOptimizedMarkers_ = false;
+    bool   publishObstaclePredictionMarkers_ = false;
 
     // --- per-iteration state ---------------------------------------------------
     Eigen::Vector3d currPos_ = Eigen::Vector3d::Zero();

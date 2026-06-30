@@ -29,6 +29,10 @@ void tmpcNavigation::initParam() {
         this->useYawControl_ = false;
     this->nh_.param("autonomous_flight/desired_velocity", this->desiredVel_, 1.5);
     this->nh_.param("autonomous_flight/use_predefined_goal", this->usePredefinedGoal_, false);
+    this->nh_.param("tmpc/visualization_period", this->visPeriod_, 0.5);
+    this->nh_.param("tmpc/fail_hold_time", this->failHoldTime_, 0.35);
+    this->visPeriod_ = std::max(0.05, this->visPeriod_);
+    this->failHoldTime_ = std::max(0.0, this->failHoldTime_);
 
     if (this->usePredefinedGoal_) {
         if (!this->nh_.getParam("autonomous_flight/predefined_goal_directory", this->refTrajPath_)) {
@@ -79,7 +83,7 @@ void tmpcNavigation::registerPub() {
 void tmpcNavigation::registerCallback() {
     this->planTimer_    = this->nh_.createTimer(ros::Duration(0.1),  &tmpcNavigation::planCB,    this);
     this->trajExeTimer_ = this->nh_.createTimer(ros::Duration(0.01), &tmpcNavigation::trajExeCB, this);
-    this->visTimer_     = this->nh_.createTimer(ros::Duration(0.2),  &tmpcNavigation::visCB,     this);
+    this->visTimer_     = this->nh_.createTimer(ros::Duration(this->visPeriod_), &tmpcNavigation::visCB, this);
 }
 
 void tmpcNavigation::run() {
@@ -166,6 +170,7 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
 
     if (success && !states.empty()) {
         std::lock_guard<std::mutex> tk(this->trajMutex_);
+        this->consecutivePlanFailures_ = 0;
         this->activeTraj_.clear();
         this->activeTraj_.reserve(states.size());
         for (const auto& s : states) {
@@ -179,6 +184,22 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
         this->trajStartTime_   = planStart;
         this->ready_           = true;
     } else {
+        ++this->consecutivePlanFailures_;
+        bool keepPrevious = false;
+        {
+            std::lock_guard<std::mutex> tk(this->trajMutex_);
+            if (this->ready_ && !this->activeTraj_.empty() && this->activeTrajDt_ > 1e-6) {
+                const double age = (ros::Time::now() - this->trajStartTime_).toSec();
+                const double horizon = (double)(this->activeTraj_.size() - 1) * this->activeTrajDt_;
+                keepPrevious = age < std::min(horizon, this->failHoldTime_);
+            }
+        }
+        if (keepPrevious) {
+            ROS_WARN_THROTTLE(1.0,
+                "[T-MPC++ Nav] plan() failed; holding previous trajectory briefly (%d failures).",
+                this->consecutivePlanFailures_);
+            return;
+        }
         ROS_WARN_THROTTLE(1.0, "[T-MPC++ Nav] plan() failed.");
         {
             std::lock_guard<std::mutex> tk(this->trajMutex_);
@@ -257,13 +278,21 @@ void tmpcNavigation::visCB(const ros::TimerEvent&) {
         std::lock_guard<std::mutex> tk(this->trajMutex_);
         if (!this->ready_) return;
     }
-    std::lock_guard<std::mutex> lk(this->planMutex_);
-    if (this->bestTrajPub_.getNumSubscribers() > 0) this->publishBestTrajectory();
-    if (this->refPathPub_.getNumSubscribers()  > 0) this->publishReferencePath();
+    const bool needBest = this->bestTrajPub_.getNumSubscribers() > 0;
+    const bool needRef  = this->refPathPub_.getNumSubscribers() > 0;
+    const bool needPlannerViz = this->tmpc_ && this->tmpc_->hasVisualizationSubscribers();
+    if (!needBest && !needRef && !needPlannerViz) return;
+
+    std::unique_lock<std::mutex> lk(this->planMutex_, std::try_to_lock);
+    if (!lk.owns_lock()) return;
+    if (needBest) this->publishBestTrajectory();
+    if (needRef)  this->publishReferencePath();
     // Planner-owned markers. Dynamic obstacles are shown as detector bounding boxes
     // in RViz; T-MPC++ itself only consumes constant-velocity bbox states.
-    this->tmpc_->publishGuidancePaths();
-    this->tmpc_->publishOptimizedTrajectories();
+    if (needPlannerViz) {
+        this->tmpc_->publishGuidancePaths();
+        this->tmpc_->publishOptimizedTrajectories();
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
