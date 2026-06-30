@@ -33,7 +33,11 @@ tmpc:
   goal_long_distance: 4.0        # [m] look-ahead of the nearest goal row
 
   # -- Local planners (parallel ACADO MPC) ---------------------------
-  beta_relax: 0.05               # homotopy-constraint relaxation 0..1 (Eq.8); ~0 = pure topology lock
+  beta_relax: 1.0                # 1 = linearized disc collision avoidance (real clearance).
+                                 # NOTE: we don't implement the paper's separate hard
+                                 # collision constraint (9d), so this half-plane MUST give
+                                 # the clearance -> keep at 1.0 (0.05 = topology-only = crashes).
+  safety_margin: 0.25            # extra clearance [m] beyond r_uav + r_obs (linearization buffer)
   parallel_threads: 5            # informational; OpenMP uses the runtime's thread pool
   thread_timeout_ms: 50          # paper: drop threads exceeding control period, keep best finished
   solve_sequential: false        # false = solve branches in parallel (OpenMP). true = single-thread.

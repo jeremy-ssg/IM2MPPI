@@ -156,7 +156,8 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/goal_grid_long",      goalGridLong_,    3);
     nh_.param("tmpc/goal_lat_spread",     goalLatSpread_,   2.0);
     nh_.param("tmpc/goal_long_distance",  goalLongDist_,    4.0);
-    nh_.param("tmpc/beta_relax",          betaRelax_,       0.05);
+    nh_.param("tmpc/beta_relax",          betaRelax_,       1.0);
+    nh_.param("tmpc/safety_margin",       safetyMargin_,    0.25);
     nh_.param("tmpc/parallel_threads",    parallelThreads_, 5);
     nh_.param("tmpc/thread_timeout_ms",   threadTimeoutMs_, 50);
     nh_.param("tmpc/solve_sequential",    solveSequential_, true);
@@ -754,7 +755,12 @@ bool tmpcPlanner::homotopyHalfPlane(const Eigen::Vector2d& guidancePt,
     double dn = diff.norm();
     if (dn < 1e-6) return false;          // guidance point sits on the obstacle center
     A_k = diff / dn;
-    b_k = A_k.dot(obstaclePt - A_k * (betaRelax_ * rSum));
+    // Real clearance, not just a topology lock: keep the ego at least
+    // (beta*rSum + safety_margin) from the obstacle along the obstacle direction.
+    // With beta_relax = 1 this is a linearized disc-avoidance constraint (we do not
+    // have the paper's separate hard collision constraint (9d), so this must provide
+    // the actual clearance, hence beta defaults to 1, not ~0).
+    b_k = A_k.dot(obstaclePt) - (betaRelax_ * rSum + safetyMargin_);
     return true;
 }
 
@@ -865,7 +871,22 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
                 if (k >= (int)obsPredPos_[j].size()) continue;
                 Eigen::Vector2d A_k; double b_k;
                 const double rSum = rUav_ + obsRadius_[j];
-                if (!homotopyHalfPlane(gp, obsPredPos_[j][k].head<2>(), rSum, A_k, b_k)) continue;
+                const Eigen::Vector2d op = obsPredPos_[j][k].head<2>();
+                if (!homotopyHalfPlane(gp, op, rSum, A_k, b_k)) {
+                    // Obstacle is essentially on the reference (e.g. a dynamic obstacle
+                    // crossing the path): no side info from geometry. Push the ego
+                    // perpendicular to the local path, toward the side it is currently
+                    // on, so a clearance constraint still applies (was: skipped -> hit).
+                    Eigen::Vector2d tang(1, 0);
+                    if (k + 1 < (int)branch.guidanceTraj.size())
+                        tang = branch.guidanceTraj[k + 1].head<2>() - gp;
+                    if (tang.norm() < 1e-6) tang = Eigen::Vector2d(1, 0);
+                    tang.normalize();
+                    Eigen::Vector2d nrm(-tang.y(), tang.x());
+                    double sign = (nrm.dot(currPos_.head<2>() - op) >= 0.0) ? 1.0 : -1.0;
+                    A_k = -sign * nrm;
+                    b_k = A_k.dot(op) - (rSum + safetyMargin_);
+                }
                 Atr.emplace_back(row, xi(k)+0, A_k.x());
                 Atr.emplace_back(row, xi(k)+1, A_k.y());
                 addBound(-INF, b_k); ++row;
@@ -1119,6 +1140,7 @@ static visualization_msgs::Marker lineMarker(int id, double r, double g, double 
 }
 
 void tmpcPlanner::publishGuidancePaths() const {
+    if (guidancePathsPub_.getNumSubscribers() == 0) return;
     visualization_msgs::MarkerArray arr;
     for (size_t i = 0; i < branches_.size(); ++i) {
         auto m = lineMarker((int)i, 0.7, 0.3, 0.85, 0.05, "tmpc_guidance");
@@ -1145,6 +1167,7 @@ static void tmpcBranchColor(const TMPCBranch& b, double rgb[3]) {
 }
 
 void tmpcPlanner::publishOptimizedTrajectories() const {
+    if (optimizedTrajPub_.getNumSubscribers() == 0) return;
     visualization_msgs::MarkerArray arr;
 
     // clear stale markers from the previous iteration
@@ -1197,6 +1220,7 @@ void tmpcPlanner::publishOptimizedTrajectories() const {
 }
 
 void tmpcPlanner::publishObstaclePredictions() const {
+    if (dynObsPub_.getNumSubscribers() == 0) return;
     visualization_msgs::MarkerArray arr;
 
     visualization_msgs::Marker del;

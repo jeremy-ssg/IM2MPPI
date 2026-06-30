@@ -166,7 +166,8 @@ private:
     int    goalGridLong_   = 3;
     double goalLatSpread_  = 2.0;
     double goalLongDist_   = 4.0;
-    double betaRelax_      = 0.05;
+    double betaRelax_      = 1.0;       // 1 = linearized disc avoidance (real clearance)
+    double safetyMargin_   = 0.25;      // extra clearance [m] beyond r_uav + r_obs
     int    parallelThreads_ = 5;
     int    threadTimeoutMs_ = 50;
     bool   solveSequential_ = true;     // ACADO not thread-safe; start sequential
