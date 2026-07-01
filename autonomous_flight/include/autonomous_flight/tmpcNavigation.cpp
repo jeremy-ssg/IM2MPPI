@@ -35,12 +35,14 @@ void tmpcNavigation::initParam() {
     this->nh_.param("tmpc/static_post_check_clearance", this->staticExecClearance_, 0.25);
     this->nh_.param("tmpc/execution_lookahead_time", this->execLookaheadTime_, 0.45);
     this->nh_.param("tmpc/execution_lookahead_distance", this->execLookaheadDist_, 0.80);
+    this->nh_.param("tmpc/receding_horizon_max_playback_time", this->recedingMaxPlaybackTime_, 0.20);
     this->visPeriod_ = std::max(0.05, this->visPeriod_);
     this->failHoldTime_ = std::max(0.0, this->failHoldTime_);
     this->brakeTime_ = std::max(0.1, this->brakeTime_);
     this->staticExecClearance_ = std::max(0.0, this->staticExecClearance_);
     this->execLookaheadTime_ = std::max(0.0, this->execLookaheadTime_);
     this->execLookaheadDist_ = std::max(0.0, this->execLookaheadDist_);
+    this->recedingMaxPlaybackTime_ = std::max(0.0, this->recedingMaxPlaybackTime_);
 
     if (this->usePredefinedGoal_) {
         if (!this->nh_.getParam("autonomous_flight/predefined_goal_directory", this->refTrajPath_)) {
@@ -203,6 +205,7 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
         // stacks. The execution callback adds a short lookahead so replanning at
         // 10 Hz does not keep publishing the t=0 setpoint.
         this->trajStartTime_   = planStart;
+        this->activeIsBrake_   = false;
         this->ready_           = true;
     } else {
         ++this->consecutivePlanFailures_;
@@ -231,6 +234,7 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
             this->activeTrajDt_ = traj_dt;
             this->activeFacingYaw_ = snapshot_facing_yaw;
             this->trajStartTime_ = ros::Time::now();
+            this->activeIsBrake_ = true;
             this->ready_ = true;
             ROS_WARN_THROTTLE(1.0,
                 "[T-MPC++ Nav] plan() failed (%s); switching to smooth brake trajectory (%d failures).",
@@ -258,6 +262,7 @@ void tmpcNavigation::trajExeCB(const ros::TimerEvent&) {
     ros::Time trajStartTime;
     double traj_dt = 0.05;
     double snapshot_facing_yaw = 0.0;
+    bool activeIsBrake = false;
 
     {
         std::lock_guard<std::mutex> tk(this->trajMutex_);
@@ -266,32 +271,51 @@ void tmpcNavigation::trajExeCB(const ros::TimerEvent&) {
         trajStartTime = this->trajStartTime_;
         traj_dt = this->activeTrajDt_;
         snapshot_facing_yaw = this->activeFacingYaw_;
+        activeIsBrake = this->activeIsBrake_;
     }
 
     const double endTime  = std::max(0.0, (double)(traj.size() - 1) * traj_dt);
     const double realTime = std::max(0.0, (ros::Time::now() - trajStartTime).toSec());
+    const double playbackTime = activeIsBrake
+        ? std::min(realTime, endTime)
+        : std::min(std::min(realTime, this->recedingMaxPlaybackTime_), endTime);
+    const double targetTime = activeIsBrake
+        ? playbackTime
+        : this->lookaheadSampleTime(traj, traj_dt, playbackTime);
 
     tracking_controller::Target target;
     double raw_yaw = snapshot_facing_yaw;
+    ExecPoint pt;
 
-    if (realTime >= endTime) {
-        const ExecPoint pt = this->sampleSnapshot(traj, traj_dt, endTime);
+    if (activeIsBrake && realTime >= endTime) {
+        pt = this->sampleSnapshot(traj, traj_dt, endTime);
         target.position.x = pt.p.x(); target.position.y = pt.p.y(); target.position.z = pt.p.z();
         target.velocity.x = target.velocity.y = target.velocity.z = 0.0;
         target.acceleration.x = target.acceleration.y = target.acceleration.z = 0.0;
     } else {
-        const ExecPoint pt = this->sampleLookaheadSnapshot(traj, traj_dt, realTime);
+        pt = this->sampleSnapshot(traj, traj_dt, targetTime);
         target.position.x = pt.p.x(); target.position.y = pt.p.y(); target.position.z = pt.p.z();
         target.velocity.x = pt.v.x(); target.velocity.y = pt.v.y(); target.velocity.z = pt.v.z();
         target.acceleration.x = pt.a.x(); target.acceleration.y = pt.a.y(); target.acceleration.z = pt.a.z();
     }
 
     {
-        std::vector<ExecPoint> immediate(2);
-        immediate[0].p = this->currPos_;
-        immediate[1].p = Eigen::Vector3d(target.position.x,
-                                         target.position.y,
-                                         target.position.z);
+        // Check the planned prefix to the command point. A straight chord from the
+        // current pose to a lookahead target can cut through an obstacle even when
+        // the optimized trajectory curves safely around it.
+        std::vector<ExecPoint> immediate;
+        immediate.reserve(16);
+        ExecPoint start;
+        start.p = this->currPos_;
+        immediate.push_back(start);
+
+        const double prefixStart = playbackTime;
+        const double prefixEnd = std::max(prefixStart, targetTime);
+        const double step = std::max(0.02, std::min(0.10, traj_dt));
+        for (double t = prefixStart; t + 1e-6 < prefixEnd; t += step) {
+            immediate.push_back(this->sampleSnapshot(traj, traj_dt, t));
+        }
+        immediate.push_back(pt);
         if (this->execTrajectoryHitsStaticMap(immediate, 0.0)) {
             {
                 std::lock_guard<std::mutex> tk(this->trajMutex_);
@@ -333,9 +357,10 @@ void tmpcNavigation::trajExeCB(const ros::TimerEvent&) {
 //  Visualization (~5 Hz)
 // ─────────────────────────────────────────────────────────────────────────────
 void tmpcNavigation::visCB(const ros::TimerEvent&) {
+    bool ready = false;
     {
         std::lock_guard<std::mutex> tk(this->trajMutex_);
-        if (!this->ready_) return;
+        ready = this->ready_;
     }
     const bool needBest = this->bestTrajPub_.getNumSubscribers() > 0;
     const bool needRef  = this->refPathPub_.getNumSubscribers() > 0;
@@ -344,13 +369,15 @@ void tmpcNavigation::visCB(const ros::TimerEvent&) {
 
     std::unique_lock<std::mutex> lk(this->planMutex_, std::try_to_lock);
     if (!lk.owns_lock()) return;
-    if (needBest) this->publishBestTrajectory();
+    if (ready && needBest) this->publishBestTrajectory();
     if (needRef)  this->publishReferencePath();
     // Planner-owned markers. Dynamic obstacles are shown as detector bounding boxes
     // in RViz; T-MPC++ itself only consumes constant-velocity bbox states.
     if (needPlannerViz) {
         this->tmpc_->publishGuidancePaths();
         this->tmpc_->publishOptimizedTrajectories();
+        this->tmpc_->publishObstaclePredictions();
+        this->tmpc_->publishVisibleStaticObstacles();
     }
 }
 
@@ -404,10 +431,9 @@ tmpcNavigation::ExecPoint tmpcNavigation::sampleSnapshot(
     return out;
 }
 
-tmpcNavigation::ExecPoint tmpcNavigation::sampleLookaheadSnapshot(
+double tmpcNavigation::lookaheadSampleTime(
     const std::vector<ExecPoint>& traj, double dt, double t) const {
-    if (traj.empty()) return ExecPoint();
-    if (traj.size() == 1 || dt <= 1e-6) return traj.front();
+    if (traj.empty() || traj.size() == 1 || dt <= 1e-6) return 0.0;
 
     const double horizonTime = (double)(traj.size() - 1) * dt;
     const double baseTime = std::max(0.0, std::min(t, horizonTime));
@@ -440,7 +466,14 @@ tmpcNavigation::ExecPoint tmpcNavigation::sampleLookaheadSnapshot(
         targetTime = std::max(targetTime, std::min(distTime, horizonTime));
     }
 
-    return this->sampleSnapshot(traj, dt, targetTime);
+    return targetTime;
+}
+
+tmpcNavigation::ExecPoint tmpcNavigation::sampleLookaheadSnapshot(
+    const std::vector<ExecPoint>& traj, double dt, double t) const {
+    if (traj.empty()) return ExecPoint();
+    if (traj.size() == 1 || dt <= 1e-6) return traj.front();
+    return this->sampleSnapshot(traj, dt, this->lookaheadSampleTime(traj, dt, t));
 }
 
 bool tmpcNavigation::buildBrakeTrajectory(std::vector<ExecPoint>& traj,

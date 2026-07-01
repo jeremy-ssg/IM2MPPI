@@ -102,6 +102,7 @@ public:
     void publishGuidancePaths()       const;
     void publishOptimizedTrajectories() const;
     void publishObstaclePredictions() const;   // /tmpc/dynamic_obstacle_predictions
+    void publishVisibleStaticObstacles() const; // /tmpc/visible_static_obstacles
     bool hasVisualizationSubscribers() const;
 
 private:
@@ -164,6 +165,7 @@ private:
     ros::Publisher optimizedTrajPub_;       // /tmpc/optimized_trajectories
     ros::Publisher goalGridPub_;            // /tmpc/goal
     ros::Publisher dynObsPub_;              // /tmpc/dynamic_obstacle_predictions
+    ros::Publisher visibleStaticPub_;       // /tmpc/visible_static_obstacles
 
     // --- parameters (from tmpc.yaml) -------------------------------------------
     double dt_              = 0.05;
@@ -217,6 +219,9 @@ private:
     bool   publishGuidanceMarkers_ = true;
     bool   publishOptimizedMarkers_ = false;
     bool   publishObstaclePredictionMarkers_ = false;
+    bool   publishVisibleStaticMarkers_ = true;
+    int    visibleStaticMarkerStride_ = 2;
+    int    visibleStaticMarkerMaxPoints_ = 6000;
 
     // --- per-iteration state ---------------------------------------------------
     Eigen::Vector3d currPos_ = Eigen::Vector3d::Zero();

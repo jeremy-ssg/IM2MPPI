@@ -86,6 +86,7 @@ private:
     double      staticExecClearance_ = 0.25;
     double      execLookaheadTime_ = 0.45;
     double      execLookaheadDist_ = 0.80;
+    double      recedingMaxPlaybackTime_ = 0.20;
     std::string refTrajPath_;
     nav_msgs::Path predefinedGoal_;
 
@@ -100,6 +101,7 @@ private:
     std::vector<ExecPoint> activeTraj_;
     double                 activeTrajDt_ = 0.05;
     double                 activeFacingYaw_ = 0.0;
+    bool                   activeIsBrake_ = false;
     ros::Time              trajStartTime_;
     double                 facingYaw_ = 0.0;
     int                    consecutivePlanFailures_ = 0;
@@ -122,6 +124,7 @@ private:
                       std::vector<Eigen::Vector3d>& vel,
                       std::vector<Eigen::Vector3d>& size) const;
     ExecPoint sampleSnapshot(const std::vector<ExecPoint>& traj, double dt, double t) const;
+    double lookaheadSampleTime(const std::vector<ExecPoint>& traj, double dt, double t) const;
     ExecPoint sampleLookaheadSnapshot(const std::vector<ExecPoint>& traj, double dt, double t) const;
     bool buildBrakeTrajectory(std::vector<ExecPoint>& traj, double dt, double duration) const;
     bool execTrajectoryHitsStaticMap(const std::vector<ExecPoint>& traj, double dt) const;

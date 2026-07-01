@@ -47,6 +47,7 @@ tmpc:
   brake_time: 0.45               # [s] smooth braking fallback if no feasible branch exists
   execution_lookahead_time: 0.45 # [s] target sampling lead; prevents chasing t=0 after each replan
   execution_lookahead_distance: 0.80 # [m] minimum forward target distance along optimized trajectory
+  receding_horizon_max_playback_time: 0.20 # [s] do not play an old nominal MPC trajectory to its end
 
   # -- Static map avoidance ------------------------------------------
   use_static_astar: false         # A* not used: the topology PRM itself must find the route around
@@ -99,3 +100,6 @@ tmpc:
   publish_guidance_markers: true # lightweight topology paths (/tmpc/guidance_paths)
   publish_optimized_markers: false
   publish_obstacle_prediction_markers: false
+  publish_visible_static_markers: true
+  visible_static_marker_stride: 2 # publish every Nth map voxel in /tmpc/visible_static_obstacles
+  visible_static_marker_max_points: 6000

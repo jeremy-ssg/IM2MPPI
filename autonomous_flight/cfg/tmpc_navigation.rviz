@@ -188,6 +188,14 @@ Visualization Manager:
       Namespaces: {}
       Queue Size: 100
       Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /tmpc/visible_static_obstacles
+      Name: T-MPC++ Visible Static Obstacles
+      Namespaces:
+        tmpc_visible_static: true
+      Queue Size: 100
+      Value: true
     # In-view (FOV-filtered) dynamic obstacles, same source/style as the other
     # methods, WITHOUT intent prediction. Published by filter_visible_dynamic_bboxes.
     - Class: rviz/MarkerArray

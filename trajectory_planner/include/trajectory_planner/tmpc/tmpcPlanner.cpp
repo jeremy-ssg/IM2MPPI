@@ -199,6 +199,9 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/publish_guidance_markers", publishGuidanceMarkers_, true);
     nh_.param("tmpc/publish_optimized_markers", publishOptimizedMarkers_, false);
     nh_.param("tmpc/publish_obstacle_prediction_markers", publishObstaclePredictionMarkers_, false);
+    nh_.param("tmpc/publish_visible_static_markers", publishVisibleStaticMarkers_, true);
+    nh_.param("tmpc/visible_static_marker_stride", visibleStaticMarkerStride_, 2);
+    nh_.param("tmpc/visible_static_marker_max_points", visibleStaticMarkerMaxPoints_, 6000);
     // cost weights
     nh_.param("tmpc/cost_weights/w_contour", wContour_, 1.0);
     nh_.param("tmpc/cost_weights/w_lag",     wLag_,     1.0);
@@ -218,6 +221,8 @@ void tmpcPlanner::initParam() {
     staticHalfplaneRays_ = std::max(4, staticHalfplaneRays_);
     staticPostCheckClearance_ = std::max(0.0, staticPostCheckClearance_);
     staticFovRange_ = std::max(1.0, staticFovRange_);
+    visibleStaticMarkerStride_ = std::max(1, visibleStaticMarkerStride_);
+    visibleStaticMarkerMaxPoints_ = std::max(100, visibleStaticMarkerMaxPoints_);
 
     ROS_INFO("[tmpcPlanner] init: P=%d unguided=%d horizon=%d dt=%.3f z_lap=%.2f pred=%s",
              numTrajP_, (int)addUnguided_, horizon_, dt_, zLap_, predictionSource_.c_str());
@@ -230,6 +235,7 @@ void tmpcPlanner::registerPub() {
     optimizedTrajPub_   = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/optimized_trajectories", 1);
     goalGridPub_        = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/goal", 1);
     dynObsPub_          = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/dynamic_obstacle_predictions", 1);
+    visibleStaticPub_   = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/visible_static_obstacles", 1);
 }
 
 void tmpcPlanner::resetDiagnostics() {
@@ -678,7 +684,7 @@ bool tmpcPlanner::runGuidance() {
     };
 
     // Visibility-PRM Guard/Connector admission rule for one sample.
-    auto classifyAndAdd = [&](const Eigen::Vector2d& p, int k) {
+    auto classifyAndAdd = [&](const Eigen::Vector2d& p, int k, bool keepProgress) {
         if (!staticFree(p, k)) return;
         int nGuards = 0, nGoals = 0;
         for (size_t i = 0; i < nodes.size(); ++i) {
@@ -689,9 +695,13 @@ bool tmpcPlanner::runGuidance() {
         //   sees nothing               -> GUARD (explore a new region)
         //   sees 2 guards, or guard+goal -> CONNECTOR (bridge two regions)
         //   sees exactly 1 guard        -> redundant, discard
+        // For a directed space-time graph, deterministic corridor/side samples also
+        // need "progress" milestones: a point that sees only one earlier guard may
+        // still be the only time-feasible step toward a later goal.
         const bool asGuard     = (nGuards == 0 && nGoals == 0);
         const bool asConnector = (nGuards == 2) || (nGuards >= 1 && nGoals >= 1);
-        if (asGuard || asConnector) addNode(p, k, false, 0.0);
+        const bool asProgress  = keepProgress && (nGuards == 1 && nGoals == 0);
+        if (asGuard || asConnector || asProgress) addNode(p, k, false, 0.0);
     };
 
     // Graph propagation: re-seed guards from the previous iteration's guidance
@@ -718,7 +728,7 @@ bool tmpcPlanner::runGuidance() {
                 if (t.norm() < 1e-6) t = anchor.tangent;
                 t.normalize();
                 const Eigen::Vector2d nrm(-t.y(), t.x());
-                for (double off : offsets) classifyAndAdd(c + off * nrm, k);
+                for (double off : offsets) classifyAndAdd(c + off * nrm, k, true);
             }
         }
     }
@@ -739,7 +749,7 @@ bool tmpcPlanner::runGuidance() {
         const Eigen::Vector2d c = localRef_[k].head<2>();
         const Eigen::Vector2d t = localTangent(localRef_, k);
         const Eigen::Vector2d nrm(-t.y(), t.x());
-        classifyAndAdd(c + latDist(rng) * nrm, k);
+        classifyAndAdd(c + latDist(rng) * nrm, k, false);
     }
 
     // Low-discrepancy deterministic corridor samples keep the graph connected when
@@ -757,7 +767,7 @@ bool tmpcPlanner::runGuidance() {
             const Eigen::Vector2d nrm(-t.y(), t.x());
             for (int li = -halfLat; li <= halfLat; ++li) {
                 const double off = (halfLat > 0) ? sampleSpread * (double)li / (double)halfLat : 0.0;
-                classifyAndAdd(c + off * nrm, k);
+                classifyAndAdd(c + off * nrm, k, true);
             }
         }
     }
@@ -779,8 +789,8 @@ bool tmpcPlanner::runGuidance() {
             const Eigen::Vector2d t = localTangent(localRef_, k);
             const Eigen::Vector2d nrm(-t.y(), t.x());
             const Eigen::Vector2d o = obsPredPos_[j][k].head<2>();
-            classifyAndAdd(o + sep * nrm, k);
-            classifyAndAdd(o - sep * nrm, k);
+            classifyAndAdd(o + sep * nrm, k, true);
+            classifyAndAdd(o - sep * nrm, k, true);
         }
     }
 
@@ -1909,10 +1919,84 @@ void tmpcPlanner::publishObstaclePredictions() const {
     dynObsPub_.publish(arr);
 }
 
+void tmpcPlanner::publishVisibleStaticObstacles() const {
+    if (!publishVisibleStaticMarkers_) return;
+    if (!map_ || visibleStaticPub_.getNumSubscribers() == 0) return;
+
+    visualization_msgs::MarkerArray arr;
+
+    visualization_msgs::Marker del;
+    del.header.frame_id = "map";
+    del.ns = "tmpc_visible_static";
+    del.action = visualization_msgs::Marker::DELETEALL;
+    arr.markers.push_back(del);
+
+    Eigen::Vector3d mapMin, mapMax;
+    Eigen::Vector3d currMin, currMax;
+    map_->getMapRange(mapMin, mapMax);
+    map_->getCurrMapRange(currMin, currMax);
+
+    const double range = std::max(1.0, staticFovRange_);
+    Eigen::Vector3d lo(currPos_.x() - range, currPos_.y() - range, mapMin.z());
+    Eigen::Vector3d hi(currPos_.x() + range, currPos_.y() + range, mapMax.z());
+    lo = lo.cwiseMax(mapMin);
+    hi = hi.cwiseMin(mapMax);
+
+    // If the map exposes a current sensor-update range, intersect with it so the
+    // marker shows what the planner currently sees instead of the whole global map.
+    if ((currMax - currMin).norm() > 1e-3) {
+        lo = lo.cwiseMax(currMin);
+        hi = hi.cwiseMin(currMax);
+    }
+
+    const double res = std::max(0.03, map_->getRes());
+    const int stride = std::max(1, visibleStaticMarkerStride_);
+    const double step = res * (double)stride;
+
+    visualization_msgs::Marker vox;
+    vox.header.frame_id = "map";
+    vox.header.stamp = ros::Time::now();
+    vox.ns = "tmpc_visible_static";
+    vox.id = 0;
+    vox.type = visualization_msgs::Marker::CUBE_LIST;
+    vox.action = visualization_msgs::Marker::ADD;
+    vox.pose.orientation.w = 1.0;
+    vox.scale.x = vox.scale.y = vox.scale.z = step;
+    vox.color.r = 0.25;
+    vox.color.g = 0.55;
+    vox.color.b = 0.95;
+    vox.color.a = 0.45;
+    vox.lifetime = ros::Duration(0.6);
+    vox.points.reserve((size_t)std::min(visibleStaticMarkerMaxPoints_, 6000));
+
+    bool full = false;
+    for (double x = lo.x(); x <= hi.x() + 1e-9 && !full; x += step) {
+        for (double y = lo.y(); y <= hi.y() + 1e-9 && !full; y += step) {
+            if ((Eigen::Vector2d(x, y) - currPos_.head<2>()).norm() > range) continue;
+            for (double z = lo.z(); z <= hi.z() + 1e-9; z += step) {
+                Eigen::Vector3d p(x, y, z);
+                if (!map_->isInMap(p)) continue;
+                if (!map_->isInflatedOccupied(p)) continue;
+                geometry_msgs::Point pt;
+                pt.x = x; pt.y = y; pt.z = z;
+                vox.points.push_back(pt);
+                if ((int)vox.points.size() >= visibleStaticMarkerMaxPoints_) {
+                    full = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    arr.markers.push_back(vox);
+    visibleStaticPub_.publish(arr);
+}
+
 bool tmpcPlanner::hasVisualizationSubscribers() const {
     return (publishGuidanceMarkers_ && guidancePathsPub_.getNumSubscribers() > 0) ||
            (publishOptimizedMarkers_ && optimizedTrajPub_.getNumSubscribers() > 0) ||
-           (publishObstaclePredictionMarkers_ && dynObsPub_.getNumSubscribers() > 0);
+           (publishObstaclePredictionMarkers_ && dynObsPub_.getNumSubscribers() > 0) ||
+           (publishVisibleStaticMarkers_ && visibleStaticPub_.getNumSubscribers() > 0);
 }
 
 } // namespace trajPlanner
