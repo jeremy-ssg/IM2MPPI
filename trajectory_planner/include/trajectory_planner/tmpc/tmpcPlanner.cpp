@@ -676,30 +676,27 @@ bool tmpcPlanner::runGuidance() {
         const double dtSpan = std::max(1e-3, (double)(b.k - a.k) * dt_);
         if ((b.p - a.p).norm() / dtSpan > speedLimit) return false;
 
-        Eigen::Vector3d prev(a.p.x(), a.p.y(), zLap_);
         const int visStep = std::max(1, (int)std::round(visibilityDt_ / dt_));
-        auto checkAt = [&](int k) -> bool {
-            double u = (double)(k - a.k) / (double)std::max(1, b.k - a.k);
-            Eigen::Vector2d p2 = a.p + u * (b.p - a.p);
-            Eigen::Vector3d p3(p2.x(), p2.y(), zLap_);
-            if (map_) {
-                if (pointHitsStaticMapWithMargin(p3, staticMarginAtK(k))) return true;
-                if ((p3 - prev).norm() > 1e-4 && map_->isInflatedOccupiedLine(prev, p3)) return true;
-            }
+        Eigen::Vector3d prevStatic(a.p.x(), a.p.y(), zLap_);
+        for (int k = a.k; k <= b.k; ++k) {
+            const double u = (double)(k - a.k) / (double)std::max(1, b.k - a.k);
+            const Eigen::Vector2d p2 = a.p + u * (b.p - a.p);
+            // Dynamic obstacles: check EVERY step, with the SAME clearance the local
+            // planner + post-check enforce (r_uav + r_obs + safety_margin). Sampling
+            // only every visStep let a fast crossing obstacle slip through the gap so
+            // the guidance path passed straight through it; 0.10 m also grazed too close.
             for (size_t j = 0; j < obsPredPos_.size(); ++j) {
                 if (k >= (int)obsPredPos_[j].size()) continue;
                 const double d = (p2 - obsPredPos_[j][k].head<2>()).norm();
-                if (d < rUav_ + obsRadius_[j] + dynMargin) return true;
+                if (d < rUav_ + obsRadius_[j] + safetyMargin_) return false;
             }
-            prev = p3;
-            return false;
-        };
-
-        for (int k = a.k; k <= b.k; k += visStep) {
-            if (checkAt(k)) return false;
-        }
-        if ((b.k - a.k) % visStep != 0) {
-            if (checkAt(b.k)) return false;
+            // Static map: obstacles don't move, so the coarser visStep grid suffices.
+            if (map_ && ((k - a.k) % visStep == 0 || k == b.k)) {
+                const Eigen::Vector3d p3(p2.x(), p2.y(), zLap_);
+                if (pointHitsStaticMapWithMargin(p3, staticMarginAtK(k))) return false;
+                if ((p3 - prevStatic).norm() > 1e-4 && map_->isInflatedOccupiedLine(prevStatic, p3)) return false;
+                prevStatic = p3;
+            }
         }
         return true;
     };
@@ -755,20 +752,32 @@ bool tmpcPlanner::runGuidance() {
         std::ostringstream oss;
         int relevant = 0;
         for (size_t j = 0; j < obsPredPos_.size(); ++j) {
+            // Relevance: does the trajectory come near this obstacle at any time?
             double minClear = std::numeric_limits<double>::infinity();
-            double signedAtMin = 0.0;
             for (int k = 0; k <= N && k < (int)obsPredPos_[j].size(); ++k) {
-                Eigen::Vector2d rel = traj[k].head<2>() - obsPredPos_[j][k].head<2>();
-                double clear = rel.norm() - (rUav_ + obsRadius_[j]);
-                if (clear < minClear) {
-                    minClear = clear;
-                    signedAtMin = cross2d(localTangent(localRef_, k), rel);
-                }
+                const double clear =
+                    (traj[k].head<2>() - obsPredPos_[j][k].head<2>()).norm()
+                    - (rUav_ + obsRadius_[j]);
+                minClear = std::min(minClear, clear);
             }
-            if (minClear < halfWidth + rUav_ + obsRadius_[j] + 0.8) {
-                oss << j << (signedAtMin >= 0.0 ? "L" : "R") << ";";
-                ++relevant;
+            if (minClear >= halfWidth + rUav_ + obsRadius_[j] + 0.8) continue;
+
+            // H-signature via the winding number of the RELATIVE trajectory
+            // (ego - obstacle) around the origin, accumulated over the horizon. This
+            // captures HOW the ego passes the moving obstacle (side + number of wraps),
+            // the paper's 2-D dynamic homotopy invariant — far more robust than a single
+            // closest-approach side sign (which flips with tiny geometry changes and
+            // made distinct topologies collapse into one class).
+            double wind = 0.0;
+            for (int k = 1; k <= N && k < (int)obsPredPos_[j].size(); ++k) {
+                Eigen::Vector2d a = traj[k - 1].head<2>() - obsPredPos_[j][k - 1].head<2>();
+                Eigen::Vector2d b = traj[k].head<2>()     - obsPredPos_[j][k].head<2>();
+                if (a.norm() < 1e-6 || b.norm() < 1e-6) continue;
+                wind += std::atan2(cross2d(a, b), a.dot(b));
             }
+            const int windClass = (int)std::llround(wind / M_PI);   // signed half-turns
+            oss << j << ":" << windClass << ";";
+            ++relevant;
         }
         for (const auto& a : staticAnchors) {
             const int k = std::max(0, std::min(N, a.k));
