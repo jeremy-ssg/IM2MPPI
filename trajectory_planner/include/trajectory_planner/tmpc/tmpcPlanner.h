@@ -146,6 +146,9 @@ private:
     bool trajectoryHitsDynamicObstacles(const std::vector<Eigen::VectorXd>& states,
                                         bool allowVerticalOvertake) const;
     bool pointHitsStaticMapWithMargin(const Eigen::Vector3d& p, double margin) const;
+    bool segmentHitsStaticMapWithMargin(const Eigen::Vector3d& a,
+                                        const Eigen::Vector3d& b,
+                                        double margin) const;
     void resetDiagnostics();
     void updateDiagnosticsAfterSolve();
 

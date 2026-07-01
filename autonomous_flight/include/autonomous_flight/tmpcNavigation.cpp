@@ -32,9 +32,11 @@ void tmpcNavigation::initParam() {
     this->nh_.param("tmpc/visualization_period", this->visPeriod_, 0.5);
     this->nh_.param("tmpc/fail_hold_time", this->failHoldTime_, 0.35);
     this->nh_.param("tmpc/brake_time", this->brakeTime_, 0.45);
+    this->nh_.param("tmpc/static_post_check_clearance", this->staticExecClearance_, 0.25);
     this->visPeriod_ = std::max(0.05, this->visPeriod_);
     this->failHoldTime_ = std::max(0.0, this->failHoldTime_);
     this->brakeTime_ = std::max(0.1, this->brakeTime_);
+    this->staticExecClearance_ = std::max(0.0, this->staticExecClearance_);
 
     if (this->usePredefinedGoal_) {
         if (!this->nh_.getParam("autonomous_flight/predefined_goal_directory", this->refTrajPath_)) {
@@ -195,7 +197,9 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
             if (this->ready_ && !this->activeTraj_.empty() && this->activeTrajDt_ > 1e-6) {
                 const double age = (ros::Time::now() - this->trajStartTime_).toSec();
                 const double horizon = (double)(this->activeTraj_.size() - 1) * this->activeTrajDt_;
-                keepPrevious = age < std::min(horizon, this->failHoldTime_);
+                keepPrevious = age < std::min(horizon, this->failHoldTime_) &&
+                               !this->execTrajectoryHitsStaticMap(this->activeTraj_,
+                                                                  this->activeTrajDt_);
             }
         }
         if (keepPrevious) {
@@ -265,6 +269,25 @@ void tmpcNavigation::trajExeCB(const ros::TimerEvent&) {
         target.position.x = pt.p.x(); target.position.y = pt.p.y(); target.position.z = pt.p.z();
         target.velocity.x = pt.v.x(); target.velocity.y = pt.v.y(); target.velocity.z = pt.v.z();
         target.acceleration.x = target.acceleration.y = target.acceleration.z = 0.0;
+    }
+
+    {
+        std::vector<ExecPoint> immediate(2);
+        immediate[0].p = this->currPos_;
+        immediate[1].p = Eigen::Vector3d(target.position.x,
+                                         target.position.y,
+                                         target.position.z);
+        if (this->execTrajectoryHitsStaticMap(immediate, 0.0)) {
+            {
+                std::lock_guard<std::mutex> tk(this->trajMutex_);
+                this->ready_ = false;
+                this->activeTraj_.clear();
+            }
+            ROS_ERROR_THROTTLE(0.5,
+                "[T-MPC++ Nav] active setpoint intersects static map; stopping before publish.");
+            this->stop();
+            return;
+        }
     }
 
     // yaw rate limiter (same scheme as im2MppiNavigation)
@@ -384,25 +407,73 @@ bool tmpcNavigation::buildBrakeTrajectory(std::vector<ExecPoint>& traj,
         ep.v = v0 * (1.0 - a);
         traj.push_back(ep);
     }
-    if (this->execTrajectoryHitsStaticMap(traj)) {
+    if (this->execTrajectoryHitsStaticMap(traj, dt)) {
         traj.clear();
         return false;
     }
     return true;
 }
 
-bool tmpcNavigation::execTrajectoryHitsStaticMap(const std::vector<ExecPoint>& traj) const {
+bool tmpcNavigation::execTrajectoryHitsStaticMap(const std::vector<ExecPoint>& traj,
+                                                double dt) const {
     if (!this->map_) return false;
     Eigen::Vector3d prev = Eigen::Vector3d::Zero();
     bool havePrev = false;
+    const double step = std::max(0.05, this->map_->getRes());
+    const double rampTime = 0.25;
+    const double dtForRamp = std::max(0.0, dt);
+    int k = 0;
+    double prevMargin = 0.0;
     for (const auto& pt : traj) {
-        if (this->map_->isInflatedOccupied(pt.p)) return true;
-        if (havePrev && (pt.p - prev).norm() > 1e-4 &&
-            this->map_->isInflatedOccupiedLine(prev, pt.p)) {
-            return true;
+        const double margin = (dtForRamp <= 1e-6)
+            ? 0.0
+            : this->staticExecClearance_ *
+              std::min(1.0, ((double)k * dtForRamp) / rampTime);
+        if (this->execPointHitsStaticMapWithMargin(pt.p, margin)) return true;
+        if (havePrev && (pt.p - prev).norm() > 1e-4) {
+            if (this->map_->isInflatedOccupiedLine(prev, pt.p)) return true;
+            const int samples = std::max(1, (int)std::ceil((pt.p - prev).norm() / step));
+            for (int i = 1; i < samples; ++i) {
+                const double u = (double)i / (double)samples;
+                const double sampleMargin = prevMargin + u * (margin - prevMargin);
+                if (this->execPointHitsStaticMapWithMargin(
+                        prev + u * (pt.p - prev), sampleMargin)) {
+                    return true;
+                }
+            }
         }
         prev = pt.p;
+        prevMargin = margin;
         havePrev = true;
+        ++k;
+    }
+    return false;
+}
+
+bool tmpcNavigation::execPointHitsStaticMapWithMargin(const Eigen::Vector3d& p,
+                                                      double margin) const {
+    if (!this->map_) return false;
+    if (this->map_->isInflatedOccupied(p)) return true;
+    if (margin <= 1e-6) return false;
+
+    const double step = std::max(0.05, this->map_->getRes());
+    const int radialSteps = std::max(1, (int)std::ceil(margin / step));
+    const int dirs = 8;
+    for (int r = 1; r <= radialSteps; ++r) {
+        const double radius = std::min(margin, step * (double)r);
+        Eigen::Vector3d qz = p;
+        qz.z() += radius;
+        if (this->map_->isInflatedOccupied(qz)) return true;
+        qz = p;
+        qz.z() -= radius;
+        if (this->map_->isInflatedOccupied(qz)) return true;
+        for (int d = 0; d < dirs; ++d) {
+            const double th = 2.0 * M_PI * (double)d / (double)dirs;
+            Eigen::Vector3d q = p;
+            q.x() += radius * std::cos(th);
+            q.y() += radius * std::sin(th);
+            if (this->map_->isInflatedOccupied(q)) return true;
+        }
     }
     return false;
 }

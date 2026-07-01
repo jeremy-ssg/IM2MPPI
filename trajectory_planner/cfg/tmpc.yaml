@@ -54,7 +54,7 @@ tmpc:
   static_halfplane_search_radius: 0.8 # [m] scan radius around guidance for static half-planes
   static_halfplane_clearance: 0.25    # [m] extra half-plane margin; map is already inflated
   static_halfplane_rays: 16       # angular samples for local static half-plane constraints
-  static_post_check_clearance: 0.12 # [m] extra static clearance checked after optimization
+  static_post_check_clearance: 0.25 # [m] extra static clearance used by PRM, post-check, and execution guard
 
   # -- Decision making (Eq.12 consistency) ---------------------------
   consistency_ci: 0.75           # weight preferring the previously-executed homotopy class

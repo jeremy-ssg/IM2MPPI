@@ -180,7 +180,7 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/static_halfplane_search_radius", staticHalfplaneSearchRadius_, 0.8);
     nh_.param("tmpc/static_halfplane_clearance",     staticHalfplaneClearance_, 0.25);
     nh_.param("tmpc/static_halfplane_rays",          staticHalfplaneRays_, 16);
-    nh_.param("tmpc/static_post_check_clearance",    staticPostCheckClearance_, 0.12);
+    nh_.param("tmpc/static_post_check_clearance",    staticPostCheckClearance_, 0.25);
     nh_.param("tmpc/publish_guidance_markers", publishGuidanceMarkers_, true);
     nh_.param("tmpc/publish_optimized_markers", publishOptimizedMarkers_, false);
     nh_.param("tmpc/publish_obstacle_prediction_markers", publishObstaclePredictionMarkers_, false);
@@ -244,7 +244,8 @@ void tmpcPlanner::updateDiagnosticsAfterSolve() {
             ++lastStaticRejects_;
         } else if (b.status == "dynamic_collision") {
             ++lastDynamicRejects_;
-        } else if (b.status == "solve_error" || b.status == "init_solver") {
+        } else if (b.status == "solve_error" || b.status == "init_solver" ||
+                   b.status.find("solve_") == 0) {
             ++lastSolveRejects_;
         } else if (b.status.find("setup_") == 0 || b.status == "short_ref") {
             ++lastSetupRejects_;
@@ -411,28 +412,32 @@ void tmpcPlanner::buildStaticAwareReference() {
     if ((goal.head<2>() - start.head<2>()).norm() < 0.25) return;
 
     bool directBlocked = false;
-    if (map_->isInflatedOccupied(start) || map_->isInflatedOccupied(goal)) {
+    if (pointHitsStaticMapWithMargin(start, staticPostCheckClearance_) ||
+        pointHitsStaticMapWithMargin(goal, staticPostCheckClearance_)) {
         directBlocked = true;
-    } else if (map_->isInflatedOccupiedLine(start, goal)) {
+    } else if (segmentHitsStaticMapWithMargin(start, goal, staticPostCheckClearance_)) {
         directBlocked = true;
     } else {
         for (const auto& p0 : localRef_) {
             Eigen::Vector3d p = p0;
             p.z() = zLap_;
-            if (map_->isInflatedOccupied(p)) { directBlocked = true; break; }
+            if (pointHitsStaticMapWithMargin(p, staticPostCheckClearance_)) {
+                directBlocked = true;
+                break;
+            }
         }
     }
     if (!directBlocked) return;
     lastStaticDirectBlocked_ = true;
 
-    if (map_->isInflatedOccupied(start)) {
+    if (pointHitsStaticMapWithMargin(start, staticPostCheckClearance_)) {
         lastStaticAstarFailed_ = true;
         ROS_WARN_THROTTLE(1.0,
-            "[tmpcPlanner] static A* fallback skipped because start is inside inflated map.");
+            "[tmpcPlanner] static A* fallback skipped because start violates static clearance.");
         return;
     }
 
-    if (map_->isInflatedOccupied(goal)) {
+    if (pointHitsStaticMapWithMargin(goal, staticPostCheckClearance_)) {
         bool foundGoal = false;
         Eigen::Vector3d bestGoal = goal;
         double bestScore = std::numeric_limits<double>::infinity();
@@ -441,7 +446,7 @@ void tmpcPlanner::buildStaticAwareReference() {
             Eigen::Vector3d c = raw;
             c.z() = zLap_;
             if ((c.head<2>() - start.head<2>()).norm() < 0.5) return;
-            if (map_->isInflatedOccupied(c)) return;
+            if (pointHitsStaticMapWithMargin(c, staticPostCheckClearance_)) return;
             const double score = (c.head<2>() - goal.head<2>()).norm();
             if (score < bestScore) {
                 bestScore = score;
@@ -519,14 +524,21 @@ bool tmpcPlanner::runGuidance() {
     };
     std::vector<StaticTopoAnchor> staticAnchors;
 
-    auto staticFree = [&](const Eigen::Vector2d& p) -> bool {
+    auto staticMarginAtK = [&](int k) -> double {
+        const double rampTime = 0.25;
+        return staticPostCheckClearance_ *
+               std::min(1.0, ((double)std::max(0, k) * dt_) / rampTime);
+    };
+
+    auto staticFree = [&](const Eigen::Vector2d& p, int k) -> bool {
         if (!map_) return true;
-        return !map_->isInflatedOccupied(Eigen::Vector3d(p.x(), p.y(), zLap_));
+        return !pointHitsStaticMapWithMargin(
+            Eigen::Vector3d(p.x(), p.y(), zLap_), staticMarginAtK(k));
     };
 
     auto addNode = [&](const Eigen::Vector2d& p, int k, bool goal, double goalCost) -> int {
         k = std::max(0, std::min(N, k));
-        if (!staticFree(p)) return -1;
+        if (!staticFree(p, k)) return -1;
         GuidanceNode candidate;
         candidate.p = p;
         candidate.k = k;
@@ -615,8 +627,8 @@ bool tmpcPlanner::runGuidance() {
         for (int k = 1; k < N; ++k) {
             Eigen::Vector3d p = localRef_[k];
             p.z() = zLap_;
-            const bool blocked = map_->isInflatedOccupied(p) ||
-                                 map_->isInflatedOccupiedLine(prev, p);
+            const bool blocked = segmentHitsStaticMapWithMargin(
+                prev, p, staticPostCheckClearance_);
             prev = p;
             if (!blocked || k - lastAnchorK < minAnchorGap ||
                 (int)staticAnchors.size() >= 6) {
@@ -671,7 +683,7 @@ bool tmpcPlanner::runGuidance() {
             Eigen::Vector2d p2 = a.p + u * (b.p - a.p);
             Eigen::Vector3d p3(p2.x(), p2.y(), zLap_);
             if (map_) {
-                if (map_->isInflatedOccupied(p3)) return true;
+                if (pointHitsStaticMapWithMargin(p3, staticMarginAtK(k))) return true;
                 if ((p3 - prev).norm() > 1e-4 && map_->isInflatedOccupiedLine(prev, p3)) return true;
             }
             for (size_t j = 0; j < obsPredPos_.size(); ++j) {
@@ -1056,9 +1068,11 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
         Atr.emplace_back(row, ui(k)+2, 1.0); addBound(-azMax_, azMax_); ++row;
     }
 
+    const int firstAvoidK = std::min(N, std::max(1, (int)std::ceil(0.15 / std::max(1e-3, dt_))));
+
     if (!branch.overTake) {
         // Horizontal homotopy half-planes (Eq.8): A_k . p_{xy,k} <= b_k per step/obstacle.
-        for (int k = 0; k <= N && k < (int)branch.guidanceTraj.size(); ++k) {
+        for (int k = firstAvoidK; k <= N && k < (int)branch.guidanceTraj.size(); ++k) {
             const Eigen::Vector2d gp = branch.guidanceTraj[k].head<2>();
             for (size_t j = 0; j < obsPredPos_.size(); ++j) {
                 if (k >= (int)obsPredPos_[j].size()) continue;
@@ -1089,7 +1103,7 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
         // 3-D "fly-over" branch: where the reference passes horizontally near an
         // obstacle, force z_k >= obstacle_top + clearance. The nearness test uses the
         // (fixed) reference trajectory, so the resulting constraint stays linear in z_k.
-        for (int k = 0; k <= N && k < (int)branch.guidanceTraj.size(); ++k) {
+        for (int k = firstAvoidK; k <= N && k < (int)branch.guidanceTraj.size(); ++k) {
             const Eigen::Vector2d gp = branch.guidanceTraj[k].head<2>();
             double zFloor = -INF;
             for (size_t j = 0; j < obsPredPos_.size(); ++j) {
@@ -1110,7 +1124,7 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
         const int radialSteps = std::max(1, (int)std::ceil(staticHalfplaneSearchRadius_ / step));
         const double clearance = std::max(0.02, staticHalfplaneClearance_);
 
-        for (int k = 0; k <= N && k < (int)branch.guidanceTraj.size(); ++k) {
+        for (int k = firstAvoidK; k <= N && k < (int)branch.guidanceTraj.size(); ++k) {
             Eigen::Vector3d gp3 = branch.guidanceTraj[k];
             gp3.z() = zLap_;
             for (int r = 0; r < rays; ++r) {
@@ -1175,6 +1189,24 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
         branch.feasible = false;
         branch.cost = std::numeric_limits<double>::infinity();
         branch.status = "solve_error";
+        return;
+    }
+    const OsqpEigen::Status osqpStatus = solver.getStatus();
+    if (osqpStatus != OsqpEigen::Status::Solved &&
+        osqpStatus != OsqpEigen::Status::SolvedInaccurate) {
+        branch.feasible = false;
+        branch.cost = std::numeric_limits<double>::infinity();
+        if (osqpStatus == OsqpEigen::Status::PrimalInfeasible ||
+            osqpStatus == OsqpEigen::Status::PrimalInfeasibleInaccurate) {
+            branch.status = "solve_primal_infeasible";
+        } else if (osqpStatus == OsqpEigen::Status::DualInfeasible ||
+                   osqpStatus == OsqpEigen::Status::DualInfeasibleInaccurate) {
+            branch.status = "solve_dual_infeasible";
+        } else if (osqpStatus == OsqpEigen::Status::MaxIterReached) {
+            branch.status = "solve_max_iter";
+        } else {
+            branch.status = "solve_not_solved";
+        }
         return;
     }
     const Eigen::VectorXd sol = solver.getSolution();
@@ -1313,21 +1345,27 @@ bool tmpcPlanner::trajectoryHitsStaticMap(const std::vector<Eigen::VectorXd>& st
     if (!map_) return false;
     Eigen::Vector3d prev = Eigen::Vector3d::Zero();
     bool havePrev = false;
+    double prevMargin = 0.0;
     const double step = std::max(0.05, map_->getRes());
-    for (const auto& s : states) {
+    const double rampTime = 0.25;
+    for (size_t k = 0; k < states.size(); ++k) {
+        const auto& s = states[k];
         if (s.size() < 3 || !s.allFinite()) return true;
         Eigen::Vector3d p(s(0), s(1), s(2));
-        if (pointHitsStaticMapWithMargin(p, staticPostCheckClearance_)) return true;
+        const double margin = staticPostCheckClearance_ *
+            std::min(1.0, ((double)k * dt_) / rampTime);
+        if (pointHitsStaticMapWithMargin(p, margin)) return true;
         if (havePrev && (p - prev).norm() > 1e-4) {
             if (map_->isInflatedOccupiedLine(prev, p)) return true;
             const int samples = std::max(1, (int)std::ceil((p - prev).norm() / step));
-            for (int i = 1; i <= samples; ++i) {
-                const double a = (double)i / (double)samples;
-                const Eigen::Vector3d q = prev + a * (p - prev);
-                if (pointHitsStaticMapWithMargin(q, staticPostCheckClearance_)) return true;
+            for (int i = 1; i < samples; ++i) {
+                const double u = (double)i / (double)samples;
+                const double sampleMargin = prevMargin + u * (margin - prevMargin);
+                if (pointHitsStaticMapWithMargin(prev + u * (p - prev), sampleMargin)) return true;
             }
         }
         prev = p;
+        prevMargin = margin;
         havePrev = true;
     }
     return false;
@@ -1343,6 +1381,12 @@ bool tmpcPlanner::pointHitsStaticMapWithMargin(const Eigen::Vector3d& p, double 
     const int dirs = 8;
     for (int r = 1; r <= radialSteps; ++r) {
         const double radius = std::min(margin, step * (double)r);
+        Eigen::Vector3d qz = p;
+        qz.z() += radius;
+        if (map_->isInflatedOccupied(qz)) return true;
+        qz = p;
+        qz.z() -= radius;
+        if (map_->isInflatedOccupied(qz)) return true;
         for (int d = 0; d < dirs; ++d) {
             const double th = 2.0 * M_PI * (double)d / (double)dirs;
             Eigen::Vector3d q = p;
@@ -1354,10 +1398,30 @@ bool tmpcPlanner::pointHitsStaticMapWithMargin(const Eigen::Vector3d& p, double 
     return false;
 }
 
+bool tmpcPlanner::segmentHitsStaticMapWithMargin(const Eigen::Vector3d& a,
+                                                 const Eigen::Vector3d& b,
+                                                 double margin) const {
+    if (!map_) return false;
+    if (pointHitsStaticMapWithMargin(a, margin) ||
+        pointHitsStaticMapWithMargin(b, margin)) {
+        return true;
+    }
+    if ((b - a).squaredNorm() <= 1e-10) return false;
+    if (map_->isInflatedOccupiedLine(a, b)) return true;
+
+    const double step = std::max(0.05, map_->getRes());
+    const int samples = std::max(1, (int)std::ceil((b - a).norm() / step));
+    for (int i = 1; i < samples; ++i) {
+        const double u = (double)i / (double)samples;
+        if (pointHitsStaticMapWithMargin(a + u * (b - a), margin)) return true;
+    }
+    return false;
+}
+
 bool tmpcPlanner::trajectoryHitsDynamicObstacles(const std::vector<Eigen::VectorXd>& states,
                                                  bool allowVerticalOvertake) const {
     if (obsPredPos_.empty()) return false;
-    for (size_t k = 0; k < states.size(); ++k) {
+    for (size_t k = 1; k < states.size(); ++k) {
         const auto& s = states[k];
         if (s.size() < 3 || !s.allFinite()) return true;
         const Eigen::Vector2d p(s(0), s(1));
