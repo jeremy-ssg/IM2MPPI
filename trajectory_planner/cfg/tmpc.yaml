@@ -47,7 +47,11 @@ tmpc:
   brake_time: 0.45               # [s] smooth braking fallback if no feasible branch exists
 
   # -- Static map avoidance ------------------------------------------
-  use_static_astar: false         # optional fallback only; topology PRM is the default path search
+  use_static_astar: true          # reroute the tracked reference around static obstacles via A*
+                                  # when the lap reference is blocked. Was false -> reference ran
+                                  # straight through static obstacles and the drone hit the first one
+                                  # (topology detour alone was too fragile). Topology PRM still runs
+                                  # on top for the dynamic left/right classes.
   static_astar_step: 0.20         # [m] A* grid resolution
   static_astar_pool_xy: 80        # cells per x/y dimension in the local A* pool
   static_astar_pool_z: 16         # cells in z dimension in the local A* pool
