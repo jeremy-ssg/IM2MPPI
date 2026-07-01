@@ -10,9 +10,9 @@
 #  Design notes: see trajectory_planner/docs/TMPC_INTEGRATION.md
 # =====================================================================
 tmpc:
-  # -- Horizon (kept equal to IM2-MPPI for a fair comparison) ----------
+  # -- Horizon / local goal range -------------------------------------
   dt: 0.05
-  horizon_steps: 38              # matches im2_mppi.yaml horizon_steps
+  horizon_steps: 50              # 2.5 s at dt=0.05, enough for a 5 m local goal at 2 m/s
 
   # -- Lap geometry (UAV flies the lap at a fixed altitude) ------------
   z_lap: 1.0                     # [m] horizontal-plane altitude for guidance + z_ref
@@ -33,7 +33,7 @@ tmpc:
   goal_grid_long: 3              # longitudinal goal count (along ref progress)
   goal_lat_spread: 3.5           # [m] total lateral sampling/goal coverage. Was 2.0 -> only +-1.0 m
                                  # around the reference, too narrow to route around obstacles.
-  goal_long_distance: 2.5        # [m] look-ahead of goals; keep <= v_ref*dt*horizon (~3.80 m)
+  goal_long_distance: 5.0        # [m] far local PRM/MPC goal, roughly sensor/FOV scale
 
   # -- Local planners (parallel OSQP MPC) ----------------------------
   beta_relax: 1.0                # homotopy half-plane scale for Eq. 9e.
@@ -45,8 +45,6 @@ tmpc:
   solve_sequential: false        # false = solve branches in parallel (OpenMP). true = single-thread.
   fail_hold_time: 0.35           # [s] keep the last good trajectory through brief replanning misses
   brake_time: 0.45               # [s] smooth braking fallback if no feasible branch exists
-  execution_lookahead_time: 0.18 # [s] small lead for trajectory tracking; too large makes PID cut corners
-  execution_lookahead_distance: 0.0 # [m] optional minimum forward distance; keep 0 near static obstacles
   receding_horizon_max_playback_time: 0.20 # [s] do not play an old nominal MPC trajectory to its end
 
   # -- Static map avoidance ------------------------------------------
@@ -92,7 +90,7 @@ tmpc:
   #   intent_mean       : highest-probability intent mode mean (future second table)
   #   gt                : ground-truth future (algorithm upper bound)
   prediction_source: "constant_velocity"
-  prediction_horizon_s: 1.9      # = horizon_steps * dt
+  prediction_horizon_s: 2.5      # = horizon_steps * dt
   max_obstacles: 8               # nearest-N obstacles considered (fewer = faster QP; paper uses 12)
 
   # -- RViz/debug publishing ------------------------------------------

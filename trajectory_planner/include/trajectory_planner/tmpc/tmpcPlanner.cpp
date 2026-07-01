@@ -157,7 +157,7 @@ tmpcPlanner::tmpcPlanner(const ros::NodeHandle& nh) : nh_(nh) {}
 
 void tmpcPlanner::initParam() {
     nh_.param("tmpc/dt",                  dt_,              0.05);
-    nh_.param("tmpc/horizon_steps",       horizon_,         38);
+    nh_.param("tmpc/horizon_steps",       horizon_,         50);
     nh_.param("tmpc/z_lap",               zLap_,            1.0);
     nh_.param("tmpc/r_uav",               rUav_,            0.30);
     nh_.param("tmpc/num_trajectories_P",  numTrajP_,        4);
@@ -171,7 +171,7 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/goal_grid_lat",       goalGridLat_,     5);
     nh_.param("tmpc/goal_grid_long",      goalGridLong_,    3);
     nh_.param("tmpc/goal_lat_spread",     goalLatSpread_,   2.0);
-    nh_.param("tmpc/goal_long_distance",  goalLongDist_,    4.0);
+    nh_.param("tmpc/goal_long_distance",  goalLongDist_,    5.0);
     nh_.param("tmpc/beta_relax",          betaRelax_,       1.0);
     nh_.param("tmpc/safety_margin",       safetyMargin_,    0.25);
     nh_.param("tmpc/parallel_threads",    parallelThreads_, 5);
@@ -182,7 +182,7 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/a_max",               aMax_,            3.0);
     nh_.param("tmpc/vz_max",              vzMax_,           1.0);
     nh_.param("tmpc/az_max",              azMax_,           2.0);
-    nh_.param("tmpc/v_ref",               vRef_,            1.5);
+    nh_.param("tmpc/v_ref",               vRef_,            2.0);
     nh_.param("tmpc/enable_vertical_avoidance", vertical_,  false);
     nh_.param("tmpc/vertical_clearance",  vClearance_,      0.4);
     nh_.param<std::string>("tmpc/prediction_source", predictionSource_, "constant_velocity");
@@ -373,7 +373,8 @@ void tmpcPlanner::buildGoalGrid() {
     // Local horizon reference: resample refPath forward at v_ref*dt arc-length per
     // step from the projected arc-length position. localRef_[0] remains the true
     // UAV position for a smooth initial condition, but k>=1 is always ahead on the
-    // reference path, giving the controller a real local target to chase.
+    // reference path. The far points derived from this reference are planner goals;
+    // the controller only tracks the optimized MPC trajectory.
     {
         const double step = vRef_ * dt_;
         int    i = projSeg;          // current segment [i, i+1]
@@ -415,23 +416,28 @@ void tmpcPlanner::buildGoalGridFromLocalRef() {
     goalGrid_.clear();
     if (localRef_.size() < 2) return;
 
-    // Goal grid centered a fixed distance ahead along the local reference. Because
-    // localRef_ is sampled at v_ref*dt from the projected reference arc length,
-    // this gives a stable forward local goal instead of one stuck near the UAV.
+    // A series of local goal points ahead on the reference path. These are PRM/MPC
+    // goals, not controller targets: the downstream controller tracks the selected
+    // MPC trajectory in time. Longitudinal goals end at goalLongDist_ and include a
+    // few nearer-but-still-forward alternatives so the PRM has reachable gates.
     const double refStep = std::max(0.05, vRef_ * dt_);
-    const int lookIdx = std::max(1, std::min((int)localRef_.size() - 1,
-        (int)std::ceil(goalLongDist_ / refStep)));
-    Eigen::Vector2d center = localRef_[std::min(lookIdx, (int)localRef_.size() - 1)].head<2>();
-    Eigen::Vector2d tang   = localTangent(localRef_, lookIdx);
-    Eigen::Vector2d normal(-tang.y(), tang.x());
+    const double maxGoalDist = std::min(goalLongDist_, refStep * (double)(localRef_.size() - 1));
+    const double minGoalDist = std::max(refStep, 0.65 * maxGoalDist);
 
     for (int lo = 0; lo < goalGridLong_; ++lo) {
-        double along = lo * (vRef_ * dt_ * horizon_) / std::max(1, goalGridLong_);
+        const double alpha = (goalGridLong_ <= 1) ? 1.0
+                           : (double)lo / (double)(goalGridLong_ - 1);
+        const double goalDist = minGoalDist + alpha * (maxGoalDist - minGoalDist);
+        const int lookIdx = std::max(1, std::min((int)localRef_.size() - 1,
+            (int)std::ceil(goalDist / refStep)));
+        Eigen::Vector2d center = localRef_[lookIdx].head<2>();
+        Eigen::Vector2d tang   = localTangent(localRef_, lookIdx);
+        Eigen::Vector2d normal(-tang.y(), tang.x());
         for (int la = 0; la < goalGridLat_; ++la) {
             double frac = (goalGridLat_ == 1) ? 0.0
                         : (double)la / (goalGridLat_ - 1) - 0.5;       // -0.5..0.5
             double lat = frac * goalLatSpread_;
-            Eigen::Vector2d g = center + tang * along + normal * lat;
+            Eigen::Vector2d g = center + normal * lat;
             goalGrid_.emplace_back(g.x(), g.y(), zLap_);
         }
     }
@@ -1214,15 +1220,19 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
 
     // position tracking weight (isotropic approx of contour+lag; see docs)
     const double wPos = 0.5 * (wContour_ + wLag_);
-    // Paper Eq. (9a): every local planner keeps the same original objective so
-    // branch costs are comparable. The guidance trajectory affects topology
-    // constraints, not the cost function itself.
-    const std::vector<Eigen::Vector3d>& objectivePath = localRef_;
+    // Each guided branch optimizes around its own Visibility-PRM path. The circular
+    // lap reference still defines progress and the goal grid, but the local MPC now
+    // tracks the topology path it was given instead of being pulled back onto the
+    // blocked centerline. The unguided/free branch keeps localRef_ as before.
     const std::vector<Eigen::Vector3d>& guidancePath =
         ((int)branch.guidanceTraj.size() >= N + 1) ? branch.guidanceTraj : localRef_;
+    const std::vector<Eigen::Vector3d>& objectivePath =
+        (branch.guided && (int)branch.guidanceTraj.size() >= N + 1) ? guidancePath : localRef_;
+    double objectiveConstant = 0.0;
     for (int k = 0; k <= N; ++k) {
         const double wp = (k == N) ? 2.0 * wPos : wPos; // small terminal emphasis
         const Eigen::Vector3d ref = (k < (int)objectivePath.size()) ? objectivePath[k] : objectivePath.back();
+        objectiveConstant += wp * ref.squaredNorm();
         for (int d = 0; d < 3; ++d) {                   // 3-D position tracking
             addDiagCost(xi(k)+d, wp);
             qVals[xi(k)+d] = -2.0*wp*ref(d);
@@ -1234,6 +1244,7 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
             if (t.norm() > 1e-6) tang = t.normalized();
         }
         const Eigen::Vector3d vdes = vRef_ * tang;
+        objectiveConstant += wVel_ * vdes.squaredNorm();
         for (int d = 0; d < 3; ++d) {
             addDiagCost(xi(k)+3+d, wVel_);
             qVals[xi(k)+3+d] = -2.0*wVel_*vdes(d);
@@ -1517,8 +1528,9 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
         return;
     }
 
-    // optimal cost J = 0.5 z'Pz + q'z  (constant ref term dropped; equal for all branches)
-    branch.cost = 0.5 * sol.dot(P * sol) + q.dot(sol);
+    // optimal cost J = 0.5 z'Pz + q'z + reference constants. The constants matter
+    // now because guided branches track different topology paths.
+    branch.cost = 0.5 * sol.dot(P * sol) + q.dot(sol) + objectiveConstant;
     branch.feasible = true;
 
     // extract full 3-D states [x,y,z,vx,vy,vz]

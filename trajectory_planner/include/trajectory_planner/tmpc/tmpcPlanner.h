@@ -11,8 +11,8 @@
         3. runGuidance()   : internal Visibility-PRM -> P topology-distinct (x,y,t) trajs,
                              lifted to 3D at z_lap
         4. optimizeBranches(): for each guidance traj i (plus 1 unguided in T-MPC++),
-                             solve a local MPC warm-started from that traj and locked
-                             to its homotopy class; record optimal cost J_i.
+                             solve a local MPC tracking that traj and locked to its
+                             homotopy class; record optimal cost J_i.
         5. decide()        : i* = argmin_i w_i J_i  with consistency weighting (Eq.12).
 
     DESIGN STATUS (see trajectory_planner/docs/TMPC_INTEGRATION.md):
@@ -123,7 +123,7 @@ private:
     void buildStaticAwareReference();
 
     // ---- local optimization ----------------------------------------------------
-    // Solve ONE branch's local MPC, warm-started from guidanceTraj, locked to its
+    // Solve ONE branch's local MPC, tracking guidanceTraj and locked to its
     // homotopy class via Eq.8 half-plane constraints (xy only). Sets feasible/cost/
     // statesSol/controlsSol on the branch.
     //
@@ -169,7 +169,7 @@ private:
 
     // --- parameters (from tmpc.yaml) -------------------------------------------
     double dt_              = 0.05;
-    int    horizon_        = 38;
+    int    horizon_        = 50;
     double zLap_           = 1.0;
     double rUav_           = 0.30;
     int    numTrajP_       = 4;
@@ -183,7 +183,7 @@ private:
     int    goalGridLat_    = 5;
     int    goalGridLong_   = 3;
     double goalLatSpread_  = 2.0;
-    double goalLongDist_   = 4.0;
+    double goalLongDist_   = 5.0;
     double betaRelax_      = 1.0;       // 1 = linearized disc avoidance (real clearance)
     double safetyMargin_   = 0.25;      // extra clearance [m] beyond r_uav + r_obs
     int    parallelThreads_ = 5;
@@ -194,7 +194,7 @@ private:
     double aMax_           = 3.0;
     double vzMax_          = 1.0;       // vertical speed limit [m/s]
     double azMax_          = 2.0;       // vertical accel limit [m/s^2]
-    double vRef_           = 1.5;
+    double vRef_           = 2.0;
     bool   vertical_       = true;      // enable 3D vertical "fly-over" branch
     double vClearance_     = 0.4;       // vertical clearance above obstacle top [m]
     // local-MPC cost weights (cost_weights/* in tmpc.yaml)
