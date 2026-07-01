@@ -525,9 +525,12 @@ bool tmpcPlanner::runGuidance() {
     std::vector<StaticTopoAnchor> staticAnchors;
 
     auto staticMarginAtK = [&](int k) -> double {
-        const double rampTime = 0.25;
-        return staticPostCheckClearance_ *
-               std::min(1.0, ((double)std::max(0, k) * dt_) / rampTime);
+        // Full static clearance from k>=1. Only the start sample (k=0, where the drone
+        // already is) may use reduced margin so planning is not blocked when the drone
+        // starts close to a wall. The old 0.25 s ramp left the first ~5 executed steps
+        // almost un-cleared -> the near-start trajectory clipped static obstacles (the
+        // "hits static obstacles" bug). k>=1 now always uses the full clearance.
+        return (k <= 0) ? 0.0 : staticPostCheckClearance_;
     };
 
     auto staticFree = [&](const Eigen::Vector2d& p, int k) -> bool {
