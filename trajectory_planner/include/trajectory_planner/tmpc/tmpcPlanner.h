@@ -16,12 +16,12 @@
         5. decide()        : i* = argmin_i w_i J_i  with consistency weighting (Eq.12).
 
     DESIGN STATUS (see trajectory_planner/docs/TMPC_INTEGRATION.md):
-      - The topology part is implemented locally: a lightweight Visibility-PRM in
-        (x,y,t), graph search, and topology-signature filtering. This keeps the
-        benchmark self-contained while following the official T-MPC++ pipeline.
-      - The local-planner homotopy constraint (Eq.8) enforcement is an OPEN FORK
-        (ACADO cannot take runtime half-planes; OSQP path can). The class is written
-        solver-agnostic: solveBranch() is the single hook to fill per the chosen option.
+      - The topology part is implemented locally: a Guard/Connector Visibility-PRM in
+        (x,y,t), per-goal DFS path enumeration, and topology-signature filtering. This
+        keeps the benchmark self-contained while following the official T-MPC++ pipeline.
+      - The local planner is the in-package OSQP double-integrator MPC. Guided
+        branches track their own topology path and add Eq.8/Eq.9 half-plane
+        constraints; the unguided branch tracks the plain local reference.
       - Obstacle prediction = constant velocity (locked decision).
 */
 
@@ -126,10 +126,6 @@ private:
     // Solve ONE branch's local MPC, tracking guidanceTraj and locked to its
     // homotopy class via Eq.8 half-plane constraints (xy only). Sets feasible/cost/
     // statesSol/controlsSol on the branch.
-    //
-    // ***OPEN FORK*** (docs section 8): implement via OSQP path (recommended) OR ACADO+soft
-    // penalty (approximation). This is the single function whose body depends on the
-    // chosen option; everything else in this class is solver-agnostic.
     void solveBranch(TMPCBranch& branch);
 
     // Build the Eq.8 half-plane constraint (A_k, b_k) for step k against one obstacle.
@@ -175,8 +171,6 @@ private:
     int    numTrajP_       = 4;
     bool   addUnguided_    = true;      // T-MPC++
     int    prmSamplesN_    = 100;
-    int    prmMaxEdgesPerNode_ = 18;
-    int    prmMaxEdgeChecksPerNode_ = 64;
     std::string homotopyMethod_ = "h_signature";
     double visibilityDt_   = 0.20;
     double smoothingRes_   = 0.05;

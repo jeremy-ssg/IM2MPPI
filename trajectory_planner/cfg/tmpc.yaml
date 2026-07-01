@@ -19,11 +19,9 @@ tmpc:
   r_uav: 0.30                    # [m] robot disc radius
 
   # -- Guidance planner (Visibility-PRM + homotopy) -------------------
-  num_trajectories_P: 2          # P topology-distinct guidance trajectories; 2 + FREE is lighter for RViz runs
+  num_trajectories_P: 4          # P topology-distinct guidance trajectories, matching the paper-style multi-branch search
   add_unguided_planner: true     # true = T-MPC++ (extra non-guided MPC in parallel)
-  prm_samples_n: 70              # PRM sample budget; lower keeps the 10 Hz loop from starving RViz/Gazebo
-  prm_max_edges_per_node: 18     # cap successful visibility edges per PRM node
-  prm_max_edge_checks_per_node: 64 # cap expensive visibility tests per PRM node
+  prm_samples_n: 100             # Guard/Connector sample budget for the internal Visibility-PRM
   homotopy_method: "h_signature" # h_signature | winding | uvd
   visibility_dt: 0.20            # [s] time resolution for (x,y,t) visibility checks
   smoothing_resolution: 0.05     # [s] cubic-spline resampling of guidance trajectories
