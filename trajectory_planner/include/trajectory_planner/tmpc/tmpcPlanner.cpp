@@ -717,8 +717,10 @@ bool tmpcPlanner::runGuidance() {
             if (nodes[j].k <= nodes[i].k) continue;
             const double spatial = (nodes[j].p - nodes[i].p).norm();
             const double temporal = std::abs(nodes[j].k - nodes[i].k);
-            const double refBias = (nodes[j].p - localRef_[nodes[j].k].head<2>()).norm();
-            edgeCandidates.push_back({(int)j, spatial + 0.08 * temporal + 0.04 * refBias});
+            // Order candidates by geometric length only (+ tiny temporal regularizer).
+            // No distance-to-reference bias: it would pull the graph onto the centerline
+            // and suppress genuinely distinct topology classes.
+            edgeCandidates.push_back({(int)j, spatial + 0.08 * temporal});
         }
         std::sort(edgeCandidates.begin(), edgeCandidates.end(),
                   [](const EdgeCandidate& a, const EdgeCandidate& b){
@@ -733,9 +735,12 @@ bool tmpcPlanner::runGuidance() {
             if (!edgeVisible((int)i, j)) continue;
             double spatial = (nodes[j].p - nodes[i].p).norm();
             double temporal = 0.02 * (double)(nodes[j].k - nodes[i].k);
-            double centerBias = 0.03 * (nodes[j].p - localRef_[nodes[j].k].head<2>()).norm();
             double goalCost = nodes[j].goal ? nodes[j].goalCost : 0.0;
-            adj[i].push_back(std::make_pair((int)j, spatial + temporal + centerBias + goalCost));
+            // Edge cost = geometric path length only (+ tiny temporal regularizer) + goal
+            // preference. No centerline distance term (paper-faithful): the graph search
+            // finds shortest paths per topology class, and the homotopy filter keeps the
+            // distinct classes; biasing toward the reference collapses them.
+            adj[i].push_back(std::make_pair((int)j, spatial + temporal + goalCost));
         }
         std::sort(adj[i].begin(), adj[i].end(),
                   [](const std::pair<int,double>& a, const std::pair<int,double>& b){
