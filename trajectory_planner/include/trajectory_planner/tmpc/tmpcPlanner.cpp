@@ -1308,9 +1308,14 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
         // the topology constraint below and are soft only to avoid solver-level
         // infeasibility; any colliding solution is still rejected by post-check.
         for (int k = firstAvoidK; k <= N; ++k) {
-            Eigen::Vector2d anchor =
-                (k < (int)guidancePath.size()) ? guidancePath[k].head<2>() :
-                ((k < (int)localRef_.size()) ? localRef_[k].head<2>() : currPos_.head<2>());
+            Eigen::Vector2d anchor;
+            if (k < (int)guidancePath.size()) {
+                anchor = guidancePath[k].head<2>();
+            } else if (k < (int)localRef_.size()) {
+                anchor = localRef_[k].head<2>();
+            } else {
+                anchor = currPos_.head<2>();
+            }
             for (size_t j = 0; j < obsPredPos_.size(); ++j) {
                 if (k >= (int)obsPredPos_[j].size()) continue;
                 const Eigen::Vector2d op = obsPredPos_[j][k].head<2>();
