@@ -1009,17 +1009,24 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
 
     // position tracking weight (isotropic approx of contour+lag; see docs)
     const double wPos = 0.5 * (wContour_ + wLag_);
+    // Track THIS branch's guidance trajectory (the collision-free PRM route), NOT the
+    // straight lap reference. Tracking the straight reference pulled every branch back
+    // toward the obstacle it was supposed to avoid, and the min-cost decision then
+    // picked the least-deviating (closest-to-obstacle) branch -> "does not avoid". The
+    // straight lap reference is only for goal direction / progress (handled upstream).
+    const std::vector<Eigen::Vector3d>& trackPath =
+        ((int)branch.guidanceTraj.size() >= N + 1) ? branch.guidanceTraj : localRef_;
     for (int k = 0; k <= N; ++k) {
         const double wp = (k == N) ? 2.0 * wPos : wPos; // small terminal emphasis
-        const Eigen::Vector3d ref = (k < (int)localRef_.size()) ? localRef_[k] : localRef_.back();
+        const Eigen::Vector3d ref = (k < (int)trackPath.size()) ? trackPath[k] : trackPath.back();
         for (int d = 0; d < 3; ++d) {                   // 3-D position tracking
             Ptr.emplace_back(xi(k)+d, xi(k)+d, 2.0*wp);
             q(xi(k)+d) = -2.0*wp*ref(d);
         }
-        // velocity cost toward v_ref along the 3-D path tangent
+        // velocity cost toward v_ref along the tracked-path tangent
         Eigen::Vector3d tang(1, 0, 0);
-        if (k < (int)localRef_.size() - 1) {
-            Eigen::Vector3d t = localRef_[k+1] - localRef_[k];
+        if (k < (int)trackPath.size() - 1) {
+            Eigen::Vector3d t = trackPath[k+1] - trackPath[k];
             if (t.norm() > 1e-6) tang = t.normalized();
         }
         const Eigen::Vector3d vdes = vRef_ * tang;

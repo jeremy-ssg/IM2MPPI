@@ -29,10 +29,11 @@ tmpc:
   smoothing_resolution: 0.05     # [s] cubic-spline resampling of guidance trajectories
 
   # -- Goal grid along the reference path (Frenet placement) ----------
-  goal_grid_lat: 5               # lateral goal count (across ref normal)
+  goal_grid_lat: 7               # lateral goal/sample count (across ref normal); denser = more classes
   goal_grid_long: 3              # longitudinal goal count (along ref progress)
-  goal_lat_spread: 2.0           # [m] total lateral coverage of the grid
-  goal_long_distance: 4.0        # [m] look-ahead of the nearest goal row
+  goal_lat_spread: 3.5           # [m] total lateral sampling/goal coverage. Was 2.0 -> only +-1.0 m
+                                 # around the reference, too narrow to route around obstacles.
+  goal_long_distance: 2.5        # [m] look-ahead of goals; keep <= v_ref*dt*horizon (~2.85 m)
 
   # -- Local planners (parallel ACADO MPC) ---------------------------
   beta_relax: 1.0                # 1 = linearized disc collision avoidance (real clearance).
@@ -47,11 +48,9 @@ tmpc:
   brake_time: 0.45               # [s] smooth braking fallback if no feasible branch exists
 
   # -- Static map avoidance ------------------------------------------
-  use_static_astar: true          # reroute the tracked reference around static obstacles via A*
-                                  # when the lap reference is blocked. Was false -> reference ran
-                                  # straight through static obstacles and the drone hit the first one
-                                  # (topology detour alone was too fragile). Topology PRM still runs
-                                  # on top for the dynamic left/right classes.
+  use_static_astar: false         # A* not used: the topology PRM itself must find the route around
+                                  # static + dynamic obstacles (wider sampling + track the PRM path,
+                                  # not the straight lap reference).
   static_astar_step: 0.20         # [m] A* grid resolution
   static_astar_pool_xy: 80        # cells per x/y dimension in the local A* pool
   static_astar_pool_z: 16         # cells in z dimension in the local A* pool
