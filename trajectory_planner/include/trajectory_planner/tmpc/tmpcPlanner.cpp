@@ -1427,6 +1427,12 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
              sol(xi(k)+3), sol(xi(k)+4), sol(xi(k)+5);
         branch.statesSol[k] = s;
     }
+    branch.controlsSol.resize(N);
+    for (int k = 0; k < N; ++k) {
+        Eigen::VectorXd u(3);
+        u << sol(ui(k)+0), sol(ui(k)+1), sol(ui(k)+2);
+        branch.controlsSol[k] = u;
+    }
 
     if (trajectoryHitsStaticMap(branch.statesSol)) {
         branch.feasible = false;
@@ -1527,6 +1533,13 @@ bool tmpcPlanner::getBestStates(std::vector<Eigen::VectorXd>& states) const {
     states.clear();
     if (bestIdx_ < 0) return false;
     states = branches_[bestIdx_].statesSol;
+    return true;
+}
+
+bool tmpcPlanner::getBestControls(std::vector<Eigen::VectorXd>& controls) const {
+    controls.clear();
+    if (bestIdx_ < 0) return false;
+    controls = branches_[bestIdx_].controlsSol;
     return true;
 }
 

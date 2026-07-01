@@ -91,6 +91,8 @@ public:
     bool   getLocalReference(std::vector<Eigen::Vector3d>& ref) const;
     // Full best-branch state sequence: each entry is [x,y,z,vx,vy,vz].
     bool   getBestStates(std::vector<Eigen::VectorXd>& states) const;
+    // Full best-branch control sequence: each entry is [ax,ay,az].
+    bool   getBestControls(std::vector<Eigen::VectorXd>& controls) const;
     double getDt() const { return dt_; }
     int    getBestClassId() const { return bestClassId_; }
     double getPlanTimeMs()  const { return planTimeMs_; }

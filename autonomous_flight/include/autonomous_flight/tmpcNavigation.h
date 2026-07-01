@@ -87,9 +87,10 @@ private:
     std::string refTrajPath_;
     nav_msgs::Path predefinedGoal_;
 
-    // ── execution snapshot (one trajectory point = position + velocity) ─────────
+    // execution snapshot: one trajectory point = position + velocity + acceleration
     struct ExecPoint { Eigen::Vector3d p = Eigen::Vector3d::Zero();
-                       Eigen::Vector3d v = Eigen::Vector3d::Zero(); };
+                       Eigen::Vector3d v = Eigen::Vector3d::Zero();
+                       Eigen::Vector3d a = Eigen::Vector3d::Zero(); };
 
     std::mutex             planMutex_;
     std::mutex             trajMutex_;

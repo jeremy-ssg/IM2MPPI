@@ -104,10 +104,10 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
 
     bool success = false;
     double plan_ms = 0.0;
-    ros::Time planStart;
     double traj_dt = 0.05;
     double snapshot_facing_yaw = this->facingYaw_;
     std::vector<Eigen::VectorXd> states;
+    std::vector<Eigen::VectorXd> controls;
     std::string plan_status = "not_run";
 
     {
@@ -151,7 +151,6 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
         // (computed after plan; facing handled below)
 
         // 5. plan
-        planStart = ros::Time::now();
         const ros::WallTime wallStart = ros::WallTime::now();
         success = this->tmpc_->plan();
         plan_status = this->tmpc_->getLastPlanStatus();
@@ -160,6 +159,7 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
 
         if (success) {
             this->tmpc_->getBestStates(states);
+            this->tmpc_->getBestControls(controls);
             this->tmpc_->getLocalReference(this->lastReferencePath_);
             traj_dt = this->tmpc_->getDt();
             if (!states.empty()) {
@@ -179,15 +179,24 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
         this->consecutivePlanFailures_ = 0;
         this->activeTraj_.clear();
         this->activeTraj_.reserve(states.size());
-        for (const auto& s : states) {
+        for (size_t i = 0; i < states.size(); ++i) {
+            const auto& s = states[i];
             ExecPoint ep;
             ep.p = Eigen::Vector3d(s(0), s(1), s(2));
             ep.v = Eigen::Vector3d(s(3), s(4), s.size() > 5 ? s(5) : 0.0);
+            if (i < controls.size() && controls[i].size() >= 3) {
+                ep.a = Eigen::Vector3d(controls[i](0), controls[i](1), controls[i](2));
+            } else if (!controls.empty() && controls.back().size() >= 3) {
+                ep.a = Eigen::Vector3d(controls.back()(0), controls.back()(1), controls.back()(2));
+            }
             this->activeTraj_.push_back(ep);
         }
         this->activeTrajDt_    = traj_dt;
         this->activeFacingYaw_ = snapshot_facing_yaw;
-        this->trajStartTime_   = planStart;
+        // Start the execution clock when the trajectory becomes active, not when
+        // planning started. Otherwise a 50-100 ms solve makes the controller skip
+        // the first states and chase a future setpoint immediately.
+        this->trajStartTime_   = ros::Time::now();
         this->ready_           = true;
     } else {
         ++this->consecutivePlanFailures_;
@@ -268,7 +277,7 @@ void tmpcNavigation::trajExeCB(const ros::TimerEvent&) {
         const ExecPoint pt = this->sampleSnapshot(traj, traj_dt, realTime);
         target.position.x = pt.p.x(); target.position.y = pt.p.y(); target.position.z = pt.p.z();
         target.velocity.x = pt.v.x(); target.velocity.y = pt.v.y(); target.velocity.z = pt.v.z();
-        target.acceleration.x = target.acceleration.y = target.acceleration.z = 0.0;
+        target.acceleration.x = pt.a.x(); target.acceleration.y = pt.a.y(); target.acceleration.z = pt.a.z();
     }
 
     {
@@ -385,6 +394,7 @@ tmpcNavigation::ExecPoint tmpcNavigation::sampleSnapshot(
     const double a = std::max(0.0, std::min(1.0, scaled - (double)k));
     out.p = traj[k].p + a * (traj[k + 1].p - traj[k].p);
     out.v = traj[k].v + a * (traj[k + 1].v - traj[k].v);
+    out.a = traj[k].a + a * (traj[k + 1].a - traj[k].a);
     return out;
 }
 
@@ -397,6 +407,7 @@ bool tmpcNavigation::buildBrakeTrajectory(std::vector<ExecPoint>& traj,
     const int n = std::max(3, (int)std::ceil(duration / dt));
     const Eigen::Vector3d p0 = this->currPos_;
     const Eigen::Vector3d v0 = this->currVel_;
+    const Eigen::Vector3d aBrake = -v0 / duration;
 
     traj.reserve(n + 1);
     for (int k = 0; k <= n; ++k) {
@@ -405,6 +416,7 @@ bool tmpcNavigation::buildBrakeTrajectory(std::vector<ExecPoint>& traj,
         ExecPoint ep;
         ep.p = p0 + v0 * (t - 0.5 * t * a);
         ep.v = v0 * (1.0 - a);
+        ep.a = aBrake;
         traj.push_back(ep);
     }
     if (this->execTrajectoryHitsStaticMap(traj, dt)) {
