@@ -33,7 +33,7 @@ tmpc:
   goal_grid_long: 3              # longitudinal goal count (along ref progress)
   goal_lat_spread: 3.5           # [m] total lateral sampling/goal coverage. Was 2.0 -> only +-1.0 m
                                  # around the reference, too narrow to route around obstacles.
-  goal_long_distance: 2.5        # [m] look-ahead of goals; keep <= v_ref*dt*horizon (~2.85 m)
+  goal_long_distance: 2.5        # [m] look-ahead of goals; keep <= v_ref*dt*horizon (~3.80 m)
 
   # -- Local planners (parallel ACADO MPC) ---------------------------
   beta_relax: 1.0                # 1 = linearized disc collision avoidance (real clearance).
@@ -77,7 +77,7 @@ tmpc:
   a_max: 3.0                     # horizontal accel limit [m/s^2]
   vz_max: 1.0                    # vertical speed limit [m/s]
   az_max: 2.0                    # vertical accel limit [m/s^2]
-  v_ref: 1.5                     # reference cruise speed [m/s]
+  v_ref: 2.0                     # reference cruise speed [m/s]
 
   # -- 3-D vertical avoidance (UAV) ----------------------------------
   #   Off by default because the paper/Open-source T-MPC++ topology planner is
