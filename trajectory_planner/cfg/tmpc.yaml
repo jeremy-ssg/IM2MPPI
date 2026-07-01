@@ -44,15 +44,17 @@ tmpc:
   thread_timeout_ms: 35          # per-branch OSQP cap; whole plan also includes PRM + matrix setup
   solve_sequential: false        # false = solve branches in parallel (OpenMP). true = single-thread.
   fail_hold_time: 0.35           # [s] keep the last good trajectory through brief replanning misses
+  brake_time: 0.45               # [s] smooth braking fallback if no feasible branch exists
 
   # -- Static map avoidance ------------------------------------------
-  use_static_astar: true          # A* over inflated occupancy map before local optimization
+  use_static_astar: false         # optional fallback only; topology PRM is the default path search
   static_astar_step: 0.20         # [m] A* grid resolution
   static_astar_pool_xy: 80        # cells per x/y dimension in the local A* pool
   static_astar_pool_z: 16         # cells in z dimension in the local A* pool
   static_halfplane_search_radius: 0.8 # [m] scan radius around guidance for static half-planes
   static_halfplane_clearance: 0.25    # [m] extra half-plane margin; map is already inflated
   static_halfplane_rays: 16       # angular samples for local static half-plane constraints
+  static_post_check_clearance: 0.12 # [m] extra static clearance checked after optimization
 
   # -- Decision making (Eq.12 consistency) ---------------------------
   consistency_ci: 0.75           # weight preferring the previously-executed homotopy class
@@ -88,6 +90,6 @@ tmpc:
 
   # -- RViz/debug publishing ------------------------------------------
   visualization_period: 0.5      # [s] debug path publishing; bbox obstacles come from detector topics
-  publish_guidance_markers: false
+  publish_guidance_markers: true # lightweight topology paths (/tmpc/guidance_paths)
   publish_optimized_markers: false
   publish_obstacle_prediction_markers: false

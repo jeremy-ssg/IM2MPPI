@@ -50,6 +50,7 @@ struct TMPCBranch {
     bool                           guided  = true;   // false for the T-MPC++ unguided branch
     bool                           overTake = false; // true = vertical "fly-over" branch (3D)
     bool                           feasible = false;
+    std::string                    status = "pending";
     double                         cost = std::numeric_limits<double>::infinity(); // J_i*
     std::vector<Eigen::Vector3d>   guidanceTraj;     // 3D, z=z_lap (warm start source)
     std::vector<Eigen::VectorXd>   statesSol;        // local-MPC optimized states
@@ -92,6 +93,7 @@ public:
     double getDt() const { return dt_; }
     int    getBestClassId() const { return bestClassId_; }
     double getPlanTimeMs()  const { return planTimeMs_; }
+    std::string getLastPlanStatus() const { return lastPlanStatus_; }
 
     // visualization helpers (publish all P guidance + optimized branches)
     void publishGuidancePaths()       const;
@@ -143,6 +145,9 @@ private:
     bool trajectoryHitsStaticMap(const std::vector<Eigen::VectorXd>& states) const;
     bool trajectoryHitsDynamicObstacles(const std::vector<Eigen::VectorXd>& states,
                                         bool allowVerticalOvertake) const;
+    bool pointHitsStaticMapWithMargin(const Eigen::Vector3d& p, double margin) const;
+    void resetDiagnostics();
+    void updateDiagnosticsAfterSolve();
 
     // ===========================================================================
     ros::NodeHandle nh_;
@@ -193,14 +198,15 @@ private:
     int    maxObstacles_   = 12;
 
     // Static-map avoidance (inflated occupancy map).
-    bool   useStaticAstar_ = true;
+    bool   useStaticAstar_ = false;
     double staticAstarStep_ = 0.20;
     int    staticAstarPoolXY_ = 80;
     int    staticAstarPoolZ_ = 16;
     double staticHalfplaneSearchRadius_ = 0.8;
     double staticHalfplaneClearance_ = 0.25;
     int    staticHalfplaneRays_ = 16;
-    bool   publishGuidanceMarkers_ = false;
+    double staticPostCheckClearance_ = 0.12;
+    bool   publishGuidanceMarkers_ = true;
     bool   publishOptimizedMarkers_ = false;
     bool   publishObstaclePredictionMarkers_ = false;
 
@@ -225,6 +231,21 @@ private:
     int  bestClassId_  = -1;
     int  prevClassId_  = -1;     // executed class last iteration (consistency)
     double planTimeMs_ = 0.0;
+    std::string lastPlanStatus_ = "not_started";
+    int lastGuidanceNodes_ = 0;
+    int lastGuidanceGoals_ = 0;
+    int lastGuidanceExpansions_ = 0;
+    int lastGuidedBranches_ = 0;
+    int lastTotalBranches_ = 0;
+    int lastFeasibleBranches_ = 0;
+    int lastStaticRejects_ = 0;
+    int lastDynamicRejects_ = 0;
+    int lastSolveRejects_ = 0;
+    int lastSetupRejects_ = 0;
+    int lastNumericRejects_ = 0;
+    bool lastStaticDirectBlocked_ = false;
+    bool lastStaticAstarActive_ = false;
+    bool lastStaticAstarFailed_ = false;
 
     // pool of local MPC solvers (one per branch; ACADO state is per-instance).
     // NOTE: even with separate instances, ACADO-generated code may share a global

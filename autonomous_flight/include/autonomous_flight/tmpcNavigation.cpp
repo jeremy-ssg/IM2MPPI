@@ -31,8 +31,10 @@ void tmpcNavigation::initParam() {
     this->nh_.param("autonomous_flight/use_predefined_goal", this->usePredefinedGoal_, false);
     this->nh_.param("tmpc/visualization_period", this->visPeriod_, 0.5);
     this->nh_.param("tmpc/fail_hold_time", this->failHoldTime_, 0.35);
+    this->nh_.param("tmpc/brake_time", this->brakeTime_, 0.45);
     this->visPeriod_ = std::max(0.05, this->visPeriod_);
     this->failHoldTime_ = std::max(0.0, this->failHoldTime_);
+    this->brakeTime_ = std::max(0.1, this->brakeTime_);
 
     if (this->usePredefinedGoal_) {
         if (!this->nh_.getParam("autonomous_flight/predefined_goal_directory", this->refTrajPath_)) {
@@ -104,6 +106,7 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
     double traj_dt = 0.05;
     double snapshot_facing_yaw = this->facingYaw_;
     std::vector<Eigen::VectorXd> states;
+    std::string plan_status = "not_run";
 
     {
         std::lock_guard<std::mutex> lk(this->planMutex_);
@@ -149,6 +152,7 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
         planStart = ros::Time::now();
         const ros::WallTime wallStart = ros::WallTime::now();
         success = this->tmpc_->plan();
+        plan_status = this->tmpc_->getLastPlanStatus();
         const ros::WallTime wallEnd = ros::WallTime::now();
         plan_ms = (wallEnd - wallStart).toSec() * 1000.0;
 
@@ -196,11 +200,28 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
         }
         if (keepPrevious) {
             ROS_WARN_THROTTLE(1.0,
-                "[T-MPC++ Nav] plan() failed; holding previous trajectory briefly (%d failures).",
-                this->consecutivePlanFailures_);
+                "[T-MPC++ Nav] plan() failed (%s); holding previous trajectory briefly (%d failures).",
+                plan_status.c_str(), this->consecutivePlanFailures_);
             return;
         }
-        ROS_WARN_THROTTLE(1.0, "[T-MPC++ Nav] plan() failed.");
+
+        std::vector<ExecPoint> brakeTraj;
+        if (this->buildBrakeTrajectory(brakeTraj, traj_dt, this->brakeTime_)) {
+            std::lock_guard<std::mutex> tk(this->trajMutex_);
+            this->activeTraj_ = brakeTraj;
+            this->activeTrajDt_ = traj_dt;
+            this->activeFacingYaw_ = snapshot_facing_yaw;
+            this->trajStartTime_ = ros::Time::now();
+            this->ready_ = true;
+            ROS_WARN_THROTTLE(1.0,
+                "[T-MPC++ Nav] plan() failed (%s); switching to smooth brake trajectory (%d failures).",
+                plan_status.c_str(), this->consecutivePlanFailures_);
+            return;
+        }
+
+        ROS_WARN_THROTTLE(1.0,
+            "[T-MPC++ Nav] plan() failed (%s); brake trajectory unsafe, stopping.",
+            plan_status.c_str());
         {
             std::lock_guard<std::mutex> tk(this->trajMutex_);
             this->ready_ = false;
@@ -342,6 +363,48 @@ tmpcNavigation::ExecPoint tmpcNavigation::sampleSnapshot(
     out.p = traj[k].p + a * (traj[k + 1].p - traj[k].p);
     out.v = traj[k].v + a * (traj[k + 1].v - traj[k].v);
     return out;
+}
+
+bool tmpcNavigation::buildBrakeTrajectory(std::vector<ExecPoint>& traj,
+                                          double dt,
+                                          double duration) const {
+    traj.clear();
+    dt = std::max(0.02, dt);
+    duration = std::max(dt, duration);
+    const int n = std::max(3, (int)std::ceil(duration / dt));
+    const Eigen::Vector3d p0 = this->currPos_;
+    const Eigen::Vector3d v0 = this->currVel_;
+
+    traj.reserve(n + 1);
+    for (int k = 0; k <= n; ++k) {
+        const double t = std::min(duration, (double)k * dt);
+        const double a = std::max(0.0, std::min(1.0, t / duration));
+        ExecPoint ep;
+        ep.p = p0 + v0 * (t - 0.5 * t * a);
+        ep.v = v0 * (1.0 - a);
+        traj.push_back(ep);
+    }
+    if (this->execTrajectoryHitsStaticMap(traj)) {
+        traj.clear();
+        return false;
+    }
+    return true;
+}
+
+bool tmpcNavigation::execTrajectoryHitsStaticMap(const std::vector<ExecPoint>& traj) const {
+    if (!this->map_) return false;
+    Eigen::Vector3d prev = Eigen::Vector3d::Zero();
+    bool havePrev = false;
+    for (const auto& pt : traj) {
+        if (this->map_->isInflatedOccupied(pt.p)) return true;
+        if (havePrev && (pt.p - prev).norm() > 1e-4 &&
+            this->map_->isInflatedOccupiedLine(prev, pt.p)) {
+            return true;
+        }
+        prev = pt.p;
+        havePrev = true;
+    }
+    return false;
 }
 
 nav_msgs::Path tmpcNavigation::loadRefTraj(const std::string& path) const {

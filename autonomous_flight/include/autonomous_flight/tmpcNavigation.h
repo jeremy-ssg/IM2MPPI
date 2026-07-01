@@ -82,6 +82,7 @@ private:
     int         repeatPathNum_     = 1;
     double      visPeriod_         = 0.5;
     double      failHoldTime_      = 0.35;
+    double      brakeTime_         = 0.45;
     std::string refTrajPath_;
     nav_msgs::Path predefinedGoal_;
 
@@ -117,6 +118,8 @@ private:
                       std::vector<Eigen::Vector3d>& vel,
                       std::vector<Eigen::Vector3d>& size) const;
     ExecPoint sampleSnapshot(const std::vector<ExecPoint>& traj, double dt, double t) const;
+    bool buildBrakeTrajectory(std::vector<ExecPoint>& traj, double dt, double duration) const;
+    bool execTrajectoryHitsStaticMap(const std::vector<ExecPoint>& traj) const;
     void publishBestTrajectory() const;
     void publishReferencePath() const;
 };

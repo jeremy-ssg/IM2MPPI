@@ -173,14 +173,15 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/vertical_clearance",  vClearance_,      0.4);
     nh_.param<std::string>("tmpc/prediction_source", predictionSource_, "constant_velocity");
     nh_.param("tmpc/max_obstacles",       maxObstacles_,    12);
-    nh_.param("tmpc/use_static_astar",    useStaticAstar_,  true);
+    nh_.param("tmpc/use_static_astar",    useStaticAstar_,  false);
     nh_.param("tmpc/static_astar_step",   staticAstarStep_, 0.20);
     nh_.param("tmpc/static_astar_pool_xy",staticAstarPoolXY_, 80);
     nh_.param("tmpc/static_astar_pool_z", staticAstarPoolZ_, 16);
     nh_.param("tmpc/static_halfplane_search_radius", staticHalfplaneSearchRadius_, 0.8);
     nh_.param("tmpc/static_halfplane_clearance",     staticHalfplaneClearance_, 0.25);
     nh_.param("tmpc/static_halfplane_rays",          staticHalfplaneRays_, 16);
-    nh_.param("tmpc/publish_guidance_markers", publishGuidanceMarkers_, false);
+    nh_.param("tmpc/static_post_check_clearance",    staticPostCheckClearance_, 0.12);
+    nh_.param("tmpc/publish_guidance_markers", publishGuidanceMarkers_, true);
     nh_.param("tmpc/publish_optimized_markers", publishOptimizedMarkers_, false);
     nh_.param("tmpc/publish_obstacle_prediction_markers", publishObstaclePredictionMarkers_, false);
     // cost weights
@@ -200,6 +201,7 @@ void tmpcPlanner::initParam() {
     staticHalfplaneSearchRadius_ = std::max(0.0, staticHalfplaneSearchRadius_);
     staticHalfplaneClearance_ = std::max(0.02, staticHalfplaneClearance_);
     staticHalfplaneRays_ = std::max(4, staticHalfplaneRays_);
+    staticPostCheckClearance_ = std::max(0.0, staticPostCheckClearance_);
 
     ROS_INFO("[tmpcPlanner] init: P=%d unguided=%d horizon=%d dt=%.3f z_lap=%.2f pred=%s",
              numTrajP_, (int)addUnguided_, horizon_, dt_, zLap_, predictionSource_.c_str());
@@ -212,6 +214,44 @@ void tmpcPlanner::registerPub() {
     optimizedTrajPub_   = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/optimized_trajectories", 1);
     goalGridPub_        = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/goal", 1);
     dynObsPub_          = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/dynamic_obstacle_predictions", 1);
+}
+
+void tmpcPlanner::resetDiagnostics() {
+    lastPlanStatus_ = "running";
+    lastGuidanceNodes_ = 0;
+    lastGuidanceGoals_ = 0;
+    lastGuidanceExpansions_ = 0;
+    lastGuidedBranches_ = 0;
+    lastTotalBranches_ = 0;
+    lastFeasibleBranches_ = 0;
+    lastStaticRejects_ = 0;
+    lastDynamicRejects_ = 0;
+    lastSolveRejects_ = 0;
+    lastSetupRejects_ = 0;
+    lastNumericRejects_ = 0;
+    lastStaticDirectBlocked_ = false;
+    lastStaticAstarActive_ = false;
+    lastStaticAstarFailed_ = false;
+}
+
+void tmpcPlanner::updateDiagnosticsAfterSolve() {
+    lastTotalBranches_ = (int)branches_.size();
+    for (const auto& b : branches_) {
+        if (b.guided) ++lastGuidedBranches_;
+        if (b.feasible) {
+            ++lastFeasibleBranches_;
+        } else if (b.status == "static_collision") {
+            ++lastStaticRejects_;
+        } else if (b.status == "dynamic_collision") {
+            ++lastDynamicRejects_;
+        } else if (b.status == "solve_error" || b.status == "init_solver") {
+            ++lastSolveRejects_;
+        } else if (b.status.find("setup_") == 0 || b.status == "short_ref") {
+            ++lastSetupRejects_;
+        } else if (b.status == "numeric") {
+            ++lastNumericRejects_;
+        }
+    }
 }
 
 void tmpcPlanner::updateCurrStates(const Eigen::Vector3d& pos,
@@ -383,6 +423,47 @@ void tmpcPlanner::buildStaticAwareReference() {
         }
     }
     if (!directBlocked) return;
+    lastStaticDirectBlocked_ = true;
+
+    if (map_->isInflatedOccupied(start)) {
+        lastStaticAstarFailed_ = true;
+        ROS_WARN_THROTTLE(1.0,
+            "[tmpcPlanner] static A* fallback skipped because start is inside inflated map.");
+        return;
+    }
+
+    if (map_->isInflatedOccupied(goal)) {
+        bool foundGoal = false;
+        Eigen::Vector3d bestGoal = goal;
+        double bestScore = std::numeric_limits<double>::infinity();
+
+        auto considerGoal = [&](const Eigen::Vector3d& raw) {
+            Eigen::Vector3d c = raw;
+            c.z() = zLap_;
+            if ((c.head<2>() - start.head<2>()).norm() < 0.5) return;
+            if (map_->isInflatedOccupied(c)) return;
+            const double score = (c.head<2>() - goal.head<2>()).norm();
+            if (score < bestScore) {
+                bestScore = score;
+                bestGoal = c;
+                foundGoal = true;
+            }
+        };
+
+        for (const auto& g : goalGrid_) considerGoal(g);
+        for (int i = (int)localRef_.size() - 1; i >= 1; --i) considerGoal(localRef_[i]);
+
+        if (!foundGoal) {
+            lastStaticAstarFailed_ = true;
+            ROS_WARN_THROTTLE(1.0,
+                "[tmpcPlanner] static A* fallback failed before search: local goal is occupied and no free fallback goal exists.");
+            return;
+        }
+        goal = bestGoal;
+        ROS_WARN_THROTTLE(1.0,
+            "[tmpcPlanner] static A* fallback retargeted occupied local goal to free point (%.2f, %.2f, %.2f).",
+            goal.x(), goal.y(), goal.z());
+    }
 
     const double dist = std::max(1.0, (goal.head<2>() - start.head<2>()).norm());
     const int xyPool = std::max(staticAstarPoolXY_,
@@ -394,8 +475,9 @@ void tmpcPlanner::buildStaticAwareReference() {
     astar.initGridMap(map_, Eigen::Vector3i(xyPool, xyPool, staticAstarPoolZ_),
                       minH, maxH);
     if (!astar.AstarSearch(staticAstarStep_, start, goal)) {
+        lastStaticAstarFailed_ = true;
         ROS_WARN_THROTTLE(1.0,
-            "[tmpcPlanner] static A* failed; keeping reference and relying on static constraints.");
+            "[tmpcPlanner] static A* fallback failed; keeping topology-PRM reference and static constraints.");
         return;
     }
 
@@ -406,8 +488,9 @@ void tmpcPlanner::buildStaticAwareReference() {
         ref.front() = start;
         ref.back() = goal;
         localRef_ = ref;
+        lastStaticAstarActive_ = true;
         ROS_INFO_THROTTLE(1.0,
-            "[tmpcPlanner] static A* reference active: %zu raw points -> %zu horizon points",
+            "[tmpcPlanner] static A* fallback reference active: %zu raw points -> %zu horizon points",
             astarPath.size(), localRef_.size());
     }
 }
@@ -429,6 +512,12 @@ bool tmpcPlanner::runGuidance() {
     const double speedLimit = std::max(4.0, std::max(vMax_ * 2.5, vRef_ * 3.0));
     std::vector<GuidanceNode> nodes;
     std::vector<int> goalIds;
+    struct StaticTopoAnchor {
+        int k = 0;
+        Eigen::Vector2d p = Eigen::Vector2d::Zero();
+        Eigen::Vector2d tangent = Eigen::Vector2d::UnitX();
+    };
+    std::vector<StaticTopoAnchor> staticAnchors;
 
     auto staticFree = [&](const Eigen::Vector2d& p) -> bool {
         if (!map_) return true;
@@ -461,6 +550,8 @@ bool tmpcPlanner::runGuidance() {
 
     const int startId = addNode(currPos_.head<2>(), 0, false, 0.0);
     if (startId < 0) {
+        lastGuidanceNodes_ = (int)nodes.size();
+        lastGuidanceGoals_ = (int)goalIds.size();
         ROS_WARN_THROTTLE(1.0, "[tmpcPlanner] guidance start is in collision/outside map.");
         return false;
     }
@@ -507,6 +598,51 @@ bool tmpcPlanner::runGuidance() {
         }
     }
 
+    // Static-obstacle topology samples. A* is only an optional fallback; the
+    // default T-MPC++ behavior should still be a visibility graph / topology
+    // search. When the reference corridor intersects the inflated map, add
+    // guard/connector samples on both sides of the blocked segment so graph
+    // search can discover left/right homotopy classes around static obstacles.
+    if (map_) {
+        const int minAnchorGap = std::max(2, N / 8);
+        int lastAnchorK = -1000;
+        const double maxOffset = std::max(goalLatSpread_, staticHalfplaneSearchRadius_ + 1.0);
+        const double offsets[] = {-maxOffset, -0.65 * maxOffset, 0.65 * maxOffset, maxOffset};
+        const int timeOffsets[] = {-3, 0, 3};
+
+        Eigen::Vector3d prev = localRef_[0];
+        prev.z() = zLap_;
+        for (int k = 1; k < N; ++k) {
+            Eigen::Vector3d p = localRef_[k];
+            p.z() = zLap_;
+            const bool blocked = map_->isInflatedOccupied(p) ||
+                                 map_->isInflatedOccupiedLine(prev, p);
+            prev = p;
+            if (!blocked || k - lastAnchorK < minAnchorGap ||
+                (int)staticAnchors.size() >= 6) {
+                continue;
+            }
+
+            Eigen::Vector2d t = localTangent(localRef_, k);
+            if (t.norm() < 1e-6) t = Eigen::Vector2d::UnitX();
+            t.normalize();
+            Eigen::Vector2d n(-t.y(), t.x());
+            StaticTopoAnchor anchor;
+            anchor.k = k;
+            anchor.p = localRef_[k].head<2>();
+            anchor.tangent = t;
+            staticAnchors.push_back(anchor);
+            lastStaticDirectBlocked_ = true;
+            lastAnchorK = k;
+
+            for (int dk : timeOffsets) {
+                const int kk = std::max(1, std::min(N - 1, k + dk));
+                const Eigen::Vector2d c = localRef_[kk].head<2>();
+                for (double off : offsets) addNode(c + off * n, kk, false, 0.0);
+            }
+        }
+    }
+
     addNode(localRef_.back().head<2>(), N, true, 0.0);
     if (!goalGrid_.empty()) {
         for (const auto& g3 : goalGrid_) {
@@ -515,6 +651,8 @@ bool tmpcPlanner::runGuidance() {
         }
     }
     if (goalIds.empty()) {
+        lastGuidanceNodes_ = (int)nodes.size();
+        lastGuidanceGoals_ = 0;
         ROS_WARN_THROTTLE(1.0, "[tmpcPlanner] guidance has no collision-free goals.");
         return false;
     }
@@ -617,6 +755,15 @@ bool tmpcPlanner::runGuidance() {
             }
             if (minClear < halfWidth + rUav_ + obsRadius_[j] + 0.8) {
                 oss << j << (signedAtMin >= 0.0 ? "L" : "R") << ";";
+                ++relevant;
+            }
+        }
+        for (const auto& a : staticAnchors) {
+            const int k = std::max(0, std::min(N, a.k));
+            const Eigen::Vector2d rel = traj[k].head<2>() - a.p;
+            const double signedSide = cross2d(a.tangent, rel);
+            if (std::abs(signedSide) > 0.05) {
+                oss << "S" << a.k << (signedSide >= 0.0 ? "L" : "R") << ";";
                 ++relevant;
             }
         }
@@ -749,6 +896,9 @@ bool tmpcPlanner::runGuidance() {
     }
 
     if (branches_.empty()) {
+        lastGuidanceNodes_ = (int)nodes.size();
+        lastGuidanceGoals_ = (int)goalIds.size();
+        lastGuidanceExpansions_ = expansions;
         ROS_WARN_THROTTLE(1.0,
             "[tmpcPlanner] internal Visibility-PRM found no guided topology path "
             "(nodes=%zu goals=%zu expansions=%d); continuing with unguided branch.",
@@ -777,6 +927,9 @@ bool tmpcPlanner::runGuidance() {
         b.guidanceTraj = localRef_;
         branches_.push_back(std::move(b));
     }
+    lastGuidanceNodes_ = (int)nodes.size();
+    lastGuidanceGoals_ = (int)goalIds.size();
+    lastGuidanceExpansions_ = expansions;
     return !branches_.empty();
 }
 
@@ -808,11 +961,13 @@ bool tmpcPlanner::homotopyHalfPlane(const Eigen::Vector2d& guidancePt,
 //   z = [X ; U],  X = [x_0..x_N] (NS each),  U = [u_0..u_{N-1}] (NU each)
 // ---------------------------------------------------------------------------
 void tmpcPlanner::solveBranch(TMPCBranch& branch) {
+    branch.status = "running";
     // No valid reference -> never solve (reading an empty localRef_ would be UB and
     // produce garbage setpoints that fly the drone away).
     if ((int)localRef_.size() < horizon_ + 1) {
         branch.feasible = false;
         branch.cost = std::numeric_limits<double>::infinity();
+        branch.status = "short_ref";
         return;
     }
     const int N   = horizon_;
@@ -1009,16 +1164,17 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
     solver.settings()->setTimeLimit(0.001 * (double)threadTimeoutMs_);
     solver.data()->setNumberOfVariables(nVar);
     solver.data()->setNumberOfConstraints(nCon);
-    if (!solver.data()->setHessianMatrix(P))            { branch.feasible = false; return; }
-    if (!solver.data()->setGradient(q))                 { branch.feasible = false; return; }
-    if (!solver.data()->setLinearConstraintsMatrix(Ac)) { branch.feasible = false; return; }
-    if (!solver.data()->setLowerBound(l))               { branch.feasible = false; return; }
-    if (!solver.data()->setUpperBound(u))               { branch.feasible = false; return; }
-    if (!solver.initSolver())                           { branch.feasible = false; return; }
+    if (!solver.data()->setHessianMatrix(P))            { branch.feasible = false; branch.status = "setup_hessian"; return; }
+    if (!solver.data()->setGradient(q))                 { branch.feasible = false; branch.status = "setup_gradient"; return; }
+    if (!solver.data()->setLinearConstraintsMatrix(Ac)) { branch.feasible = false; branch.status = "setup_constraints"; return; }
+    if (!solver.data()->setLowerBound(l))               { branch.feasible = false; branch.status = "setup_lower"; return; }
+    if (!solver.data()->setUpperBound(u))               { branch.feasible = false; branch.status = "setup_upper"; return; }
+    if (!solver.initSolver())                           { branch.feasible = false; branch.status = "init_solver"; return; }
 
     if (solver.solveProblem() != OsqpEigen::ErrorExitFlag::NoError) {
         branch.feasible = false;
         branch.cost = std::numeric_limits<double>::infinity();
+        branch.status = "solve_error";
         return;
     }
     const Eigen::VectorXd sol = solver.getSolution();
@@ -1029,6 +1185,7 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
     if (!sol.allFinite() || sol.cwiseAbs().maxCoeff() > 1e4) {
         branch.feasible = false;
         branch.cost = std::numeric_limits<double>::infinity();
+        branch.status = "numeric";
         return;
     }
 
@@ -1045,12 +1202,20 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
         branch.statesSol[k] = s;
     }
 
-    if (trajectoryHitsStaticMap(branch.statesSol) ||
-        trajectoryHitsDynamicObstacles(branch.statesSol, branch.overTake)) {
+    if (trajectoryHitsStaticMap(branch.statesSol)) {
         branch.feasible = false;
         branch.cost = std::numeric_limits<double>::infinity();
+        branch.status = "static_collision";
         branch.statesSol.clear();
         branch.controlsSol.clear();
+    } else if (trajectoryHitsDynamicObstacles(branch.statesSol, branch.overTake)) {
+        branch.feasible = false;
+        branch.cost = std::numeric_limits<double>::infinity();
+        branch.status = "dynamic_collision";
+        branch.statesSol.clear();
+        branch.controlsSol.clear();
+    } else {
+        branch.status = "feasible";
     }
 }
 
@@ -1076,6 +1241,7 @@ void tmpcPlanner::decide() {
 
 bool tmpcPlanner::plan() {
     auto t0 = std::chrono::steady_clock::now();
+    resetDiagnostics();
 
     buildConstantVelocityPredictions();
     buildGoalGrid();
@@ -1086,9 +1252,14 @@ bool tmpcPlanner::plan() {
                                "(reference path not set?); skipping plan - drone holds.");
         planTimeMs_ = 0.0;
         bestIdx_ = -1;
+        lastPlanStatus_ = "short_ref";
         return false;
     }
-    if (!runGuidance()) { planTimeMs_ = 0.0; return false; }
+    if (!runGuidance()) {
+        planTimeMs_ = 0.0;
+        lastPlanStatus_ = "guidance_failed";
+        return false;
+    }
 
     // Solve each branch's local MPC. Each OsqpEigen solver is constructed locally
     // inside solveBranch (independent state), so the branches can be solved in
@@ -1099,13 +1270,22 @@ bool tmpcPlanner::plan() {
 #endif
     for (int i = 0; i < (int)branches_.size(); ++i) solveBranch(branches_[i]);
 
+    updateDiagnosticsAfterSolve();
     decide();
 
     auto t1 = std::chrono::steady_clock::now();
     planTimeMs_ = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    lastPlanStatus_ = (bestIdx_ >= 0) ? "success" : "no_feasible_branch";
     ROS_INFO_THROTTLE(1.0,
-        "[tmpcPlanner] obs=%zu branches=%zu best=%d class=%d plan=%.1fms zLap=%.2f",
-        obsPredPos_.size(), branches_.size(), bestIdx_, bestClassId_, planTimeMs_, zLap_);
+        "[tmpcPlanner] status=%s obs=%zu branches=%d guided=%d feasible=%d best=%d class=%d "
+        "reject(static=%d dynamic=%d solve=%d setup=%d numeric=%d) "
+        "topo(nodes=%d goals=%d expansions=%d) static(blocked=%d astar=%d astar_fail=%d) plan=%.1fms",
+        lastPlanStatus_.c_str(), obsPredPos_.size(), lastTotalBranches_, lastGuidedBranches_,
+        lastFeasibleBranches_, bestIdx_, bestClassId_,
+        lastStaticRejects_, lastDynamicRejects_, lastSolveRejects_, lastSetupRejects_, lastNumericRejects_,
+        lastGuidanceNodes_, lastGuidanceGoals_, lastGuidanceExpansions_,
+        (int)lastStaticDirectBlocked_, (int)lastStaticAstarActive_, (int)lastStaticAstarFailed_,
+        planTimeMs_);
     return bestIdx_ >= 0;
 }
 
@@ -1133,14 +1313,43 @@ bool tmpcPlanner::trajectoryHitsStaticMap(const std::vector<Eigen::VectorXd>& st
     if (!map_) return false;
     Eigen::Vector3d prev = Eigen::Vector3d::Zero();
     bool havePrev = false;
+    const double step = std::max(0.05, map_->getRes());
     for (const auto& s : states) {
         if (s.size() < 3 || !s.allFinite()) return true;
         Eigen::Vector3d p(s(0), s(1), s(2));
-        if (map_->isInflatedOccupied(p)) return true;
-        if (havePrev && (p - prev).norm() > 1e-4 && map_->isInflatedOccupiedLine(prev, p))
-            return true;
+        if (pointHitsStaticMapWithMargin(p, staticPostCheckClearance_)) return true;
+        if (havePrev && (p - prev).norm() > 1e-4) {
+            if (map_->isInflatedOccupiedLine(prev, p)) return true;
+            const int samples = std::max(1, (int)std::ceil((p - prev).norm() / step));
+            for (int i = 1; i <= samples; ++i) {
+                const double a = (double)i / (double)samples;
+                const Eigen::Vector3d q = prev + a * (p - prev);
+                if (pointHitsStaticMapWithMargin(q, staticPostCheckClearance_)) return true;
+            }
+        }
         prev = p;
         havePrev = true;
+    }
+    return false;
+}
+
+bool tmpcPlanner::pointHitsStaticMapWithMargin(const Eigen::Vector3d& p, double margin) const {
+    if (!map_) return false;
+    if (map_->isInflatedOccupied(p)) return true;
+    if (margin <= 1e-6) return false;
+
+    const double step = std::max(0.05, map_->getRes());
+    const int radialSteps = std::max(1, (int)std::ceil(margin / step));
+    const int dirs = 8;
+    for (int r = 1; r <= radialSteps; ++r) {
+        const double radius = std::min(margin, step * (double)r);
+        for (int d = 0; d < dirs; ++d) {
+            const double th = 2.0 * M_PI * (double)d / (double)dirs;
+            Eigen::Vector3d q = p;
+            q.x() += radius * std::cos(th);
+            q.y() += radius * std::sin(th);
+            if (map_->isInflatedOccupied(q)) return true;
+        }
     }
     return false;
 }
