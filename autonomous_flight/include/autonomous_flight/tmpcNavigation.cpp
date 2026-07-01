@@ -33,10 +33,14 @@ void tmpcNavigation::initParam() {
     this->nh_.param("tmpc/fail_hold_time", this->failHoldTime_, 0.35);
     this->nh_.param("tmpc/brake_time", this->brakeTime_, 0.45);
     this->nh_.param("tmpc/static_post_check_clearance", this->staticExecClearance_, 0.25);
+    this->nh_.param("tmpc/execution_lookahead_time", this->execLookaheadTime_, 0.45);
+    this->nh_.param("tmpc/execution_lookahead_distance", this->execLookaheadDist_, 0.80);
     this->visPeriod_ = std::max(0.05, this->visPeriod_);
     this->failHoldTime_ = std::max(0.0, this->failHoldTime_);
     this->brakeTime_ = std::max(0.1, this->brakeTime_);
     this->staticExecClearance_ = std::max(0.0, this->staticExecClearance_);
+    this->execLookaheadTime_ = std::max(0.0, this->execLookaheadTime_);
+    this->execLookaheadDist_ = std::max(0.0, this->execLookaheadDist_);
 
     if (this->usePredefinedGoal_) {
         if (!this->nh_.getParam("autonomous_flight/predefined_goal_directory", this->refTrajPath_)) {
@@ -105,6 +109,7 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
     bool success = false;
     double plan_ms = 0.0;
     double traj_dt = 0.05;
+    ros::Time planStart;
     double snapshot_facing_yaw = this->facingYaw_;
     std::vector<Eigen::VectorXd> states;
     std::vector<Eigen::VectorXd> controls;
@@ -151,6 +156,7 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
         // (computed after plan; facing handled below)
 
         // 5. plan
+        planStart = ros::Time::now();
         const ros::WallTime wallStart = ros::WallTime::now();
         success = this->tmpc_->plan();
         plan_status = this->tmpc_->getLastPlanStatus();
@@ -193,10 +199,10 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
         }
         this->activeTrajDt_    = traj_dt;
         this->activeFacingYaw_ = snapshot_facing_yaw;
-        // Start the execution clock when the trajectory becomes active, not when
-        // planning started. Otherwise a 50-100 ms solve makes the controller skip
-        // the first states and chase a future setpoint immediately.
-        this->trajStartTime_   = ros::Time::now();
+        // Time origin is when the state was sampled, matching the other navigation
+        // stacks. The execution callback adds a short lookahead so replanning at
+        // 10 Hz does not keep publishing the t=0 setpoint.
+        this->trajStartTime_   = planStart;
         this->ready_           = true;
     } else {
         ++this->consecutivePlanFailures_;
@@ -274,7 +280,7 @@ void tmpcNavigation::trajExeCB(const ros::TimerEvent&) {
         target.velocity.x = target.velocity.y = target.velocity.z = 0.0;
         target.acceleration.x = target.acceleration.y = target.acceleration.z = 0.0;
     } else {
-        const ExecPoint pt = this->sampleSnapshot(traj, traj_dt, realTime);
+        const ExecPoint pt = this->sampleLookaheadSnapshot(traj, traj_dt, realTime);
         target.position.x = pt.p.x(); target.position.y = pt.p.y(); target.position.z = pt.p.z();
         target.velocity.x = pt.v.x(); target.velocity.y = pt.v.y(); target.velocity.z = pt.v.z();
         target.acceleration.x = pt.a.x(); target.acceleration.y = pt.a.y(); target.acceleration.z = pt.a.z();
@@ -396,6 +402,45 @@ tmpcNavigation::ExecPoint tmpcNavigation::sampleSnapshot(
     out.v = traj[k].v + a * (traj[k + 1].v - traj[k].v);
     out.a = traj[k].a + a * (traj[k + 1].a - traj[k].a);
     return out;
+}
+
+tmpcNavigation::ExecPoint tmpcNavigation::sampleLookaheadSnapshot(
+    const std::vector<ExecPoint>& traj, double dt, double t) const {
+    if (traj.empty()) return ExecPoint();
+    if (traj.size() == 1 || dt <= 1e-6) return traj.front();
+
+    const double horizonTime = (double)(traj.size() - 1) * dt;
+    const double baseTime = std::max(0.0, std::min(t, horizonTime));
+    double targetTime = std::min(horizonTime, baseTime + this->execLookaheadTime_);
+
+    if (this->execLookaheadDist_ > 1e-6) {
+        const ExecPoint base = this->sampleSnapshot(traj, dt, baseTime);
+        double walked = (base.p - this->currPos_).norm();
+        double distTime = baseTime;
+
+        if (walked < this->execLookaheadDist_) {
+            Eigen::Vector3d prev = base.p;
+            double prevTime = baseTime;
+            int nextIdx = std::max(1, (int)std::floor(baseTime / dt) + 1);
+            for (int i = nextIdx; i < (int)traj.size(); ++i) {
+                const double ti = (double)i * dt;
+                const Eigen::Vector3d p = traj[i].p;
+                const double segLen = (p - prev).norm();
+                if (segLen > 1e-6 && walked + segLen >= this->execLookaheadDist_) {
+                    const double frac = (this->execLookaheadDist_ - walked) / segLen;
+                    distTime = prevTime + frac * (ti - prevTime);
+                    break;
+                }
+                walked += segLen;
+                prev = p;
+                prevTime = ti;
+                distTime = ti;
+            }
+        }
+        targetTime = std::max(targetTime, std::min(distTime, horizonTime));
+    }
+
+    return this->sampleSnapshot(traj, dt, targetTime);
 }
 
 bool tmpcNavigation::buildBrakeTrajectory(std::vector<ExecPoint>& traj,

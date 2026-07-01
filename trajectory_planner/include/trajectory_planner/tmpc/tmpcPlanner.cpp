@@ -332,32 +332,47 @@ void tmpcPlanner::buildConstantVelocityPredictions() {
 }
 
 // ---------------------------------------------------------------------------
-// Goal grid in Frenet frame: find the nearest point on the reference path, look
-// ahead goal_long_distance, then lay a lateral x longitudinal grid around it.
+// Goal grid in Frenet frame: project the current position onto the reference
+// path, march forward by arc length, then lay a lateral x longitudinal grid.
 // ---------------------------------------------------------------------------
 void tmpcPlanner::buildGoalGrid() {
     goalGrid_.clear();
     localRef_.clear();
     if (refPath_.size() < 2) return;
 
-    // nearest reference index to the current position (xy)
-    int nearest = 0;
+    // Closest point on a reference segment, not just closest waypoint. Using a
+    // waypoint index can jump backward/forward on coarse paths and makes the
+    // first local reference segment nearly zero or even point the wrong way.
+    int projSeg = 0;
+    double projAlpha = 0.0;
     double best = std::numeric_limits<double>::infinity();
-    for (size_t i = 0; i < refPath_.size(); ++i) {
-        double d = (refPath_[i].head<2>() - currPos_.head<2>()).squaredNorm();
-        if (d < best) { best = d; nearest = (int)i; }
+    const int last = (int)refPath_.size() - 1;
+    const Eigen::Vector2d cxy = currPos_.head<2>();
+    for (int i = 0; i < last; ++i) {
+        const Eigen::Vector2d a = refPath_[i].head<2>();
+        const Eigen::Vector2d b = refPath_[i + 1].head<2>();
+        const Eigen::Vector2d ab = b - a;
+        const double len2 = ab.squaredNorm();
+        const double u = (len2 > 1e-9)
+            ? std::max(0.0, std::min(1.0, (cxy - a).dot(ab) / len2))
+            : 0.0;
+        const double d2 = (a + u * ab - cxy).squaredNorm();
+        if (d2 < best) {
+            best = d2;
+            projSeg = i;
+            projAlpha = u;
+        }
     }
 
     // Local horizon reference: resample refPath forward at v_ref*dt arc-length per
-    // step. We track segConsumed (distance already used inside the current segment)
-    // across steps so the cursor truly advances; without it, when the path's point
-    // spacing exceeds v_ref*dt the reference collapses onto a single point and the
-    // drone barely moves (the "very slow / very short trajectory" bug).
+    // step from the projected arc-length position. localRef_[0] remains the true
+    // UAV position for a smooth initial condition, but k>=1 is always ahead on the
+    // reference path, giving the controller a real local target to chase.
     {
         const double step = vRef_ * dt_;
-        const int    last = (int)refPath_.size() - 1;
-        int    i = nearest;          // current segment [i, i+1]
-        double segConsumed = 0.0;    // distance already consumed within segment i
+        int    i = projSeg;          // current segment [i, i+1]
+        double segLen0 = (refPath_[i + 1].head<2>() - refPath_[i].head<2>()).norm();
+        double segConsumed = projAlpha * segLen0;
 
         Eigen::Vector3d p0 = currPos_;
         p0.z() = zLap_;
@@ -394,14 +409,12 @@ void tmpcPlanner::buildGoalGridFromLocalRef() {
     goalGrid_.clear();
     if (localRef_.size() < 2) return;
 
-    // Goal grid centered on the look-ahead point of the final local reference.
-    int lookIdx = 0;
-    double remaining = goalLongDist_;
-    while (lookIdx < (int)localRef_.size() - 1 && remaining > 0.0) {
-        double segLen = (localRef_[lookIdx + 1].head<2>() - localRef_[lookIdx].head<2>()).norm();
-        remaining -= segLen;
-        ++lookIdx;
-    }
+    // Goal grid centered a fixed distance ahead along the local reference. Because
+    // localRef_ is sampled at v_ref*dt from the projected reference arc length,
+    // this gives a stable forward local goal instead of one stuck near the UAV.
+    const double refStep = std::max(0.05, vRef_ * dt_);
+    const int lookIdx = std::max(1, std::min((int)localRef_.size() - 1,
+        (int)std::ceil(goalLongDist_ / refStep)));
     Eigen::Vector2d center = localRef_[std::min(lookIdx, (int)localRef_.size() - 1)].head<2>();
     Eigen::Vector2d tang   = localTangent(localRef_, lookIdx);
     Eigen::Vector2d normal(-tang.y(), tang.x());

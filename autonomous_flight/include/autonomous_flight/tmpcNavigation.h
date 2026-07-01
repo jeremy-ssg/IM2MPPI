@@ -84,6 +84,8 @@ private:
     double      failHoldTime_      = 0.35;
     double      brakeTime_         = 0.45;
     double      staticExecClearance_ = 0.25;
+    double      execLookaheadTime_ = 0.45;
+    double      execLookaheadDist_ = 0.80;
     std::string refTrajPath_;
     nav_msgs::Path predefinedGoal_;
 
@@ -120,6 +122,7 @@ private:
                       std::vector<Eigen::Vector3d>& vel,
                       std::vector<Eigen::Vector3d>& size) const;
     ExecPoint sampleSnapshot(const std::vector<ExecPoint>& traj, double dt, double t) const;
+    ExecPoint sampleLookaheadSnapshot(const std::vector<ExecPoint>& traj, double dt, double t) const;
     bool buildBrakeTrajectory(std::vector<ExecPoint>& traj, double dt, double duration) const;
     bool execTrajectoryHitsStaticMap(const std::vector<ExecPoint>& traj, double dt) const;
     bool execPointHitsStaticMapWithMargin(const Eigen::Vector3d& p, double margin) const;
