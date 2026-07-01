@@ -35,11 +35,10 @@ tmpc:
                                  # around the reference, too narrow to route around obstacles.
   goal_long_distance: 2.5        # [m] look-ahead of goals; keep <= v_ref*dt*horizon (~3.80 m)
 
-  # -- Local planners (parallel ACADO MPC) ---------------------------
-  beta_relax: 1.0                # 1 = linearized disc collision avoidance (real clearance).
-                                 # NOTE: we don't implement the paper's separate hard
-                                 # collision constraint (9d), so this half-plane MUST give
-                                 # the clearance -> keep at 1.0 (0.05 = topology-only = crashes).
+  # -- Local planners (parallel OSQP MPC) ----------------------------
+  beta_relax: 1.0                # homotopy half-plane scale for Eq. 9e.
+                                 # Eq. 9d collision clearance is added separately in
+                                 # the local MPC as a soft linearized constraint.
   safety_margin: 0.25            # extra clearance [m] beyond r_uav + r_obs (linearization buffer)
   parallel_threads: 3            # leave CPU headroom for Gazebo/RViz/detector callbacks
   thread_timeout_ms: 35          # per-branch OSQP cap; whole plan also includes PRM + matrix setup

@@ -12,11 +12,10 @@
         decide()                             (Eq.12 consistency-weighted min cost)
 
     LOCAL PLANNER (the "fork" resolved, see docs section 8): a self-contained linear MPC
-    on a 3-D double integrator, solved with the bundled
-    OsqpEigen. Guided branches track their own topology guidance trajectories while
-    the unguided (T-MPC++) branch tracks the plain reference path; branch costs are
-    still comparable because the same quadratic weights and constraints are used.
-    This keeps the problem convex while preserving topology-distinct behavior.
+    on a 3-D double integrator, solved with the bundled OsqpEigen. All branches
+    keep the same original reference-tracking objective from Eq. (9a); topology
+    branches differ through their collision/homotopy constraints, matching the
+    paper's split between optimization objective and topology guidance.
 
     NOTE: written without on-machine compilation (dev box is Windows; build on the
     Linux ROS workspace). Mirrors existing OsqpEigen usage in polyTrajSolver.cpp.
@@ -1144,19 +1143,17 @@ bool tmpcPlanner::homotopyHalfPlane(const Eigen::Vector2d& guidancePt,
     double dn = diff.norm();
     if (dn < 1e-6) return false;          // guidance point sits on the obstacle center
     A_k = diff / dn;
-    // Real clearance, not just a topology lock: keep the ego at least
-    // (beta*rSum + safety_margin) from the obstacle along the obstacle direction.
-    // With beta_relax = 1 this is a linearized disc-avoidance constraint (we do not
-    // have the paper's separate hard collision constraint (9d), so this must provide
-    // the actual clearance, hence beta defaults to 1, not ~0).
+    // Eq. (9e) topology lock: keep the ego on the guidance side of the obstacle.
+    // Actual collision clearance is enforced separately by the linearized Eq. (9d)
+    // constraints in solveBranch().
     b_k = A_k.dot(obstaclePt) - (betaRelax_ * rSum + safetyMargin_);
     return true;
 }
 
 // ---------------------------------------------------------------------------
-// Local MPC for one branch: self-contained OSQP QP. Guided branches track their
-// own PRM guidance path; the unguided branch tracks localRef_. Constraints add the
-// branch's homotopy half-planes.
+// Local MPC for one branch: self-contained OSQP QP. All branches use the same
+// localRef_ objective (paper Eq. 9a). Guided branches add the branch-specific
+// collision and homotopy half-planes (Eq. 9d/9e).
 //   z = [X ; U],  X = [x_0..x_N] (NS each),  U = [u_0..u_{N-1}] (NU each)
 // ---------------------------------------------------------------------------
 void tmpcPlanner::solveBranch(TMPCBranch& branch) {
@@ -1172,48 +1169,56 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
     const int N   = horizon_;
     const int nX  = NS * (N + 1);                       // NS=6: [x,y,z,vx,vy,vz]
     const int nU  = NU * N;                             // NU=3: [ax,ay,az]
-    const int nVar = nX + nU;
+    const int nBaseVar = nX + nU;
+    int nVar = nBaseVar;                                // grows when soft constraints add slack
 
     auto xi = [&](int k){ return k * NS; };             // index of state block k
     auto ui = [&](int k){ return nX + k * NU; };        // index of control block k
 
     // ---- Hessian P (sparse, diagonal) and gradient q ----
-    Eigen::SparseMatrix<double> P(nVar, nVar);
-    Eigen::VectorXd q = Eigen::VectorXd::Zero(nVar);
     std::vector<Eigen::Triplet<double>> Ptr;
+    std::vector<double> qVals(nBaseVar, 0.0);
+    auto addDiagCost = [&](int idx, double weight) {
+        if (idx >= (int)qVals.size()) qVals.resize(idx + 1, 0.0);
+        Ptr.emplace_back(idx, idx, 2.0 * weight);
+    };
+    auto addSlackVar = [&](double weight) {
+        const int idx = nVar++;
+        qVals.resize(nVar, 0.0);
+        addDiagCost(idx, weight);
+        return idx;
+    };
 
     // position tracking weight (isotropic approx of contour+lag; see docs)
     const double wPos = 0.5 * (wContour_ + wLag_);
-    // Track THIS branch's guidance trajectory (the collision-free PRM route), NOT the
-    // straight lap reference. Tracking the straight reference pulled every branch back
-    // toward the obstacle it was supposed to avoid, and the min-cost decision then
-    // picked the least-deviating (closest-to-obstacle) branch -> "does not avoid". The
-    // straight lap reference is only for goal direction / progress (handled upstream).
-    const std::vector<Eigen::Vector3d>& trackPath =
+    // Paper Eq. (9a): every local planner keeps the same original objective so
+    // branch costs are comparable. The guidance trajectory affects topology
+    // constraints, not the cost function itself.
+    const std::vector<Eigen::Vector3d>& objectivePath = localRef_;
+    const std::vector<Eigen::Vector3d>& guidancePath =
         ((int)branch.guidanceTraj.size() >= N + 1) ? branch.guidanceTraj : localRef_;
     for (int k = 0; k <= N; ++k) {
         const double wp = (k == N) ? 2.0 * wPos : wPos; // small terminal emphasis
-        const Eigen::Vector3d ref = (k < (int)trackPath.size()) ? trackPath[k] : trackPath.back();
+        const Eigen::Vector3d ref = (k < (int)objectivePath.size()) ? objectivePath[k] : objectivePath.back();
         for (int d = 0; d < 3; ++d) {                   // 3-D position tracking
-            Ptr.emplace_back(xi(k)+d, xi(k)+d, 2.0*wp);
-            q(xi(k)+d) = -2.0*wp*ref(d);
+            addDiagCost(xi(k)+d, wp);
+            qVals[xi(k)+d] = -2.0*wp*ref(d);
         }
-        // velocity cost toward v_ref along the tracked-path tangent
+        // velocity cost toward v_ref along the objective-path tangent
         Eigen::Vector3d tang(1, 0, 0);
-        if (k < (int)trackPath.size() - 1) {
-            Eigen::Vector3d t = trackPath[k+1] - trackPath[k];
+        if (k < (int)objectivePath.size() - 1) {
+            Eigen::Vector3d t = objectivePath[k+1] - objectivePath[k];
             if (t.norm() > 1e-6) tang = t.normalized();
         }
         const Eigen::Vector3d vdes = vRef_ * tang;
         for (int d = 0; d < 3; ++d) {
-            Ptr.emplace_back(xi(k)+3+d, xi(k)+3+d, 2.0*wVel_);
-            q(xi(k)+3+d) = -2.0*wVel_*vdes(d);
+            addDiagCost(xi(k)+3+d, wVel_);
+            qVals[xi(k)+3+d] = -2.0*wVel_*vdes(d);
         }
     }
     for (int k = 0; k < N; ++k)
         for (int d = 0; d < 3; ++d)
-            Ptr.emplace_back(ui(k)+d, ui(k)+d, 2.0*wAcc_);
-    P.setFromTriplets(Ptr.begin(), Ptr.end());
+            addDiagCost(ui(k)+d, wAcc_);
 
     // ---- Constraints A z in [l, u] ----
     std::vector<Eigen::Triplet<double>> Atr;
@@ -1221,6 +1226,39 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
     int row = 0;
     const double INF = OsqpEigen::INFTY;
     auto addBound = [&](double l, double u){ lo.push_back(l); up.push_back(u); };
+    const double wCollisionSlack = 2500.0;
+    const double wHomotopySlack  = 900.0;
+    const double wStaticSlack    = 2500.0;
+    auto addSlackNonnegative = [&](int slackIdx) {
+        Atr.emplace_back(row, slackIdx, 1.0);
+        addBound(0.0, INF);
+        ++row;
+    };
+    auto addSoftUpper = [&](const std::vector<std::pair<int, double>>& terms,
+                            double upper, double slackWeight) {
+        const int sIdx = addSlackVar(slackWeight);
+        for (const auto& t : terms) Atr.emplace_back(row, t.first, t.second);
+        Atr.emplace_back(row, sIdx, -1.0);              // a*x - s <= upper
+        addBound(-INF, upper);
+        ++row;
+        addSlackNonnegative(sIdx);
+    };
+    auto addSoftUpperWithSlack = [&](const std::vector<std::pair<int, double>>& terms,
+                                     double upper, int slackIdx) {
+        for (const auto& t : terms) Atr.emplace_back(row, t.first, t.second);
+        Atr.emplace_back(row, slackIdx, -1.0);           // a*x - s <= upper
+        addBound(-INF, upper);
+        ++row;
+    };
+    auto addSoftLower = [&](const std::vector<std::pair<int, double>>& terms,
+                            double lower, double slackWeight) {
+        const int sIdx = addSlackVar(slackWeight);
+        for (const auto& t : terms) Atr.emplace_back(row, t.first, t.second);
+        Atr.emplace_back(row, sIdx, 1.0);               // a*x + s >= lower
+        addBound(lower, INF);
+        ++row;
+        addSlackNonnegative(sIdx);
+    };
 
     // initial state equality x_0 = [currPos, currVel]
     {
@@ -1265,32 +1303,61 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
     const int firstAvoidK = std::min(N, std::max(1, (int)std::ceil(0.15 / std::max(1e-3, dt_))));
 
     if (!branch.overTake) {
-        // Horizontal homotopy half-planes (Eq.8): A_k . p_{xy,k} <= b_k per step/obstacle.
-        for (int k = firstAvoidK; k <= N && k < (int)branch.guidanceTraj.size(); ++k) {
-            const Eigen::Vector2d gp = branch.guidanceTraj[k].head<2>();
+        // Paper Eq. (9d): original collision constraints, linearized as tangent
+        // half-planes around the guidance/nominal point. These are separate from
+        // the topology constraint below and are soft only to avoid solver-level
+        // infeasibility; any colliding solution is still rejected by post-check.
+        for (int k = firstAvoidK; k <= N; ++k) {
+            Eigen::Vector2d anchor =
+                (k < (int)guidancePath.size()) ? guidancePath[k].head<2>() :
+                ((k < (int)localRef_.size()) ? localRef_[k].head<2>() : currPos_.head<2>());
             for (size_t j = 0; j < obsPredPos_.size(); ++j) {
                 if (k >= (int)obsPredPos_[j].size()) continue;
-                Eigen::Vector2d A_k; double b_k;
-                const double rSum = rUav_ + obsRadius_[j];
                 const Eigen::Vector2d op = obsPredPos_[j][k].head<2>();
-                if (!homotopyHalfPlane(gp, op, rSum, A_k, b_k)) {
-                    // Obstacle is essentially on the reference (e.g. a dynamic obstacle
-                    // crossing the path): no side info from geometry. Push the ego
-                    // perpendicular to the local path, toward the side it is currently
-                    // on, so a clearance constraint still applies (was: skipped -> hit).
-                    Eigen::Vector2d tang(1, 0);
-                    if (k + 1 < (int)branch.guidanceTraj.size())
-                        tang = branch.guidanceTraj[k + 1].head<2>() - gp;
-                    if (tang.norm() < 1e-6) tang = Eigen::Vector2d(1, 0);
-                    tang.normalize();
-                    Eigen::Vector2d nrm(-tang.y(), tang.x());
-                    double sign = (nrm.dot(currPos_.head<2>() - op) >= 0.0) ? 1.0 : -1.0;
-                    A_k = -sign * nrm;
-                    b_k = A_k.dot(op) - (rSum + safetyMargin_);
+                const double required = rUav_ + obsRadius_[j] + safetyMargin_;
+                Eigen::Vector2d n = anchor - op;
+                if (n.norm() < 1e-5) {
+                    n = currPos_.head<2>() - op;
                 }
-                Atr.emplace_back(row, xi(k)+0, A_k.x());
-                Atr.emplace_back(row, xi(k)+1, A_k.y());
-                addBound(-INF, b_k); ++row;
+                if (n.norm() < 1e-5) {
+                    Eigen::Vector2d tang = localTangent(guidancePath, std::min(k, (int)guidancePath.size() - 1));
+                    if (tang.norm() < 1e-6) tang = Eigen::Vector2d(1, 0);
+                    Eigen::Vector2d nrm(-tang.y(), tang.x());
+                    n = (nrm.dot(currPos_.head<2>() - op) >= 0.0) ? nrm : -nrm;
+                }
+                n.normalize();
+                addSoftLower({{xi(k) + 0, n.x()}, {xi(k) + 1, n.y()}},
+                             n.dot(op) + required, wCollisionSlack);
+            }
+        }
+
+        // Paper Eq. (9e): homotopy-preserving constraints derived from the guidance
+        // trajectory. Only guided topology branches receive these constraints; the
+        // T-MPC++ free branch keeps the original local planner behavior.
+        if (branch.guided) {
+            for (int k = firstAvoidK; k <= N && k < (int)guidancePath.size(); ++k) {
+                const Eigen::Vector2d gp = guidancePath[k].head<2>();
+                for (size_t j = 0; j < obsPredPos_.size(); ++j) {
+                    if (k >= (int)obsPredPos_[j].size()) continue;
+                    Eigen::Vector2d A_k; double b_k;
+                    const double rSum = rUav_ + obsRadius_[j];
+                    const Eigen::Vector2d op = obsPredPos_[j][k].head<2>();
+                    if (!homotopyHalfPlane(gp, op, rSum, A_k, b_k)) {
+                        // Obstacle sits exactly on the guidance point; derive the side
+                        // from the local tangent and current relative position.
+                        Eigen::Vector2d tang(1, 0);
+                        if (k + 1 < (int)guidancePath.size())
+                            tang = guidancePath[k + 1].head<2>() - gp;
+                        if (tang.norm() < 1e-6) tang = Eigen::Vector2d(1, 0);
+                        tang.normalize();
+                        Eigen::Vector2d nrm(-tang.y(), tang.x());
+                        double sign = (nrm.dot(currPos_.head<2>() - op) >= 0.0) ? 1.0 : -1.0;
+                        A_k = -sign * nrm;
+                        b_k = A_k.dot(op) - (rSum + safetyMargin_);
+                    }
+                    addSoftUpper({{xi(k) + 0, A_k.x()}, {xi(k) + 1, A_k.y()}},
+                                 b_k, wHomotopySlack);
+                }
             }
         }
     } else {
@@ -1318,9 +1385,10 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
         const int radialSteps = std::max(1, (int)std::ceil(staticHalfplaneSearchRadius_ / step));
         const double clearance = std::max(0.02, staticHalfplaneClearance_);
 
-        for (int k = firstAvoidK; k <= N && k < (int)branch.guidanceTraj.size(); ++k) {
-            Eigen::Vector3d gp3 = branch.guidanceTraj[k];
+        for (int k = firstAvoidK; k <= N && k < (int)guidancePath.size(); ++k) {
+            Eigen::Vector3d gp3 = guidancePath[k];
             gp3.z() = zLap_;
+            int staticSlackIdx = -1;
             for (int r = 0; r < rays; ++r) {
                 const double th = 2.0 * M_PI * (double)r / (double)rays;
                 const Eigen::Vector2d dir(std::cos(th), std::sin(th));
@@ -1342,13 +1410,19 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
                 if (dn < clearance + 1e-4) continue;
                 const Eigen::Vector2d A = diff / dn;
                 const double b = A.dot(occ.head<2>() - A * clearance);
-                Atr.emplace_back(row, xi(k)+0, A.x());
-                Atr.emplace_back(row, xi(k)+1, A.y());
-                addBound(-INF, b);
-                ++row;
+                if (staticSlackIdx < 0) {
+                    staticSlackIdx = addSlackVar(wStaticSlack);
+                    addSlackNonnegative(staticSlackIdx);
+                }
+                addSoftUpperWithSlack({{xi(k)+0, A.x()}, {xi(k)+1, A.y()}}, b, staticSlackIdx);
             }
         }
     }
+
+    Eigen::SparseMatrix<double> P(nVar, nVar);
+    P.setFromTriplets(Ptr.begin(), Ptr.end());
+    Eigen::VectorXd q = Eigen::VectorXd::Zero(nVar);
+    for (int i = 0; i < std::min(nVar, (int)qVals.size()); ++i) q(i) = qVals[i];
 
     const int nCon = row;
     Eigen::SparseMatrix<double> Ac(nCon, nVar);
