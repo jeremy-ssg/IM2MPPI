@@ -11,14 +11,12 @@
         solveBranch() x (P + unguided)       (self-contained OSQP linear MPC)
         decide()                             (Eq.12 consistency-weighted min cost)
 
-    LOCAL PLANNER (the "fork" resolved, see docs §8): a self-contained linear MPC
+    LOCAL PLANNER (the "fork" resolved, see docs section 8): a self-contained linear MPC
     on a 3-D double integrator, solved with the bundled
-    OsqpEigen. ALL branches share the SAME tracking cost (track the real reference
-    path) so their optimal costs are directly comparable (paper Eq.11). The branches
-    differ ONLY in their linear half-plane constraints (Eq.8): guided branches derive
-    them from their distinct guidance trajectory; the unguided (T-MPC++) branch
-    derives them from the plain reference path. This keeps the problem convex while
-    preserving the topology-distinct behavior.
+    OsqpEigen. Guided branches track their own topology guidance trajectories while
+    the unguided (T-MPC++) branch tracks the plain reference path; branch costs are
+    still comparable because the same quadratic weights and constraints are used.
+    This keeps the problem convex while preserving topology-distinct behavior.
 
     NOTE: written without on-machine compilation (dev box is Windows; build on the
     Linux ROS workspace). Mirrors existing OsqpEigen usage in polyTrajSolver.cpp.
@@ -34,6 +32,7 @@
 #include <cstdint>
 #include <limits>
 #include <queue>
+#include <random>
 #include <sstream>
 
 namespace trajPlanner {
@@ -92,6 +91,22 @@ static Eigen::Vector2d localTangent(const std::vector<Eigen::Vector3d>& path, in
 
 static double cross2d(const Eigen::Vector2d& a, const Eigen::Vector2d& b) {
     return a.x() * b.y() - a.y() * b.x();
+}
+
+// Smooth a guidance polyline with a few moving-average passes (endpoints fixed).
+// The raw guidance path is piecewise-linear between sparse PRM nodes; tracking that
+// jagged path made the MPC output jerky. Smoothing (the paper fits cubic splines)
+// gives the local MPC a smooth reference -> smoother optimized trajectory.
+static std::vector<Eigen::Vector3d> smoothPolyline(std::vector<Eigen::Vector3d> path,
+                                                   int passes) {
+    if (path.size() < 3) return path;
+    for (int it = 0; it < passes; ++it) {
+        std::vector<Eigen::Vector3d> out = path;
+        for (size_t i = 1; i + 1 < path.size(); ++i)
+            out[i] = 0.25 * path[i - 1] + 0.5 * path[i] + 0.25 * path[i + 1];
+        path.swap(out);
+    }
+    return path;
 }
 
 struct GuidanceNode {
@@ -203,6 +218,7 @@ void tmpcPlanner::initParam() {
     staticHalfplaneClearance_ = std::max(0.02, staticHalfplaneClearance_);
     staticHalfplaneRays_ = std::max(4, staticHalfplaneRays_);
     staticPostCheckClearance_ = std::max(0.0, staticPostCheckClearance_);
+    staticFovRange_ = std::max(1.0, staticFovRange_);
 
     ROS_INFO("[tmpcPlanner] init: P=%d unguided=%d horizon=%d dt=%.3f z_lap=%.2f pred=%s",
              numTrajP_, (int)addUnguided_, horizon_, dt_, zLap_, predictionSource_.c_str());
@@ -335,7 +351,7 @@ void tmpcPlanner::buildGoalGrid() {
 
     // Local horizon reference: resample refPath forward at v_ref*dt arc-length per
     // step. We track segConsumed (distance already used inside the current segment)
-    // across steps so the cursor truly advances — without it, when the path's point
+    // across steps so the cursor truly advances; without it, when the path's point
     // spacing exceeds v_ref*dt the reference collapses onto a single point and the
     // drone barely moves (the "very slow / very short trajectory" bug).
     {
@@ -514,7 +530,6 @@ bool tmpcPlanner::runGuidance() {
 
     const int N = horizon_;
     const double halfWidth = std::max(0.5, 0.5 * goalLatSpread_);
-    const double dynMargin = 0.10;
     const double speedLimit = std::max(4.0, std::max(vMax_ * 2.5, vRef_ * 3.0));
     std::vector<GuidanceNode> nodes;
     std::vector<int> goalIds;
@@ -572,100 +587,170 @@ bool tmpcPlanner::runGuidance() {
         return false;
     }
 
-    int latCount = std::max(3, goalGridLat_);
-    if (latCount % 2 == 0) ++latCount;
-    const int halfLat = latCount / 2;
-    const int longSamples = std::max(3, std::min(N - 1, std::max(1, prmSamplesN_) / latCount));
-
-    // Reference-corridor samples: deterministic PRM lattice in (x,y,t).
-    for (int s = 1; s <= longSamples; ++s) {
-        int k = std::max(1, std::min(N - 1, (int)std::round((double)s * N / (double)(longSamples + 1))));
-        Eigen::Vector2d c = localRef_[k].head<2>();
-        Eigen::Vector2d t = localTangent(localRef_, k);
-        Eigen::Vector2d n(-t.y(), t.x());
-        for (int li = -halfLat; li <= halfLat; ++li) {
-            double offset = (halfLat > 0) ? halfWidth * (double)li / (double)halfLat : 0.0;
-            addNode(c + offset * n, k, false, 0.0);
-        }
+    // Goal nodes (guards at k=N), added first so sampled connectors can see them.
+    addNode(localRef_.back().head<2>(), N, true, 0.0);
+    for (const auto& g3 : goalGrid_) {
+        double cost = (g3.head<2>() - localRef_.back().head<2>()).norm();
+        addNode(g3.head<2>(), N, true, cost);
     }
 
-    // Obstacle-induced connector samples, equivalent in spirit to Visibility-PRM
-    // guard/connector points around space-time obstacle tubes.
-    for (size_t j = 0; j < obsPredPos_.size(); ++j) {
-        int bestK = 0;
-        double bestClear = std::numeric_limits<double>::infinity();
-        for (int k = 0; k <= N && k < (int)obsPredPos_[j].size(); ++k) {
-            const double d = (localRef_[k].head<2>() - obsPredPos_[j][k].head<2>()).norm();
-            const double clear = d - (rUav_ + obsRadius_[j]);
-            if (clear < bestClear) { bestClear = clear; bestK = k; }
-        }
-        if (bestClear > halfWidth + rUav_ + obsRadius_[j] + 1.0) continue;
-
-        static const int timeOffsets[] = {-4, -2, 0, 2, 4};
-        for (int dk : timeOffsets) {
-            int k = std::max(1, std::min(N - 1, bestK + dk));
-            if (k >= (int)obsPredPos_[j].size()) continue;
-            Eigen::Vector2d t = localTangent(localRef_, k);
-            Eigen::Vector2d n(-t.y(), t.x());
-            double sep = rUav_ + obsRadius_[j] + std::max(0.55, 0.35 * goalLatSpread_);
-            Eigen::Vector2d o = obsPredPos_[j][k].head<2>();
-            addNode(o + sep * n, k, false, 0.0);
-            addNode(o - sep * n, k, false, 0.0);
-        }
-    }
-
-    // Static-obstacle topology samples. A* is only an optional fallback; the
-    // default T-MPC++ behavior should still be a visibility graph / topology
-    // search. When the reference corridor intersects the inflated map, add
-    // guard/connector samples on both sides of the blocked segment so graph
-    // search can discover left/right homotopy classes around static obstacles.
+    // Static-obstacle anchors (for the topology signature's static left/right).
     if (map_) {
         const int minAnchorGap = std::max(2, N / 8);
         int lastAnchorK = -1000;
-        const double maxOffset = std::max(goalLatSpread_, staticHalfplaneSearchRadius_ + 1.0);
-        const double offsets[] = {-maxOffset, -0.65 * maxOffset, 0.65 * maxOffset, maxOffset};
-        const int timeOffsets[] = {-3, 0, 3};
-
-        Eigen::Vector3d prev = localRef_[0];
-        prev.z() = zLap_;
+        Eigen::Vector3d prev = localRef_[0]; prev.z() = zLap_;
         for (int k = 1; k < N; ++k) {
-            Eigen::Vector3d p = localRef_[k];
-            p.z() = zLap_;
-            const bool blocked = segmentHitsStaticMapWithMargin(
-                prev, p, staticPostCheckClearance_);
+            Eigen::Vector3d p = localRef_[k]; p.z() = zLap_;
+            const bool blocked = segmentHitsStaticMapWithMargin(prev, p, staticPostCheckClearance_);
             prev = p;
-            if (!blocked || k - lastAnchorK < minAnchorGap ||
-                (int)staticAnchors.size() >= 6) {
-                continue;
-            }
-
+            if (!blocked || k - lastAnchorK < minAnchorGap || (int)staticAnchors.size() >= 6) continue;
             Eigen::Vector2d t = localTangent(localRef_, k);
             if (t.norm() < 1e-6) t = Eigen::Vector2d::UnitX();
             t.normalize();
-            Eigen::Vector2d n(-t.y(), t.x());
-            StaticTopoAnchor anchor;
-            anchor.k = k;
-            anchor.p = localRef_[k].head<2>();
-            anchor.tangent = t;
+            StaticTopoAnchor anchor; anchor.k = k; anchor.p = localRef_[k].head<2>(); anchor.tangent = t;
             staticAnchors.push_back(anchor);
-            lastStaticDirectBlocked_ = true;
-            lastAnchorK = k;
+            lastStaticDirectBlocked_ = true; lastAnchorK = k;
+        }
+    }
 
+    // Space-time visibility (Visibility-PRM): forward-time, speed-feasible, clear of
+    // dynamic tubes (real clearance r_uav+r_obs+margin, per step) and the inflated
+    // static map. Used to classify samples as Guard/Connector.
+    auto isVisibleST = [&](const Eigen::Vector2d& pa, int ka,
+                           const Eigen::Vector2d& pb, int kb) -> bool {
+        Eigen::Vector2d A = pa, B = pb; int kA = ka, kB = kb;
+        if (kA == kB) return false;
+        if (kA > kB) { std::swap(A, B); std::swap(kA, kB); }
+        const double dtSpan = std::max(1e-3, (double)(kB - kA) * dt_);
+        if ((B - A).norm() / dtSpan > speedLimit) return false;
+        const int visStep = std::max(1, (int)std::round(visibilityDt_ / dt_));
+        Eigen::Vector3d prevStatic(A.x(), A.y(), zLap_);
+        for (int k = kA; k <= kB; ++k) {
+            const double u = (double)(k - kA) / (double)std::max(1, kB - kA);
+            const Eigen::Vector2d p2 = A + u * (B - A);
+            for (size_t j = 0; j < obsPredPos_.size(); ++j) {
+                if (k >= (int)obsPredPos_[j].size()) continue;
+                if ((p2 - obsPredPos_[j][k].head<2>()).norm() < rUav_ + obsRadius_[j] + safetyMargin_)
+                    return false;
+            }
+            if (map_ && ((k - kA) % visStep == 0 || k == kB)) {
+                const Eigen::Vector3d p3(p2.x(), p2.y(), zLap_);
+                if (segmentHitsStaticMapWithMargin(prevStatic, p3, staticMarginAtK(k))) return false;
+                prevStatic = p3;
+            }
+        }
+        return true;
+    };
+
+    // Visibility-PRM Guard/Connector admission rule for one sample.
+    auto classifyAndAdd = [&](const Eigen::Vector2d& p, int k) {
+        if (!staticFree(p, k)) return;
+        int nGuards = 0, nGoals = 0;
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            if (!isVisibleST(p, k, nodes[i].p, nodes[i].k)) continue;
+            if (nodes[i].goal) ++nGoals; else ++nGuards;
+            if (nGuards > 2) break;               // >2 visible guards -> redundant
+        }
+        //   sees nothing               -> GUARD (explore a new region)
+        //   sees 2 guards, or guard+goal -> CONNECTOR (bridge two regions)
+        //   sees exactly 1 guard        -> redundant, discard
+        const bool asGuard     = (nGuards == 0 && nGoals == 0);
+        const bool asConnector = (nGuards == 2) || (nGuards >= 1 && nGoals >= 1);
+        if (asGuard || asConnector) addNode(p, k, false, 0.0);
+    };
+
+    const double sampleSpread = std::max(halfWidth, 0.5 * goalLatSpread_ + rUav_ + 0.5);
+
+    // Graph propagation: re-seed guards from the previous iteration's guidance
+    // samples, time-decremented by one control step (receding horizon), so topology
+    // classes persist and re-form quickly across cycles.
+    for (const auto& seed : prevGuidanceSeed_) {
+        const int k = seed.second - 1;
+        if (k >= 1 && k <= N - 1 && staticFree(seed.first, k)) addNode(seed.first, k, false, 0.0);
+    }
+
+    // Deterministic connector candidates around static blocks. Random samples alone
+    // often miss the narrow left/right gates around a wall or pillar, so each blocked
+    // reference segment contributes samples on both sides and at nearby time layers.
+    if (!staticAnchors.empty()) {
+        const double staticSep = std::max(sampleSpread,
+            staticHalfplaneSearchRadius_ + staticPostCheckClearance_ + rUav_ + 0.7);
+        const double offsets[] = {-staticSep, -0.65 * staticSep, 0.65 * staticSep, staticSep};
+        const int timeOffsets[] = {-4, -2, 0, 2, 4};
+        for (const auto& anchor : staticAnchors) {
             for (int dk : timeOffsets) {
-                const int kk = std::max(1, std::min(N - 1, k + dk));
-                const Eigen::Vector2d c = localRef_[kk].head<2>();
-                for (double off : offsets) addNode(c + off * n, kk, false, 0.0);
+                const int k = std::max(1, std::min(N - 1, anchor.k + dk));
+                const Eigen::Vector2d c = localRef_[k].head<2>();
+                Eigen::Vector2d t = localTangent(localRef_, k);
+                if (t.norm() < 1e-6) t = anchor.tangent;
+                t.normalize();
+                const Eigen::Vector2d nrm(-t.y(), t.x());
+                for (double off : offsets) classifyAndAdd(c + off * nrm, k);
             }
         }
     }
 
-    addNode(localRef_.back().head<2>(), N, true, 0.0);
-    if (!goalGrid_.empty()) {
-        for (const auto& g3 : goalGrid_) {
-            double cost = (g3.head<2>() - localRef_.back().head<2>()).norm();
-            addNode(g3.head<2>(), N, true, cost);
+    // Random Guard/Connector sampling along the reference corridor.
+    const uint32_t seed =
+        20260517u ^
+        (uint32_t)(++guidanceSampleCounter_ * 2654435761u) ^
+        (uint32_t)(obsPredPos_.size() * 131u) ^
+        (uint32_t)(std::llround((currPos_.x() + 50.0) * 10.0) * 73856093u) ^
+        (uint32_t)(std::llround((currPos_.y() + 50.0) * 10.0) * 19349663u);
+    std::mt19937 rng(seed);
+    std::uniform_int_distribution<int> kDist(1, std::max(1, N - 1));
+    std::uniform_real_distribution<double> latDist(-sampleSpread, sampleSpread);
+    const int sampleBudget = std::max(20, prmSamplesN_);
+    for (int iter = 0; iter < sampleBudget; ++iter) {
+        const int k = kDist(rng);
+        const Eigen::Vector2d c = localRef_[k].head<2>();
+        const Eigen::Vector2d t = localTangent(localRef_, k);
+        const Eigen::Vector2d nrm(-t.y(), t.x());
+        classifyAndAdd(c + latDist(rng) * nrm, k);
+    }
+
+    // Low-discrepancy deterministic corridor samples keep the graph connected when
+    // the random guard pass happens to miss the centerline progress nodes.
+    {
+        int latCount = std::max(3, goalGridLat_);
+        if (latCount % 2 == 0) ++latCount;
+        const int halfLat = latCount / 2;
+        const int longSamples = std::max(3, std::min(N - 1, std::max(1, prmSamplesN_) / latCount));
+        for (int s = 1; s <= longSamples; ++s) {
+            const int k = std::max(1, std::min(N - 1,
+                (int)std::round((double)s * N / (double)(longSamples + 1))));
+            const Eigen::Vector2d c = localRef_[k].head<2>();
+            const Eigen::Vector2d t = localTangent(localRef_, k);
+            const Eigen::Vector2d nrm(-t.y(), t.x());
+            for (int li = -halfLat; li <= halfLat; ++li) {
+                const double off = (halfLat > 0) ? sampleSpread * (double)li / (double)halfLat : 0.0;
+                classifyAndAdd(c + off * nrm, k);
+            }
         }
     }
+
+    // Deterministic seeds on both sides of each dynamic obstacle's closest approach,
+    // so the sampler reliably discovers the left/right classes around obstacles.
+    for (size_t j = 0; j < obsPredPos_.size(); ++j) {
+        int bestK = 0; double bestClear = std::numeric_limits<double>::infinity();
+        for (int k = 0; k <= N && k < (int)obsPredPos_[j].size(); ++k) {
+            const double clear = (localRef_[k].head<2>() - obsPredPos_[j][k].head<2>()).norm()
+                               - (rUav_ + obsRadius_[j]);
+            if (clear < bestClear) { bestClear = clear; bestK = k; }
+        }
+        if (bestClear > sampleSpread + rUav_ + obsRadius_[j] + 1.0) continue;
+        const double sep = rUav_ + obsRadius_[j] + std::max(0.55, 0.35 * goalLatSpread_);
+        for (int dk : {-4, -2, 0, 2, 4}) {
+            const int k = std::max(1, std::min(N - 1, bestK + dk));
+            if (k >= (int)obsPredPos_[j].size()) continue;
+            const Eigen::Vector2d t = localTangent(localRef_, k);
+            const Eigen::Vector2d nrm(-t.y(), t.x());
+            const Eigen::Vector2d o = obsPredPos_[j][k].head<2>();
+            classifyAndAdd(o + sep * nrm, k);
+            classifyAndAdd(o - sep * nrm, k);
+        }
+    }
+
     if (goalIds.empty()) {
         lastGuidanceNodes_ = (int)nodes.size();
         lastGuidanceGoals_ = 0;
@@ -697,8 +782,7 @@ bool tmpcPlanner::runGuidance() {
             // Static map: obstacles don't move, so the coarser visStep grid suffices.
             if (map_ && ((k - a.k) % visStep == 0 || k == b.k)) {
                 const Eigen::Vector3d p3(p2.x(), p2.y(), zLap_);
-                if (pointHitsStaticMapWithMargin(p3, staticMarginAtK(k))) return false;
-                if ((p3 - prevStatic).norm() > 1e-4 && map_->isInflatedOccupiedLine(prevStatic, p3)) return false;
+                if (segmentHitsStaticMapWithMargin(prevStatic, p3, staticMarginAtK(k))) return false;
                 prevStatic = p3;
             }
         }
@@ -748,13 +832,40 @@ bool tmpcPlanner::runGuidance() {
                   });
     }
 
+    auto guidanceTrajectorySafe = [&](const std::vector<Eigen::Vector3d>& traj) -> bool {
+        if ((int)traj.size() < N + 1) return false;
+        Eigen::Vector3d prev = traj.front();
+        for (int k = 0; k <= N; ++k) {
+            const Eigen::Vector3d& p3 = traj[k];
+            if (map_) {
+                if (pointHitsStaticMapWithMargin(p3, staticMarginAtK(k))) return false;
+                if (k > 0 && segmentHitsStaticMapWithMargin(
+                        prev, p3, std::max(staticMarginAtK(k - 1), staticMarginAtK(k)))) {
+                    return false;
+                }
+            }
+            if (k > 0) {
+                for (size_t j = 0; j < obsPredPos_.size(); ++j) {
+                    if (k >= (int)obsPredPos_[j].size()) continue;
+                    const double d = (p3.head<2>() - obsPredPos_[j][k].head<2>()).norm();
+                    if (d < rUav_ + obsRadius_[j] + safetyMargin_) return false;
+                }
+            }
+            prev = p3;
+        }
+        return true;
+    };
+
     auto makeTrajectory = [&](const std::vector<int>& path) {
         std::vector<Eigen::Vector3d> traj(N + 1);
         for (int k = 0; k <= N; ++k) {
             Eigen::Vector2d p = interpolateGuidancePath(nodes, path, k);
             traj[k] = Eigen::Vector3d(p.x(), p.y(), zLap_);
         }
-        return traj;
+        // Smooth the piecewise-linear guidance so the local MPC tracks a smooth
+        // reference (the paper fits cubic splines) -> smoother optimized trajectory.
+        std::vector<Eigen::Vector3d> smoothed = smoothPolyline(traj, 2);
+        return guidanceTrajectorySafe(smoothed) ? smoothed : traj;
     };
 
     auto topologySignature = [&](const std::vector<Eigen::Vector3d>& traj) {
@@ -774,7 +885,7 @@ bool tmpcPlanner::runGuidance() {
             // H-signature via the winding number of the RELATIVE trajectory
             // (ego - obstacle) around the origin, accumulated over the horizon. This
             // captures HOW the ego passes the moving obstacle (side + number of wraps),
-            // the paper's 2-D dynamic homotopy invariant — far more robust than a single
+            // the paper's 2-D dynamic homotopy invariant; far more robust than a single
             // closest-approach side sign (which flips with tiny geometry changes and
             // made distinct topologies collapse into one class).
             double wind = 0.0;
@@ -957,6 +1068,23 @@ bool tmpcPlanner::runGuidance() {
         b.guidanceTraj = localRef_;
         branches_.push_back(std::move(b));
     }
+    // Save this iteration's accepted PRM graph samples for next-iteration graph
+    // propagation (re-seeded time-decremented at the top of the next runGuidance).
+    prevGuidanceSeed_.clear();
+    const size_t maxPrevSeeds = 160;
+    for (size_t i = 0; i < nodes.size() && prevGuidanceSeed_.size() < maxPrevSeeds; ++i) {
+        if (nodes[i].goal || nodes[i].k <= 1 || nodes[i].k >= N) continue;
+        prevGuidanceSeed_.emplace_back(nodes[i].p, nodes[i].k);
+    }
+    for (const auto& b : branches_) {
+        if (!b.guided || prevGuidanceSeed_.size() >= maxPrevSeeds) continue;
+        for (int k = 2; k <= N && prevGuidanceSeed_.size() < maxPrevSeeds; k += 4) {
+            if (k < (int)b.guidanceTraj.size()) {
+                prevGuidanceSeed_.emplace_back(b.guidanceTraj[k].head<2>(), k);
+            }
+        }
+    }
+
     lastGuidanceNodes_ = (int)nodes.size();
     lastGuidanceGoals_ = (int)goalIds.size();
     lastGuidanceExpansions_ = expansions;
@@ -986,8 +1114,9 @@ bool tmpcPlanner::homotopyHalfPlane(const Eigen::Vector2d& guidancePt,
 }
 
 // ---------------------------------------------------------------------------
-// Local MPC for one branch: self-contained OSQP QP. Cost tracks localRef_ for ALL
-// branches (comparable J); constraints add the branch's homotopy half-planes.
+// Local MPC for one branch: self-contained OSQP QP. Guided branches track their
+// own PRM guidance path; the unguided branch tracks localRef_. Constraints add the
+// branch's homotopy half-planes.
 //   z = [X ; U],  X = [x_0..x_N] (NS each),  U = [u_0..u_{N-1}] (NU each)
 // ---------------------------------------------------------------------------
 void tmpcPlanner::solveBranch(TMPCBranch& branch) {
@@ -1320,7 +1449,7 @@ bool tmpcPlanner::plan() {
 
     // Solve each branch's local MPC. Each OsqpEigen solver is constructed locally
     // inside solveBranch (independent state), so the branches can be solved in
-    // parallel — this mirrors the paper's P+1 parallel local planners. Set
+    // parallel; this mirrors the paper's P+1 parallel local planners. Set
     // solve_sequential:true for deterministic single-thread timing.
 #ifdef _OPENMP
     #pragma omp parallel for schedule(dynamic) num_threads(parallelThreads_) if(!solveSequential_)
@@ -1372,20 +1501,21 @@ bool tmpcPlanner::trajectoryHitsStaticMap(const std::vector<Eigen::VectorXd>& st
     bool havePrev = false;
     double prevMargin = 0.0;
     const double step = std::max(0.05, map_->getRes());
-    const double rampTime = 0.25;
     for (size_t k = 0; k < states.size(); ++k) {
         const auto& s = states[k];
         if (s.size() < 3 || !s.allFinite()) return true;
         Eigen::Vector3d p(s(0), s(1), s(2));
-        const double margin = staticPostCheckClearance_ *
-            std::min(1.0, ((double)k * dt_) / rampTime);
+        // Match the guidance checker: only the already-executed start sample can use
+        // zero extra clearance; every future sample must keep the configured static
+        // margin. The previous 0.25 s ramp let the first few commanded states skim
+        // static obstacles before the post-check became strict.
+        const double margin = (k == 0) ? 0.0 : staticPostCheckClearance_;
         if (pointHitsStaticMapWithMargin(p, margin)) return true;
         if (havePrev && (p - prev).norm() > 1e-4) {
-            if (map_->isInflatedOccupiedLine(prev, p)) return true;
             const int samples = std::max(1, (int)std::ceil((p - prev).norm() / step));
             for (int i = 1; i < samples; ++i) {
                 const double u = (double)i / (double)samples;
-                const double sampleMargin = prevMargin + u * (margin - prevMargin);
+                const double sampleMargin = std::max(prevMargin, margin);
                 if (pointHitsStaticMapWithMargin(prev + u * (p - prev), sampleMargin)) return true;
             }
         }
@@ -1437,7 +1567,6 @@ bool tmpcPlanner::segmentHitsStaticMapWithMargin(const Eigen::Vector3d& a,
         return true;
     }
     if ((b - a).squaredNorm() <= 1e-10) return false;
-    if (map_->isInflatedOccupiedLine(a, b)) return true;
 
     const double step = std::max(0.05, map_->getRes());
     const int samples = std::max(1, (int)std::ceil((b - a).norm() / step));

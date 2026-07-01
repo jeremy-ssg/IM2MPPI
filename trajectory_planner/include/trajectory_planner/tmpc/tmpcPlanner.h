@@ -33,6 +33,7 @@
 #include <vector>
 #include <string>
 #include <limits>
+#include <cstdint>
 #include <Eigen/Dense>
 
 #include <nav_msgs/Path.h>
@@ -123,7 +124,7 @@ private:
     // homotopy class via Eq.8 half-plane constraints (xy only). Sets feasible/cost/
     // statesSol/controlsSol on the branch.
     //
-    // ***OPEN FORK*** (docs §8): implement via OSQP path (recommended) OR ACADO+soft
+    // ***OPEN FORK*** (docs section 8): implement via OSQP path (recommended) OR ACADO+soft
     // penalty (approximation). This is the single function whose body depends on the
     // chosen option; everything else in this class is solver-agnostic.
     void solveBranch(TMPCBranch& branch);
@@ -235,6 +236,10 @@ private:
     int  bestIdx_      = -1;
     int  bestClassId_  = -1;
     int  prevClassId_  = -1;     // executed class last iteration (consistency)
+    // Visibility-PRM graph propagation: guidance samples from the previous iteration,
+    // re-seeded (time-decremented) so topology classes persist across cycles.
+    std::vector<std::pair<Eigen::Vector2d, int>> prevGuidanceSeed_;
+    uint32_t guidanceSampleCounter_ = 0;
     double planTimeMs_ = 0.0;
     std::string lastPlanStatus_ = "not_started";
     int lastGuidanceNodes_ = 0;
@@ -254,7 +259,7 @@ private:
 
     // pool of local MPC solvers (one per branch; ACADO state is per-instance).
     // NOTE: even with separate instances, ACADO-generated code may share a global
-    // workspace -> see docs §RISKS. solveSequential_ guards correctness.
+    // workspace -> see docs RISKS. solveSequential_ guards correctness.
     std::vector<std::shared_ptr<mpcPlanner>> localPlanners_;
 };
 
