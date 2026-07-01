@@ -25,7 +25,7 @@ body_to_camera: [0.0,  0.0,  1.0,  0.09,
                  0.0,  0.0,  0.0,  1.0]
 
 # Raycasting
-raycast_max_length: 5.0
+raycast_max_length: 7.0
 p_hit: 0.70
 p_miss: 0.35
 p_min: 0.12

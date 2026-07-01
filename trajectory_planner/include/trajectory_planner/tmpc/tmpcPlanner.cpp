@@ -181,6 +181,7 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/static_halfplane_clearance",     staticHalfplaneClearance_, 0.25);
     nh_.param("tmpc/static_halfplane_rays",          staticHalfplaneRays_, 16);
     nh_.param("tmpc/static_post_check_clearance",    staticPostCheckClearance_, 0.25);
+    nh_.param("tmpc/static_fov_range",               staticFovRange_, 7.0);
     nh_.param("tmpc/publish_guidance_markers", publishGuidanceMarkers_, true);
     nh_.param("tmpc/publish_optimized_markers", publishOptimizedMarkers_, false);
     nh_.param("tmpc/publish_obstacle_prediction_markers", publishObstaclePredictionMarkers_, false);
@@ -1392,6 +1393,11 @@ bool tmpcPlanner::trajectoryHitsStaticMap(const std::vector<Eigen::VectorXd>& st
 
 bool tmpcPlanner::pointHitsStaticMapWithMargin(const Eigen::Vector3d& p, double margin) const {
     if (!map_) return false;
+    // Static obstacles are only considered within the sensor FOV range of the drone
+    // (consistent with dynamic obstacles, which come from getObstaclesInSensorRange).
+    // Beyond it the prebuilt global map is ignored (treated as free); the drone re-plans
+    // as it approaches. staticFovRange_ mirrors the map raycast range.
+    if ((p.head<2>() - currPos_.head<2>()).norm() > staticFovRange_) return false;
     if (map_->isInflatedOccupied(p)) return true;
     if (margin <= 1e-6) return false;
 

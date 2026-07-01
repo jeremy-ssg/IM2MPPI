@@ -209,6 +209,8 @@ private:
     double staticHalfplaneClearance_ = 0.25;
     int    staticHalfplaneRays_ = 16;
     double staticPostCheckClearance_ = 0.12;
+    double staticFovRange_ = 7.0;      // [m] only consider static obstacles within this
+                                       // range of the drone (FOV-consistent with dynamic)
     bool   publishGuidanceMarkers_ = true;
     bool   publishOptimizedMarkers_ = false;
     bool   publishObstaclePredictionMarkers_ = false;
