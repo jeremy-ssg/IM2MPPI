@@ -416,26 +416,22 @@ bool tmpcNavigation::buildBrakeTrajectory(std::vector<ExecPoint>& traj,
 
 bool tmpcNavigation::execTrajectoryHitsStaticMap(const std::vector<ExecPoint>& traj,
                                                 double dt) const {
+    (void)dt;
     if (!this->map_) return false;
     Eigen::Vector3d prev = Eigen::Vector3d::Zero();
     bool havePrev = false;
     const double step = std::max(0.05, this->map_->getRes());
-    const double rampTime = 0.25;
-    const double dtForRamp = std::max(0.0, dt);
     int k = 0;
     double prevMargin = 0.0;
     for (const auto& pt : traj) {
-        const double margin = (dtForRamp <= 1e-6)
-            ? 0.0
-            : this->staticExecClearance_ *
-              std::min(1.0, ((double)k * dtForRamp) / rampTime);
+        const double margin = (k == 0) ? 0.0 : this->staticExecClearance_;
         if (this->execPointHitsStaticMapWithMargin(pt.p, margin)) return true;
         if (havePrev && (pt.p - prev).norm() > 1e-4) {
             if (this->map_->isInflatedOccupiedLine(prev, pt.p)) return true;
             const int samples = std::max(1, (int)std::ceil((pt.p - prev).norm() / step));
             for (int i = 1; i < samples; ++i) {
                 const double u = (double)i / (double)samples;
-                const double sampleMargin = prevMargin + u * (margin - prevMargin);
+                const double sampleMargin = std::max(prevMargin, margin);
                 if (this->execPointHitsStaticMapWithMargin(
                         prev + u * (pt.p - prev), sampleMargin)) {
                     return true;

@@ -530,6 +530,8 @@ bool tmpcPlanner::runGuidance() {
 
     const int N = horizon_;
     const double halfWidth = std::max(0.5, 0.5 * goalLatSpread_);
+    const double sampleSpread = std::max(halfWidth, 0.5 * goalLatSpread_ + rUav_ + 0.5);
+    const double minBlockedRefDeviation = std::max(0.50, rUav_ + staticPostCheckClearance_ + 0.20);
     const double speedLimit = std::max(4.0, std::max(vMax_ * 2.5, vRef_ * 3.0));
     std::vector<GuidanceNode> nodes;
     std::vector<int> goalIds;
@@ -587,14 +589,8 @@ bool tmpcPlanner::runGuidance() {
         return false;
     }
 
-    // Goal nodes (guards at k=N), added first so sampled connectors can see them.
-    addNode(localRef_.back().head<2>(), N, true, 0.0);
-    for (const auto& g3 : goalGrid_) {
-        double cost = (g3.head<2>() - localRef_.back().head<2>()).norm();
-        addNode(g3.head<2>(), N, true, cost);
-    }
-
     // Static-obstacle anchors (for the topology signature's static left/right).
+    bool directRefStaticBlocked = false;
     if (map_) {
         const int minAnchorGap = std::max(2, N / 8);
         int lastAnchorK = -1000;
@@ -603,7 +599,9 @@ bool tmpcPlanner::runGuidance() {
             Eigen::Vector3d p = localRef_[k]; p.z() = zLap_;
             const bool blocked = segmentHitsStaticMapWithMargin(prev, p, staticPostCheckClearance_);
             prev = p;
-            if (!blocked || k - lastAnchorK < minAnchorGap || (int)staticAnchors.size() >= 6) continue;
+            if (!blocked) continue;
+            directRefStaticBlocked = true;
+            if (k - lastAnchorK < minAnchorGap || (int)staticAnchors.size() >= 6) continue;
             Eigen::Vector2d t = localTangent(localRef_, k);
             if (t.norm() < 1e-6) t = Eigen::Vector2d::UnitX();
             t.normalize();
@@ -611,6 +609,31 @@ bool tmpcPlanner::runGuidance() {
             staticAnchors.push_back(anchor);
             lastStaticDirectBlocked_ = true; lastAnchorK = k;
         }
+    }
+
+    bool directRefDynamicBlocked = false;
+    for (int k = 1; k <= N && !directRefDynamicBlocked; ++k) {
+        const Eigen::Vector2d p = localRef_[k].head<2>();
+        for (size_t j = 0; j < obsPredPos_.size(); ++j) {
+            if (k >= (int)obsPredPos_[j].size()) continue;
+            const double d = (p - obsPredPos_[j][k].head<2>()).norm();
+            if (d < rUav_ + obsRadius_[j] + safetyMargin_) {
+                directRefDynamicBlocked = true;
+                break;
+            }
+        }
+    }
+    const bool directReferenceBlocked = directRefStaticBlocked || directRefDynamicBlocked;
+
+    // Goal nodes (guards at k=N), added before random sampling so connectors can
+    // see them. If the direct reference is already blocked, do NOT add the reference
+    // endpoint as a zero-cost goal; otherwise the shortest graph path collapses back
+    // onto the unsafe centerline instead of committing to a left/right topology.
+    if (!directReferenceBlocked) addNode(localRef_.back().head<2>(), N, true, 0.0);
+    for (const auto& g3 : goalGrid_) {
+        const double centerDist = (g3.head<2>() - localRef_.back().head<2>()).norm();
+        if (directReferenceBlocked && centerDist < minBlockedRefDeviation) continue;
+        addNode(g3.head<2>(), N, true, centerDist);
     }
 
     // Space-time visibility (Visibility-PRM): forward-time, speed-feasible, clear of
@@ -658,8 +681,6 @@ bool tmpcPlanner::runGuidance() {
         const bool asConnector = (nGuards == 2) || (nGuards >= 1 && nGoals >= 1);
         if (asGuard || asConnector) addNode(p, k, false, 0.0);
     };
-
-    const double sampleSpread = std::max(halfWidth, 0.5 * goalLatSpread_ + rUav_ + 0.5);
 
     // Graph propagation: re-seed guards from the previous iteration's guidance
     // samples, time-decremented by one control step (receding horizon), so topology
@@ -936,6 +957,29 @@ bool tmpcPlanner::runGuidance() {
     std::vector<GuidanceCandidate> candidates;
     std::vector<std::string> seenSignatures;
 
+    auto maxDeviationFromLocalRef = [&](const std::vector<Eigen::Vector3d>& traj) -> double {
+        double maxDev = 0.0;
+        const int endK = std::min(N, (int)traj.size() - 1);
+        for (int k = 1; k <= endK && k < (int)localRef_.size(); ++k) {
+            maxDev = std::max(maxDev, (traj[k].head<2>() - localRef_[k].head<2>()).norm());
+        }
+        return maxDev;
+    };
+
+    auto addCandidateIfUsable = [&](GuidanceCandidate&& cand) -> bool {
+        if (!guidanceTrajectorySafe(cand.traj)) return false;
+        cand.signature = topologySignature(cand.traj);
+        if (directReferenceBlocked) {
+            if (cand.signature == "direct") return false;
+            if (maxDeviationFromLocalRef(cand.traj) < minBlockedRefDeviation) return false;
+        }
+        if (std::find(seenSignatures.begin(), seenSignatures.end(), cand.signature) != seenSignatures.end())
+            return false;
+        seenSignatures.push_back(cand.signature);
+        candidates.push_back(std::move(cand));
+        return true;
+    };
+
     // First run ordinary Dijkstra to guarantee we get one reachable topology if
     // the Visibility-PRM graph is connected. The later queue enumerator is only
     // for additional distinct classes.
@@ -981,9 +1025,7 @@ bool tmpcPlanner::runGuidance() {
                 cand.cost = dist[bestGoal];
                 cand.nodes = path;
                 cand.traj = makeTrajectory(path);
-                cand.signature = topologySignature(cand.traj);
-                seenSignatures.push_back(cand.signature);
-                candidates.push_back(std::move(cand));
+                addCandidateIfUsable(std::move(cand));
             }
         }
     }
@@ -1010,11 +1052,7 @@ bool tmpcPlanner::runGuidance() {
             cand.cost = cur.cost;
             cand.nodes = cur.path;
             cand.traj = makeTrajectory(cur.path);
-            cand.signature = topologySignature(cand.traj);
-            if (std::find(seenSignatures.begin(), seenSignatures.end(), cand.signature) == seenSignatures.end()) {
-                seenSignatures.push_back(cand.signature);
-                candidates.push_back(std::move(cand));
-            }
+            addCandidateIfUsable(std::move(cand));
             continue;
         }
 
@@ -1042,14 +1080,16 @@ bool tmpcPlanner::runGuidance() {
         lastGuidanceExpansions_ = expansions;
         ROS_WARN_THROTTLE(1.0,
             "[tmpcPlanner] internal Visibility-PRM found no guided topology path "
-            "(nodes=%zu goals=%zu expansions=%d); continuing with unguided branch.",
-            nodes.size(), goalIds.size(), expansions);
+            "(nodes=%zu goals=%zu expansions=%d ref_blocked=%d static=%d dynamic=%d); "
+            "continuing with fallback branches only if allowed.",
+            nodes.size(), goalIds.size(), expansions, (int)directReferenceBlocked,
+            (int)directRefStaticBlocked, (int)directRefDynamicBlocked);
         if (!addUnguided_ && !(vertical_ && !obsPredPos_.empty())) return false;
     }
 
     // T-MPC++ adds one non-guided local planner in parallel to the guided topology
     // branches; this is the official "++" behavior, not a replacement for topology.
-    if (addUnguided_) {
+    if (addUnguided_ && !directRefStaticBlocked) {
         TMPCBranch b;
         b.guided  = false;
         b.classId = -1;
@@ -1636,8 +1676,16 @@ void tmpcPlanner::publishGuidancePaths() const {
     if (!publishGuidanceMarkers_) return;
     if (guidancePathsPub_.getNumSubscribers() == 0) return;
     visualization_msgs::MarkerArray arr;
+    visualization_msgs::Marker del;
+    del.header.frame_id = "map";
+    del.ns = "tmpc_guidance";
+    del.action = visualization_msgs::Marker::DELETEALL;
+    arr.markers.push_back(del);
+
+    int mid = 0;
     for (size_t i = 0; i < branches_.size(); ++i) {
-        auto m = lineMarker((int)i, 0.7, 0.3, 0.85, 0.05, "tmpc_guidance");
+        if (!branches_[i].guided || branches_[i].overTake) continue;
+        auto m = lineMarker(mid++, 0.7, 0.3, 0.85, 0.05, "tmpc_guidance");
         for (const auto& p : branches_[i].guidanceTraj) {
             geometry_msgs::Point pt; pt.x = p.x(); pt.y = p.y(); pt.z = p.z();
             m.points.push_back(pt);
