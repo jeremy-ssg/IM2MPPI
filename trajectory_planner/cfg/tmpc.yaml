@@ -45,8 +45,8 @@ tmpc:
   solve_sequential: false        # false = solve branches in parallel (OpenMP). true = single-thread.
   fail_hold_time: 0.35           # [s] keep the last good trajectory through brief replanning misses
   brake_time: 0.45               # [s] smooth braking fallback if no feasible branch exists
-  execution_lookahead_time: 0.45 # [s] target sampling lead; prevents chasing t=0 after each replan
-  execution_lookahead_distance: 0.80 # [m] minimum forward target distance along optimized trajectory
+  execution_lookahead_time: 0.18 # [s] small lead for trajectory tracking; too large makes PID cut corners
+  execution_lookahead_distance: 0.0 # [m] optional minimum forward distance; keep 0 near static obstacles
   receding_horizon_max_playback_time: 0.20 # [s] do not play an old nominal MPC trajectory to its end
 
   # -- Static map avoidance ------------------------------------------

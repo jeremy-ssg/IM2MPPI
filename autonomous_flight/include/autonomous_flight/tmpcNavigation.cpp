@@ -33,8 +33,8 @@ void tmpcNavigation::initParam() {
     this->nh_.param("tmpc/fail_hold_time", this->failHoldTime_, 0.35);
     this->nh_.param("tmpc/brake_time", this->brakeTime_, 0.45);
     this->nh_.param("tmpc/static_post_check_clearance", this->staticExecClearance_, 0.25);
-    this->nh_.param("tmpc/execution_lookahead_time", this->execLookaheadTime_, 0.45);
-    this->nh_.param("tmpc/execution_lookahead_distance", this->execLookaheadDist_, 0.80);
+    this->nh_.param("tmpc/execution_lookahead_time", this->execLookaheadTime_, 0.18);
+    this->nh_.param("tmpc/execution_lookahead_distance", this->execLookaheadDist_, 0.0);
     this->nh_.param("tmpc/receding_horizon_max_playback_time", this->recedingMaxPlaybackTime_, 0.20);
     this->visPeriod_ = std::max(0.05, this->visPeriod_);
     this->failHoldTime_ = std::max(0.0, this->failHoldTime_);
@@ -279,9 +279,14 @@ void tmpcNavigation::trajExeCB(const ros::TimerEvent&) {
     const double playbackTime = activeIsBrake
         ? std::min(realTime, endTime)
         : std::min(std::min(realTime, this->recedingMaxPlaybackTime_), endTime);
-    const double targetTime = activeIsBrake
+    const double desiredTargetTime = activeIsBrake
         ? playbackTime
         : this->lookaheadSampleTime(traj, traj_dt, playbackTime);
+    double targetTime = desiredTargetTime;
+    if (!activeIsBrake) {
+        targetTime = this->safeCommandTime(traj, traj_dt, playbackTime, targetTime);
+    }
+    const bool safetyBackedOff = !activeIsBrake && targetTime + 1e-6 < desiredTargetTime;
 
     tracking_controller::Target target;
     double raw_yaw = snapshot_facing_yaw;
@@ -294,21 +299,39 @@ void tmpcNavigation::trajExeCB(const ros::TimerEvent&) {
         target.acceleration.x = target.acceleration.y = target.acceleration.z = 0.0;
     } else {
         pt = this->sampleSnapshot(traj, traj_dt, targetTime);
+        if (safetyBackedOff) {
+            pt.v.setZero();
+            pt.a.setZero();
+        }
         target.position.x = pt.p.x(); target.position.y = pt.p.y(); target.position.z = pt.p.z();
         target.velocity.x = pt.v.x(); target.velocity.y = pt.v.y(); target.velocity.z = pt.v.z();
         target.acceleration.x = pt.a.x(); target.acceleration.y = pt.a.y(); target.acceleration.z = pt.a.z();
     }
 
     {
-        // Check the planned prefix to the command point. A straight chord from the
-        // current pose to a lookahead target can cut through an obstacle even when
-        // the optimized trajectory curves safely around it.
+        // Check both the safe command chord and the planned prefix to the command
+        // point. The chord check reflects how the downstream PID reacts to a
+        // position target; the prefix check still guards the nominal trajectory.
         std::vector<ExecPoint> immediate;
         immediate.reserve(16);
         ExecPoint start;
         start.p = this->currPos_;
         immediate.push_back(start);
+        immediate.push_back(pt);
+        if (this->execTrajectoryHitsStaticMap(immediate, 0.0)) {
+            {
+                std::lock_guard<std::mutex> tk(this->trajMutex_);
+                this->ready_ = false;
+                this->activeTraj_.clear();
+            }
+            ROS_ERROR_THROTTLE(0.5,
+                "[T-MPC++ Nav] no line-safe command setpoint; stopping before publish.");
+            this->stop();
+            return;
+        }
 
+        immediate.clear();
+        immediate.push_back(start);
         const double prefixStart = playbackTime;
         const double prefixEnd = std::max(prefixStart, targetTime);
         const double step = std::max(0.02, std::min(0.10, traj_dt));
@@ -467,6 +490,32 @@ double tmpcNavigation::lookaheadSampleTime(
     }
 
     return targetTime;
+}
+
+double tmpcNavigation::safeCommandTime(const std::vector<ExecPoint>& traj,
+                                       double dt,
+                                       double baseTime,
+                                       double desiredTime) const {
+    if (traj.empty() || dt <= 1e-6) return 0.0;
+    const double horizonTime = (double)(traj.size() - 1) * dt;
+    baseTime = std::max(0.0, std::min(baseTime, horizonTime));
+    desiredTime = std::max(baseTime, std::min(desiredTime, horizonTime));
+    if (!this->map_) return desiredTime;
+
+    auto lineSafe = [&](double t) {
+        std::vector<ExecPoint> chord(2);
+        chord[0].p = this->currPos_;
+        chord[1] = this->sampleSnapshot(traj, dt, t);
+        return !this->execTrajectoryHitsStaticMap(chord, 0.0);
+    };
+
+    if (lineSafe(desiredTime)) return desiredTime;
+
+    const double step = std::max(0.02, std::min(0.05, dt));
+    for (double t = desiredTime - step; t >= baseTime - 1e-9; t -= step) {
+        if (lineSafe(std::max(baseTime, t))) return std::max(baseTime, t);
+    }
+    return baseTime;
 }
 
 tmpcNavigation::ExecPoint tmpcNavigation::sampleLookaheadSnapshot(

@@ -125,6 +125,10 @@ private:
                       std::vector<Eigen::Vector3d>& size) const;
     ExecPoint sampleSnapshot(const std::vector<ExecPoint>& traj, double dt, double t) const;
     double lookaheadSampleTime(const std::vector<ExecPoint>& traj, double dt, double t) const;
+    double safeCommandTime(const std::vector<ExecPoint>& traj,
+                           double dt,
+                           double baseTime,
+                           double desiredTime) const;
     ExecPoint sampleLookaheadSnapshot(const std::vector<ExecPoint>& traj, double dt, double t) const;
     bool buildBrakeTrajectory(std::vector<ExecPoint>& traj, double dt, double duration) const;
     bool execTrajectoryHitsStaticMap(const std::vector<ExecPoint>& traj, double dt) const;
