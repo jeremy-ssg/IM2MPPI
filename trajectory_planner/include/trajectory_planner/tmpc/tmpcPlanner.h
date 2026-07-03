@@ -217,6 +217,8 @@ private:
     bool   publishVisibleStaticMarkers_ = true;
     int    visibleStaticMarkerStride_ = 1;
     int    visibleStaticMarkerMaxPoints_ = 20000;
+    double visibleStaticZMin_ = -0.1;
+    double visibleStaticZMax_ = 2.5;
 
     // --- per-iteration state ---------------------------------------------------
     struct GuidanceVizNode {

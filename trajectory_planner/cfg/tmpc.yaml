@@ -97,5 +97,7 @@ tmpc:
   publish_optimized_markers: true  # show MPC branches too; needed to compare guidance vs optimized tracking
   publish_obstacle_prediction_markers: false
   publish_visible_static_markers: true
-  visible_static_marker_stride: 1 # publish every Nth blocking xy cell in /tmpc/visible_static_obstacles
+  visible_static_marker_stride: 1 # publish every Nth local 3D static voxel in /tmpc/visible_static_obstacles
   visible_static_marker_max_points: 20000
+  visible_static_z_min: -0.1      # RViz local-static z crop; match dynamic_map/ground_height
+  visible_static_z_max: 2.5       # RViz local-static z crop; match dynamic_map/max_height_visualization
