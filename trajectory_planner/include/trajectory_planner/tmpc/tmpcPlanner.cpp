@@ -204,7 +204,7 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/static_post_check_clearance",    staticPostCheckClearance_, 0.25);
     nh_.param("tmpc/static_fov_range",               staticFovRange_, 7.0);
     nh_.param("tmpc/publish_guidance_markers", publishGuidanceMarkers_, true);
-    nh_.param("tmpc/publish_optimized_markers", publishOptimizedMarkers_, false);
+    nh_.param("tmpc/publish_optimized_markers", publishOptimizedMarkers_, true);
     nh_.param("tmpc/publish_obstacle_prediction_markers", publishObstaclePredictionMarkers_, false);
     nh_.param("tmpc/publish_visible_static_markers", publishVisibleStaticMarkers_, true);
     nh_.param("tmpc/visible_static_marker_stride", visibleStaticMarkerStride_, 2);
@@ -557,6 +557,8 @@ void tmpcPlanner::buildStaticAwareReference() {
 // ---------------------------------------------------------------------------
 bool tmpcPlanner::runGuidance() {
     branches_.clear();
+    lastGuidanceVizNodes_.clear();
+    lastGuidanceVizEdges_.clear();
     if ((int)localRef_.size() < horizon_ + 1) return false;
 
     const int N = horizon_;
@@ -1213,6 +1215,32 @@ bool tmpcPlanner::runGuidance() {
         b.classId = stableClassId(cand.signature);
         b.guidanceTraj = cand.traj;
         branches_.push_back(std::move(b));
+    }
+
+    {
+        std::vector<int> vizId(nodes.size(), -1);
+        lastGuidanceVizNodes_.reserve(nodes.size());
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            if (nodes[i].replaced) continue;
+            GuidanceVizNode v;
+            v.p = Eigen::Vector3d(nodes[i].p.x(), nodes[i].p.y(), zLap_ + 0.10);
+            if (nodes[i].type == GuidanceNodeType::Goal) v.type = 2;
+            else if (nodes[i].type == GuidanceNodeType::Connector) v.type = 1;
+            else v.type = 0;
+            vizId[i] = (int)lastGuidanceVizNodes_.size();
+            lastGuidanceVizNodes_.push_back(v);
+        }
+
+        const size_t maxVizEdges = 1200;
+        for (size_t i = 0; i < nodes.size() && lastGuidanceVizEdges_.size() < maxVizEdges; ++i) {
+            if (vizId[i] < 0) continue;
+            for (int nb : nodes[i].neighbours) {
+                if (nb < 0 || nb >= (int)nodes.size()) continue;
+                if (nb <= (int)i || vizId[nb] < 0) continue;
+                lastGuidanceVizEdges_.emplace_back(vizId[i], vizId[nb]);
+                if (lastGuidanceVizEdges_.size() >= maxVizEdges) break;
+            }
+        }
     }
 
     if (branches_.empty()) {
@@ -1909,8 +1937,18 @@ static visualization_msgs::Marker lineMarker(int id, double r, double g, double 
     m.scale.x = width;
     m.color.r = r; m.color.g = g; m.color.b = b; m.color.a = 1.0;
     m.pose.orientation.w = 1.0;
-    m.lifetime = ros::Duration(0.5);
+    // Persistent markers avoid RViz flicker when the planner thread occasionally
+    // blocks the visualization timer. Each publish still sends DELETEALL first.
+    m.lifetime = ros::Duration(0.0);
     return m;
+}
+
+static void guidancePalette(size_t idx, double rgb[3]) {
+    static const double pal[6][3] = {
+        {0.95, 0.28, 0.18}, {0.10, 0.65, 0.95}, {0.60, 0.35, 0.95},
+        {0.95, 0.75, 0.12}, {0.10, 0.85, 0.45}, {1.00, 0.45, 0.75}};
+    const size_t k = idx % 6;
+    rgb[0] = pal[k][0]; rgb[1] = pal[k][1]; rgb[2] = pal[k][2];
 }
 
 void tmpcPlanner::publishGuidancePaths() const {
@@ -1919,19 +1957,108 @@ void tmpcPlanner::publishGuidancePaths() const {
     visualization_msgs::MarkerArray arr;
     visualization_msgs::Marker del;
     del.header.frame_id = "map";
+    del.header.stamp = ros::Time::now();
     del.ns = "tmpc_guidance";
     del.action = visualization_msgs::Marker::DELETEALL;
     arr.markers.push_back(del);
 
     int mid = 0;
+    if (!lastGuidanceVizEdges_.empty()) {
+        auto e = lineMarker(mid++, 0.75, 0.75, 0.75, 0.018, "tmpc_guidance");
+        e.type = visualization_msgs::Marker::LINE_LIST;
+        e.color.a = 0.28;
+        for (const auto& edge : lastGuidanceVizEdges_) {
+            if (edge.first < 0 || edge.second < 0 ||
+                edge.first >= (int)lastGuidanceVizNodes_.size() ||
+                edge.second >= (int)lastGuidanceVizNodes_.size()) {
+                continue;
+            }
+            geometry_msgs::Point a, b;
+            const auto& pa = lastGuidanceVizNodes_[edge.first].p;
+            const auto& pb = lastGuidanceVizNodes_[edge.second].p;
+            a.x = pa.x(); a.y = pa.y(); a.z = pa.z();
+            b.x = pb.x(); b.y = pb.y(); b.z = pb.z();
+            e.points.push_back(a);
+            e.points.push_back(b);
+        }
+        arr.markers.push_back(e);
+    }
+
+    auto addNodeList = [&](int type, int id, double r, double g, double b, double scale) {
+        visualization_msgs::Marker m;
+        m.header.frame_id = "map";
+        m.header.stamp = ros::Time::now();
+        m.ns = "tmpc_guidance";
+        m.id = id;
+        m.type = visualization_msgs::Marker::SPHERE_LIST;
+        m.action = visualization_msgs::Marker::ADD;
+        m.pose.orientation.w = 1.0;
+        m.scale.x = m.scale.y = m.scale.z = scale;
+        m.color.r = r; m.color.g = g; m.color.b = b; m.color.a = 0.95;
+        m.lifetime = ros::Duration(0.0);
+        for (const auto& node : lastGuidanceVizNodes_) {
+            if (node.type != type) continue;
+            geometry_msgs::Point pt;
+            pt.x = node.p.x(); pt.y = node.p.y(); pt.z = node.p.z();
+            m.points.push_back(pt);
+        }
+        if (!m.points.empty()) arr.markers.push_back(m);
+    };
+    addNodeList(0, mid++, 0.20, 0.45, 1.00, 0.09);  // guards
+    addNodeList(1, mid++, 1.00, 0.55, 0.10, 0.12);  // connectors
+    addNodeList(2, mid++, 0.10, 0.95, 0.25, 0.18);  // goals
+
+    int guidedCount = 0;
     for (size_t i = 0; i < branches_.size(); ++i) {
         if (!branches_[i].guided || branches_[i].overTake) continue;
-        auto m = lineMarker(mid++, 0.7, 0.3, 0.85, 0.05, "tmpc_guidance");
+        double rgb[3]; guidancePalette((size_t)guidedCount, rgb);
+        auto m = lineMarker(mid++, rgb[0], rgb[1], rgb[2], 0.11, "tmpc_guidance");
+        m.color.a = 1.0;
+        const double zOffset = 0.16 + 0.035 * (double)guidedCount;
         for (const auto& p : branches_[i].guidanceTraj) {
-            geometry_msgs::Point pt; pt.x = p.x(); pt.y = p.y(); pt.z = p.z();
+            geometry_msgs::Point pt; pt.x = p.x(); pt.y = p.y(); pt.z = p.z() + zOffset;
             m.points.push_back(pt);
         }
         arr.markers.push_back(m);
+
+        if (!branches_[i].guidanceTraj.empty()) {
+            visualization_msgs::Marker txt;
+            txt.header.frame_id = "map";
+            txt.header.stamp = ros::Time::now();
+            txt.ns = "tmpc_guidance";
+            txt.id = mid++;
+            txt.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+            txt.action = visualization_msgs::Marker::ADD;
+            txt.pose.orientation.w = 1.0;
+            txt.pose.position.x = branches_[i].guidanceTraj.front().x();
+            txt.pose.position.y = branches_[i].guidanceTraj.front().y();
+            txt.pose.position.z = branches_[i].guidanceTraj.front().z() + 0.55 + zOffset;
+            txt.scale.z = 0.28;
+            txt.color.r = rgb[0]; txt.color.g = rgb[1]; txt.color.b = rgb[2]; txt.color.a = 1.0;
+            txt.text = "topo " + std::to_string(guidedCount);
+            txt.lifetime = ros::Duration(0.0);
+            arr.markers.push_back(txt);
+        }
+        ++guidedCount;
+    }
+
+    if (guidedCount == 0) {
+        visualization_msgs::Marker txt;
+        txt.header.frame_id = "map";
+        txt.header.stamp = ros::Time::now();
+        txt.ns = "tmpc_guidance";
+        txt.id = mid++;
+        txt.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+        txt.action = visualization_msgs::Marker::ADD;
+        txt.pose.orientation.w = 1.0;
+        txt.pose.position.x = currPos_.x();
+        txt.pose.position.y = currPos_.y();
+        txt.pose.position.z = zLap_ + 0.9;
+        txt.scale.z = 0.32;
+        txt.color.r = 1.0; txt.color.g = 0.15; txt.color.b = 0.10; txt.color.a = 1.0;
+        txt.text = "no guided topology path";
+        txt.lifetime = ros::Duration(0.0);
+        arr.markers.push_back(txt);
     }
     guidancePathsPub_.publish(arr);
 }
@@ -1989,7 +2116,7 @@ void tmpcPlanner::publishOptimizedTrajectories() const {
         txt.action = visualization_msgs::Marker::ADD;
         txt.scale.z = 0.4;
         txt.color.r = txt.color.g = txt.color.b = 1.0; txt.color.a = 1.0;
-        txt.lifetime = ros::Duration(0.5);
+        txt.lifetime = ros::Duration(0.0);
         txt.pose.orientation.w = 1.0;
         txt.pose.position.x = s0(0);
         txt.pose.position.y = s0(1);
@@ -2039,7 +2166,7 @@ void tmpcPlanner::publishObstaclePredictions() const {
         disc.scale.x = disc.scale.y = 2.0 * obsRadius_[j];
         disc.scale.z = 0.1;
         disc.color.r = 1.0; disc.color.g = 0.35; disc.color.b = 0.2; disc.color.a = 0.5;
-        disc.lifetime = ros::Duration(0.5);
+        disc.lifetime = ros::Duration(0.0);
         arr.markers.push_back(disc);
     }
     dynObsPub_.publish(arr);
@@ -2053,14 +2180,13 @@ void tmpcPlanner::publishVisibleStaticObstacles() const {
 
     visualization_msgs::Marker del;
     del.header.frame_id = "map";
+    del.header.stamp = ros::Time::now();
     del.ns = "tmpc_visible_static";
     del.action = visualization_msgs::Marker::DELETEALL;
     arr.markers.push_back(del);
 
     Eigen::Vector3d mapMin, mapMax;
-    Eigen::Vector3d currMin, currMax;
     map_->getMapRange(mapMin, mapMax);
-    map_->getCurrMapRange(currMin, currMax);
 
     const double range = std::max(1.0, staticFovRange_);
     Eigen::Vector3d lo(currPos_.x() - range, currPos_.y() - range, mapMin.z());
@@ -2068,16 +2194,13 @@ void tmpcPlanner::publishVisibleStaticObstacles() const {
     lo = lo.cwiseMax(mapMin);
     hi = hi.cwiseMin(mapMax);
 
-    // If the map exposes a current sensor-update range, intersect with it so the
-    // marker shows what the planner currently sees instead of the whole global map.
-    if ((currMax - currMin).norm() > 1e-3) {
-        lo = lo.cwiseMax(currMin);
-        hi = hi.cwiseMin(currMax);
-    }
-
     const double res = std::max(0.03, map_->getRes());
-    const int stride = std::max(1, visibleStaticMarkerStride_);
-    const double step = res * (double)stride;
+    const int publishStride = std::max(1, visibleStaticMarkerStride_);
+    Eigen::Vector3i loIdx, hiIdx;
+    map_->posToIndex(lo, loIdx);
+    map_->posToIndex(hi, hiIdx);
+    map_->boundIndex(loIdx);
+    map_->boundIndex(hiIdx);
 
     visualization_msgs::Marker vox;
     vox.header.frame_id = "map";
@@ -2087,24 +2210,27 @@ void tmpcPlanner::publishVisibleStaticObstacles() const {
     vox.type = visualization_msgs::Marker::CUBE_LIST;
     vox.action = visualization_msgs::Marker::ADD;
     vox.pose.orientation.w = 1.0;
-    vox.scale.x = vox.scale.y = vox.scale.z = step;
+    vox.scale.x = vox.scale.y = vox.scale.z = res;
     vox.color.r = 0.25;
     vox.color.g = 0.55;
     vox.color.b = 0.95;
     vox.color.a = 0.45;
-    vox.lifetime = ros::Duration(0.6);
+    vox.lifetime = ros::Duration(0.0);
     vox.points.reserve((size_t)std::min(visibleStaticMarkerMaxPoints_, 6000));
 
     bool full = false;
-    for (double x = lo.x(); x <= hi.x() + 1e-9 && !full; x += step) {
-        for (double y = lo.y(); y <= hi.y() + 1e-9 && !full; y += step) {
-            if ((Eigen::Vector2d(x, y) - currPos_.head<2>()).norm() > range) continue;
-            for (double z = lo.z(); z <= hi.z() + 1e-9; z += step) {
-                Eigen::Vector3d p(x, y, z);
-                if (!map_->isInMap(p)) continue;
-                if (!map_->isInflatedOccupied(p)) continue;
+    int occupiedSeen = 0;
+    for (int ix = loIdx.x(); ix <= hiIdx.x() && !full; ++ix) {
+        for (int iy = loIdx.y(); iy <= hiIdx.y() && !full; ++iy) {
+            for (int iz = loIdx.z(); iz <= hiIdx.z(); ++iz) {
+                Eigen::Vector3i idx(ix, iy, iz);
+                if (!map_->isInflatedOccupied(idx)) continue;
+                Eigen::Vector3d p;
+                map_->indexToPos(idx, p);
+                if ((p.head<2>() - currPos_.head<2>()).norm() > range) continue;
+                if ((occupiedSeen++ % publishStride) != 0) continue;
                 geometry_msgs::Point pt;
-                pt.x = x; pt.y = y; pt.z = z;
+                pt.x = p.x(); pt.y = p.y(); pt.z = p.z();
                 vox.points.push_back(pt);
                 if ((int)vox.points.size() >= visibleStaticMarkerMaxPoints_) {
                     full = true;

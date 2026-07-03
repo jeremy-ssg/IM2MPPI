@@ -34,6 +34,7 @@
 #include <string>
 #include <limits>
 #include <cstdint>
+#include <utility>
 #include <Eigen/Dense>
 
 #include <nav_msgs/Path.h>
@@ -211,13 +212,18 @@ private:
     double staticFovRange_ = 7.0;      // [m] only consider static obstacles within this
                                        // range of the drone (FOV-consistent with dynamic)
     bool   publishGuidanceMarkers_ = true;
-    bool   publishOptimizedMarkers_ = false;
+    bool   publishOptimizedMarkers_ = true;
     bool   publishObstaclePredictionMarkers_ = false;
     bool   publishVisibleStaticMarkers_ = true;
     int    visibleStaticMarkerStride_ = 2;
     int    visibleStaticMarkerMaxPoints_ = 6000;
 
     // --- per-iteration state ---------------------------------------------------
+    struct GuidanceVizNode {
+        Eigen::Vector3d p = Eigen::Vector3d::Zero();
+        int type = 0;   // 0=guard, 1=connector, 2=goal
+    };
+
     Eigen::Vector3d currPos_ = Eigen::Vector3d::Zero();
     Eigen::Vector3d currVel_ = Eigen::Vector3d::Zero();
     double          currYaw_ = 0.0;
@@ -240,6 +246,8 @@ private:
     // Visibility-PRM graph propagation: guidance samples from the previous iteration,
     // re-seeded (time-decremented) so topology classes persist across cycles.
     std::vector<std::pair<Eigen::Vector2d, int>> prevGuidanceSeed_;
+    std::vector<GuidanceVizNode> lastGuidanceVizNodes_;
+    std::vector<std::pair<int, int>> lastGuidanceVizEdges_;
     uint32_t guidanceSampleCounter_ = 0;
     double planTimeMs_ = 0.0;
     std::string lastPlanStatus_ = "not_started";
