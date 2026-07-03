@@ -162,7 +162,7 @@ Visualization Manager:
     - Class: rviz/MarkerArray
       Enabled: true
       Marker Topic: /tmpc/guidance_paths
-      Name: T-MPC++ Guidance Paths
+      Name: T-MPC++ Topology PRM Process
       Namespaces:
         tmpc_guidance: true
       Queue Size: 100

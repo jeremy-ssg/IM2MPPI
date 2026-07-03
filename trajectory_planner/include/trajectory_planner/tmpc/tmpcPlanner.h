@@ -223,6 +223,9 @@ private:
     double localStaticMapResolution_ = 0.10;
     double localStaticMapTimeout_ = 0.75;
     bool   publishGuidanceMarkers_ = true;
+    double guidanceProcessZOffset_ = 1.70;
+    double guidanceGraphLineWidth_ = 0.035;
+    double guidanceNodeScale_ = 0.16;
     bool   publishOptimizedMarkers_ = true;
     bool   publishObstaclePredictionMarkers_ = false;
     bool   publishVisibleStaticMarkers_ = true;

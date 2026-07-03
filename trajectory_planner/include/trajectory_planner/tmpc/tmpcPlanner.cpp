@@ -242,6 +242,9 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/local_static_map_resolution",    localStaticMapResolution_, 0.10);
     nh_.param("tmpc/local_static_map_timeout",       localStaticMapTimeout_, 0.75);
     nh_.param("tmpc/publish_guidance_markers", publishGuidanceMarkers_, true);
+    nh_.param("tmpc/guidance_process_z_offset", guidanceProcessZOffset_, 1.70);
+    nh_.param("tmpc/guidance_graph_line_width", guidanceGraphLineWidth_, 0.035);
+    nh_.param("tmpc/guidance_node_scale", guidanceNodeScale_, 0.16);
     nh_.param("tmpc/publish_optimized_markers", publishOptimizedMarkers_, true);
     nh_.param("tmpc/publish_obstacle_prediction_markers", publishObstaclePredictionMarkers_, false);
     nh_.param("tmpc/publish_visible_static_markers", publishVisibleStaticMarkers_, true);
@@ -272,6 +275,9 @@ void tmpcPlanner::initParam() {
     staticFovRange_ = std::max(1.0, staticFovRange_);
     localStaticMapResolution_ = std::max(0.03, localStaticMapResolution_);
     localStaticMapTimeout_ = std::max(0.0, localStaticMapTimeout_);
+    guidanceProcessZOffset_ = std::max(0.0, guidanceProcessZOffset_);
+    guidanceGraphLineWidth_ = std::max(0.01, guidanceGraphLineWidth_);
+    guidanceNodeScale_ = std::max(0.05, guidanceNodeScale_);
     visibleStaticMarkerStride_ = std::max(1, visibleStaticMarkerStride_);
     visibleStaticMarkerMaxPoints_ = std::max(100, visibleStaticMarkerMaxPoints_);
     if (visibleStaticZMax_ < visibleStaticZMin_) std::swap(visibleStaticZMax_, visibleStaticZMin_);
@@ -733,6 +739,35 @@ bool tmpcPlanner::runGuidance() {
         addOne(b, a);
     };
 
+    auto cacheGuidanceViz = [&]() {
+        lastGuidanceVizNodes_.clear();
+        lastGuidanceVizEdges_.clear();
+        std::vector<int> vizId(nodes.size(), -1);
+        lastGuidanceVizNodes_.reserve(nodes.size());
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            if (nodes[i].replaced) continue;
+            GuidanceVizNode v;
+            v.p = Eigen::Vector3d(nodes[i].p.x(), nodes[i].p.y(),
+                                  zLap_ + guidanceProcessZOffset_);
+            if (nodes[i].type == GuidanceNodeType::Goal) v.type = 2;
+            else if (nodes[i].type == GuidanceNodeType::Connector) v.type = 1;
+            else v.type = 0;
+            vizId[i] = (int)lastGuidanceVizNodes_.size();
+            lastGuidanceVizNodes_.push_back(v);
+        }
+
+        const size_t maxVizEdges = 2400;
+        for (size_t i = 0; i < nodes.size() && lastGuidanceVizEdges_.size() < maxVizEdges; ++i) {
+            if (vizId[i] < 0) continue;
+            for (int nb : nodes[i].neighbours) {
+                if (nb < 0 || nb >= (int)nodes.size()) continue;
+                if (nb <= (int)i || vizId[nb] < 0) continue;
+                lastGuidanceVizEdges_.emplace_back(vizId[i], vizId[nb]);
+                if (lastGuidanceVizEdges_.size() >= maxVizEdges) break;
+            }
+        }
+    };
+
     auto nearestRefIndex = [&](const Eigen::Vector2d& p) {
         int bestK = 0;
         double bestD2 = std::numeric_limits<double>::infinity();
@@ -786,8 +821,10 @@ bool tmpcPlanner::runGuidance() {
 
     const int startId = addNode(currPos_.head<2>(), 0, GuidanceNodeType::Guard, 0.0);
     if (startId < 0) {
+        cacheGuidanceViz();
         lastGuidanceNodes_ = (int)nodes.size();
         lastGuidanceGoals_ = (int)goalIds.size();
+        lastGuidanceExpansions_ = 0;
         ROS_WARN_THROTTLE(1.0, "[tmpcPlanner] guidance start is in collision/outside map.");
         return false;
     }
@@ -1163,8 +1200,10 @@ bool tmpcPlanner::runGuidance() {
     }
 
     if (goalIds.empty()) {
+        cacheGuidanceViz();
         lastGuidanceNodes_ = (int)nodes.size();
         lastGuidanceGoals_ = 0;
+        lastGuidanceExpansions_ = 0;
         ROS_WARN_THROTTLE(1.0, "[tmpcPlanner] guidance has no collision-free goals.");
         return false;
     }
@@ -1199,6 +1238,7 @@ bool tmpcPlanner::runGuidance() {
     };
 
     for (const auto& sample : samples) classifySample(sample);
+    cacheGuidanceViz();
 
     auto makeTrajectory = [&](const std::vector<int>& path) {
         std::vector<Eigen::Vector3d> traj(N + 1);
@@ -1301,32 +1341,6 @@ bool tmpcPlanner::runGuidance() {
         b.classId = stableClassId(cand.signature);
         b.guidanceTraj = cand.traj;
         branches_.push_back(std::move(b));
-    }
-
-    {
-        std::vector<int> vizId(nodes.size(), -1);
-        lastGuidanceVizNodes_.reserve(nodes.size());
-        for (size_t i = 0; i < nodes.size(); ++i) {
-            if (nodes[i].replaced) continue;
-            GuidanceVizNode v;
-            v.p = Eigen::Vector3d(nodes[i].p.x(), nodes[i].p.y(), zLap_ + 0.10);
-            if (nodes[i].type == GuidanceNodeType::Goal) v.type = 2;
-            else if (nodes[i].type == GuidanceNodeType::Connector) v.type = 1;
-            else v.type = 0;
-            vizId[i] = (int)lastGuidanceVizNodes_.size();
-            lastGuidanceVizNodes_.push_back(v);
-        }
-
-        const size_t maxVizEdges = 1200;
-        for (size_t i = 0; i < nodes.size() && lastGuidanceVizEdges_.size() < maxVizEdges; ++i) {
-            if (vizId[i] < 0) continue;
-            for (int nb : nodes[i].neighbours) {
-                if (nb < 0 || nb >= (int)nodes.size()) continue;
-                if (nb <= (int)i || vizId[nb] < 0) continue;
-                lastGuidanceVizEdges_.emplace_back(vizId[i], vizId[nb]);
-                if (lastGuidanceVizEdges_.size() >= maxVizEdges) break;
-            }
-        }
     }
 
     if (branches_.empty()) {
@@ -2105,9 +2119,9 @@ void tmpcPlanner::publishGuidancePaths() const {
 
     int mid = 0;
     if (!lastGuidanceVizEdges_.empty()) {
-        auto e = lineMarker(mid++, 0.75, 0.75, 0.75, 0.018, "tmpc_guidance");
+        auto e = lineMarker(mid++, 0.88, 0.88, 0.88, guidanceGraphLineWidth_, "tmpc_guidance");
         e.type = visualization_msgs::Marker::LINE_LIST;
-        e.color.a = 0.28;
+        e.color.a = 0.58;
         for (const auto& edge : lastGuidanceVizEdges_) {
             if (edge.first < 0 || edge.second < 0 ||
                 edge.first >= (int)lastGuidanceVizNodes_.size() ||
@@ -2125,6 +2139,7 @@ void tmpcPlanner::publishGuidancePaths() const {
         arr.markers.push_back(e);
     }
 
+    int guidedCount = 0;
     auto addNodeList = [&](int type, int id, double r, double g, double b, double scale) {
         visualization_msgs::Marker m;
         m.header.frame_id = "map";
@@ -2145,17 +2160,16 @@ void tmpcPlanner::publishGuidancePaths() const {
         }
         if (!m.points.empty()) arr.markers.push_back(m);
     };
-    addNodeList(0, mid++, 0.20, 0.45, 1.00, 0.09);  // guards
-    addNodeList(1, mid++, 1.00, 0.55, 0.10, 0.12);  // connectors
-    addNodeList(2, mid++, 0.10, 0.95, 0.25, 0.18);  // goals
+    addNodeList(0, mid++, 0.20, 0.45, 1.00, guidanceNodeScale_);         // guards
+    addNodeList(1, mid++, 1.00, 0.55, 0.10, 1.25 * guidanceNodeScale_);  // connectors
+    addNodeList(2, mid++, 0.10, 0.95, 0.25, 1.70 * guidanceNodeScale_);  // goals
 
-    int guidedCount = 0;
     for (size_t i = 0; i < branches_.size(); ++i) {
         if (!branches_[i].guided || branches_[i].overTake) continue;
         double rgb[3]; guidancePalette((size_t)guidedCount, rgb);
         auto m = lineMarker(mid++, rgb[0], rgb[1], rgb[2], 0.11, "tmpc_guidance");
         m.color.a = 1.0;
-        const double zOffset = 0.16 + 0.035 * (double)guidedCount;
+        const double zOffset = guidanceProcessZOffset_ + 0.18 + 0.06 * (double)guidedCount;
         for (const auto& p : branches_[i].guidanceTraj) {
             geometry_msgs::Point pt; pt.x = p.x(); pt.y = p.y(); pt.z = p.z() + zOffset;
             m.points.push_back(pt);
@@ -2183,6 +2197,29 @@ void tmpcPlanner::publishGuidancePaths() const {
         ++guidedCount;
     }
 
+    {
+        visualization_msgs::Marker txt;
+        txt.header.frame_id = "map";
+        txt.header.stamp = ros::Time::now();
+        txt.ns = "tmpc_guidance";
+        txt.id = mid++;
+        txt.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+        txt.action = visualization_msgs::Marker::ADD;
+        txt.pose.orientation.w = 1.0;
+        txt.pose.position.x = currPos_.x();
+        txt.pose.position.y = currPos_.y();
+        txt.pose.position.z = zLap_ + guidanceProcessZOffset_ + 0.85;
+        txt.scale.z = 0.28;
+        txt.color.r = 1.0; txt.color.g = 1.0; txt.color.b = 1.0; txt.color.a = 0.95;
+        txt.text = "PRM nodes=" + std::to_string(lastGuidanceNodes_) +
+                   " goals=" + std::to_string(lastGuidanceGoals_) +
+                   " edges=" + std::to_string((int)lastGuidanceVizEdges_.size()) +
+                   " topo=" + std::to_string(guidedCount) +
+                   " exp=" + std::to_string(lastGuidanceExpansions_);
+        txt.lifetime = ros::Duration(0.0);
+        arr.markers.push_back(txt);
+    }
+
     if (guidedCount == 0) {
         visualization_msgs::Marker txt;
         txt.header.frame_id = "map";
@@ -2194,7 +2231,7 @@ void tmpcPlanner::publishGuidancePaths() const {
         txt.pose.orientation.w = 1.0;
         txt.pose.position.x = currPos_.x();
         txt.pose.position.y = currPos_.y();
-        txt.pose.position.z = zLap_ + 0.9;
+        txt.pose.position.z = zLap_ + guidanceProcessZOffset_ + 1.20;
         txt.scale.z = 0.32;
         txt.color.r = 1.0; txt.color.g = 0.15; txt.color.b = 0.10; txt.color.a = 1.0;
         txt.text = "no guided topology path";

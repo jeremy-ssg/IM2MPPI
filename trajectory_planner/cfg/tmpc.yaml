@@ -97,7 +97,10 @@ tmpc:
 
   # -- RViz/debug publishing ------------------------------------------
   visualization_period: 0.5      # [s] debug path publishing; bbox obstacles come from detector topics
-  publish_guidance_markers: true # lightweight topology paths (/tmpc/guidance_paths)
+  publish_guidance_markers: true # topology PRM graph + selected topology paths (/tmpc/guidance_paths)
+  guidance_process_z_offset: 1.70 # [m] lift PRM process above static-map voxels in RViz
+  guidance_graph_line_width: 0.035
+  guidance_node_scale: 0.16
   publish_optimized_markers: true  # show MPC branches too; needed to compare guidance vs optimized tracking
   publish_obstacle_prediction_markers: false
   publish_visible_static_markers: true
