@@ -207,8 +207,8 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/publish_optimized_markers", publishOptimizedMarkers_, true);
     nh_.param("tmpc/publish_obstacle_prediction_markers", publishObstaclePredictionMarkers_, false);
     nh_.param("tmpc/publish_visible_static_markers", publishVisibleStaticMarkers_, true);
-    nh_.param("tmpc/visible_static_marker_stride", visibleStaticMarkerStride_, 2);
-    nh_.param("tmpc/visible_static_marker_max_points", visibleStaticMarkerMaxPoints_, 6000);
+    nh_.param("tmpc/visible_static_marker_stride", visibleStaticMarkerStride_, 1);
+    nh_.param("tmpc/visible_static_marker_max_points", visibleStaticMarkerMaxPoints_, 20000);
     // cost weights
     nh_.param("tmpc/cost_weights/w_contour", wContour_, 1.0);
     nh_.param("tmpc/cost_weights/w_lag",     wLag_,     1.0);
@@ -2189,13 +2189,21 @@ void tmpcPlanner::publishVisibleStaticObstacles() const {
     map_->getMapRange(mapMin, mapMax);
 
     const double range = std::max(1.0, staticFovRange_);
-    Eigen::Vector3d lo(currPos_.x() - range, currPos_.y() - range, mapMin.z());
-    Eigen::Vector3d hi(currPos_.x() + range, currPos_.y() + range, mapMax.z());
+    const double res = std::max(0.03, map_->getRes());
+    const int publishStride = std::max(1, visibleStaticMarkerStride_);
+
+    Eigen::Vector3d robotSize = Eigen::Vector3d::Zero();
+    map_->getRobotSize(robotSize);
+    const double zBand = std::max(res,
+        std::max(staticPostCheckClearance_, 0.5 * std::max(0.0, robotSize.z())) + res);
+    const double zPlane = std::max(mapMin.z() + 0.5 * res,
+        std::min(mapMax.z() - 0.5 * res, zLap_));
+
+    Eigen::Vector3d lo(currPos_.x() - range, currPos_.y() - range, zPlane - zBand);
+    Eigen::Vector3d hi(currPos_.x() + range, currPos_.y() + range, zPlane + zBand);
     lo = lo.cwiseMax(mapMin);
     hi = hi.cwiseMin(mapMax);
 
-    const double res = std::max(0.03, map_->getRes());
-    const int publishStride = std::max(1, visibleStaticMarkerStride_);
     Eigen::Vector3i loIdx, hiIdx;
     map_->posToIndex(lo, loIdx);
     map_->posToIndex(hi, hiIdx);
@@ -2210,32 +2218,38 @@ void tmpcPlanner::publishVisibleStaticObstacles() const {
     vox.type = visualization_msgs::Marker::CUBE_LIST;
     vox.action = visualization_msgs::Marker::ADD;
     vox.pose.orientation.w = 1.0;
-    vox.scale.x = vox.scale.y = vox.scale.z = res;
+    vox.scale.x = vox.scale.y = res;
+    vox.scale.z = std::max(0.04, 0.5 * res);
     vox.color.r = 0.25;
     vox.color.g = 0.55;
     vox.color.b = 0.95;
     vox.color.a = 0.45;
     vox.lifetime = ros::Duration(0.0);
-    vox.points.reserve((size_t)std::min(visibleStaticMarkerMaxPoints_, 6000));
+    vox.points.reserve((size_t)std::min(visibleStaticMarkerMaxPoints_, 20000));
 
     bool full = false;
     int occupiedSeen = 0;
     for (int ix = loIdx.x(); ix <= hiIdx.x() && !full; ++ix) {
         for (int iy = loIdx.y(); iy <= hiIdx.y() && !full; ++iy) {
+            bool blocksPlane = false;
             for (int iz = loIdx.z(); iz <= hiIdx.z(); ++iz) {
                 Eigen::Vector3i idx(ix, iy, iz);
-                if (!map_->isInflatedOccupied(idx)) continue;
-                Eigen::Vector3d p;
-                map_->indexToPos(idx, p);
-                if ((p.head<2>() - currPos_.head<2>()).norm() > range) continue;
-                if ((occupiedSeen++ % publishStride) != 0) continue;
-                geometry_msgs::Point pt;
-                pt.x = p.x(); pt.y = p.y(); pt.z = p.z();
-                vox.points.push_back(pt);
-                if ((int)vox.points.size() >= visibleStaticMarkerMaxPoints_) {
-                    full = true;
+                if (map_->isInflatedOccupied(idx)) {
+                    blocksPlane = true;
                     break;
                 }
+            }
+            if (!blocksPlane) continue;
+            Eigen::Vector3d p;
+            map_->indexToPos(Eigen::Vector3i(ix, iy, loIdx.z()), p);
+            if ((p.head<2>() - currPos_.head<2>()).norm() > range) continue;
+            if ((occupiedSeen++ % publishStride) != 0) continue;
+            geometry_msgs::Point pt;
+            pt.x = p.x(); pt.y = p.y(); pt.z = zPlane;
+            vox.points.push_back(pt);
+            if ((int)vox.points.size() >= visibleStaticMarkerMaxPoints_) {
+                full = true;
+                break;
             }
         }
     }

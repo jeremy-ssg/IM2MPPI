@@ -97,5 +97,5 @@ tmpc:
   publish_optimized_markers: true  # show MPC branches too; needed to compare guidance vs optimized tracking
   publish_obstacle_prediction_markers: false
   publish_visible_static_markers: true
-  visible_static_marker_stride: 2 # publish every Nth map voxel in /tmpc/visible_static_obstacles
-  visible_static_marker_max_points: 6000
+  visible_static_marker_stride: 1 # publish every Nth blocking xy cell in /tmpc/visible_static_obstacles
+  visible_static_marker_max_points: 20000
