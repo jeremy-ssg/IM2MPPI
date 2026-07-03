@@ -84,6 +84,8 @@ private:
     double      failHoldTime_      = 0.35;
     double      brakeTime_         = 0.45;
     double      staticExecClearance_ = 0.25;
+    double      dynamicExecRobotRadius_ = 0.30;
+    double      dynamicExecClearance_ = 0.25;
     double      recedingMaxPlaybackTime_ = 0.20;
     std::string refTrajPath_;
     nav_msgs::Path predefinedGoal_;
@@ -124,6 +126,7 @@ private:
     ExecPoint sampleSnapshot(const std::vector<ExecPoint>& traj, double dt, double t) const;
     bool buildBrakeTrajectory(std::vector<ExecPoint>& traj, double dt, double duration) const;
     bool execTrajectoryHitsStaticMap(const std::vector<ExecPoint>& traj, double dt) const;
+    bool execTrajectoryHitsDynamicObstacles(const std::vector<ExecPoint>& traj, double dt) const;
     bool execPointHitsStaticMapWithMargin(const Eigen::Vector3d& p, double margin) const;
     void publishBestTrajectory() const;
     void publishReferencePath() const;

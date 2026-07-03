@@ -205,6 +205,7 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/r_uav",               rUav_,            0.30);
     nh_.param("tmpc/num_trajectories_P",  numTrajP_,        4);
     nh_.param("tmpc/add_unguided_planner",addUnguided_,     true);
+    nh_.param("tmpc/require_guided_topology", requireGuidedTopology_, true);
     nh_.param("tmpc/prm_samples_n",       prmSamplesN_,     100);
     nh_.param<std::string>("tmpc/homotopy_method", homotopyMethod_, "h_signature");
     nh_.param("tmpc/visibility_dt",       visibilityDt_,    0.20);
@@ -282,8 +283,9 @@ void tmpcPlanner::initParam() {
     visibleStaticMarkerMaxPoints_ = std::max(100, visibleStaticMarkerMaxPoints_);
     if (visibleStaticZMax_ < visibleStaticZMin_) std::swap(visibleStaticZMax_, visibleStaticZMin_);
 
-    ROS_INFO("[tmpcPlanner] init: P=%d unguided=%d horizon=%d dt=%.3f z_lap=%.2f pred=%s",
-             numTrajP_, (int)addUnguided_, horizon_, dt_, zLap_, predictionSource_.c_str());
+    ROS_INFO("[tmpcPlanner] init: P=%d unguided=%d require_guided=%d horizon=%d dt=%.3f z_lap=%.2f pred=%s",
+             numTrajP_, (int)addUnguided_, (int)requireGuidedTopology_,
+             horizon_, dt_, zLap_, predictionSource_.c_str());
 }
 
 void tmpcPlanner::setMap(const std::shared_ptr<mapManager::occMap>& map) { map_ = map; }
@@ -651,7 +653,10 @@ bool tmpcPlanner::runGuidance() {
     branches_.clear();
     lastGuidanceVizNodes_.clear();
     lastGuidanceVizEdges_.clear();
-    if ((int)localRef_.size() < horizon_ + 1) return false;
+    if ((int)localRef_.size() < horizon_ + 1) {
+        lastPlanStatus_ = "guidance_short_ref";
+        return false;
+    }
 
     const int N = horizon_;
     const double halfWidth = std::max(0.5, 0.5 * goalLatSpread_);
@@ -825,6 +830,7 @@ bool tmpcPlanner::runGuidance() {
         lastGuidanceNodes_ = (int)nodes.size();
         lastGuidanceGoals_ = (int)goalIds.size();
         lastGuidanceExpansions_ = 0;
+        lastPlanStatus_ = "guidance_start_blocked";
         ROS_WARN_THROTTLE(1.0, "[tmpcPlanner] guidance start is in collision/outside map.");
         return false;
     }
@@ -1204,6 +1210,7 @@ bool tmpcPlanner::runGuidance() {
         lastGuidanceNodes_ = (int)nodes.size();
         lastGuidanceGoals_ = 0;
         lastGuidanceExpansions_ = 0;
+        lastPlanStatus_ = "guidance_no_goals";
         ROS_WARN_THROTTLE(1.0, "[tmpcPlanner] guidance has no collision-free goals.");
         return false;
     }
@@ -1343,22 +1350,27 @@ bool tmpcPlanner::runGuidance() {
         branches_.push_back(std::move(b));
     }
 
-    if (branches_.empty()) {
+    const int guidedBranchCount = (int)branches_.size();
+    if (guidedBranchCount <= 0) {
         lastGuidanceNodes_ = (int)nodes.size();
         lastGuidanceGoals_ = (int)goalIds.size();
         lastGuidanceExpansions_ = expansions;
+        lastPlanStatus_ = "no_guided_topology";
         ROS_WARN_THROTTLE(1.0,
             "[tmpcPlanner] internal Visibility-PRM found no guided topology path "
             "(nodes=%zu goals=%zu expansions=%d ref_blocked=%d static=%d dynamic=%d); "
-            "continuing with fallback branches only if allowed.",
+            "rejecting this plan instead of using a straight unguided fallback.",
             nodes.size(), goalIds.size(), expansions, (int)directReferenceBlocked,
             (int)directRefStaticBlocked, (int)directRefDynamicBlocked);
-        if (!addUnguided_ && !(vertical_ && !obsPredPos_.empty())) return false;
+        if (requireGuidedTopology_) return false;
     }
 
     // T-MPC++ adds one non-guided local planner in parallel to the guided topology
     // branches; this is the official "++" behavior, not a replacement for topology.
-    if (addUnguided_ && !directRefStaticBlocked) {
+    // Do not add it when the plain reference is already blocked by static or dynamic
+    // obstacles, otherwise it can drive straight ahead when the topology front-end
+    // is reporting that no safe class exists.
+    if (addUnguided_ && (guidedBranchCount > 0 || !requireGuidedTopology_) && !directReferenceBlocked) {
         TMPCBranch b;
         b.guided  = false;
         b.classId = -1;
@@ -1369,7 +1381,7 @@ bool tmpcPlanner::runGuidance() {
     // 3-D vertical "fly-over" branch: an extra topology option that passes OVER the
     // obstacles instead of around them. No horizontal half-planes; instead a vertical
     // clearance floor where the path passes near an obstacle (built in solveBranch).
-    if (vertical_ && !obsPredPos_.empty()) {
+    if (vertical_ && (guidedBranchCount > 0 || !requireGuidedTopology_) && !obsPredPos_.empty()) {
         TMPCBranch b;
         b.guided   = false;
         b.overTake = true;
@@ -1858,7 +1870,7 @@ bool tmpcPlanner::plan() {
     }
     if (!runGuidance()) {
         planTimeMs_ = 0.0;
-        lastPlanStatus_ = "guidance_failed";
+        if (lastPlanStatus_ == "running") lastPlanStatus_ = "guidance_failed";
         return false;
     }
 
@@ -2211,7 +2223,8 @@ void tmpcPlanner::publishGuidancePaths() const {
         txt.pose.position.z = zLap_ + guidanceProcessZOffset_ + 0.85;
         txt.scale.z = 0.28;
         txt.color.r = 1.0; txt.color.g = 1.0; txt.color.b = 1.0; txt.color.a = 0.95;
-        txt.text = "PRM nodes=" + std::to_string(lastGuidanceNodes_) +
+        txt.text = "status=" + lastPlanStatus_ +
+                   " PRM nodes=" + std::to_string(lastGuidanceNodes_) +
                    " goals=" + std::to_string(lastGuidanceGoals_) +
                    " edges=" + std::to_string((int)lastGuidanceVizEdges_.size()) +
                    " topo=" + std::to_string(guidedCount) +

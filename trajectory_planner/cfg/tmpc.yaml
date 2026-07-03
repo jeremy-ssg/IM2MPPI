@@ -20,7 +20,8 @@ tmpc:
 
   # -- Guidance planner (Visibility-PRM + homotopy) -------------------
   num_trajectories_P: 4          # P topology-distinct guidance trajectories, matching the paper-style multi-branch search
-  add_unguided_planner: true     # true = T-MPC++ (extra non-guided MPC in parallel)
+  add_unguided_planner: true     # extra non-guided MPC in parallel only after guided topology exists
+  require_guided_topology: true  # if Visibility-PRM finds no guided topology path, brake/hold instead of driving the plain reference
   prm_samples_n: 100             # Guard/Connector sample budget for the internal Visibility-PRM
   homotopy_method: "h_signature" # h_signature | winding | uvd
   visibility_dt: 0.20            # [s] time resolution for (x,y,t) visibility checks

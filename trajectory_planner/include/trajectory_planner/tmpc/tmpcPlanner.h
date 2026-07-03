@@ -178,6 +178,7 @@ private:
     double rUav_           = 0.30;
     int    numTrajP_       = 4;
     bool   addUnguided_    = true;      // T-MPC++
+    bool   requireGuidedTopology_ = true;
     int    prmSamplesN_    = 100;
     std::string homotopyMethod_ = "h_signature";
     double visibilityDt_   = 0.20;

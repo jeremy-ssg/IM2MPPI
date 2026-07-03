@@ -33,11 +33,15 @@ void tmpcNavigation::initParam() {
     this->nh_.param("tmpc/fail_hold_time", this->failHoldTime_, 0.35);
     this->nh_.param("tmpc/brake_time", this->brakeTime_, 0.45);
     this->nh_.param("tmpc/static_post_check_clearance", this->staticExecClearance_, 0.25);
+    this->nh_.param("tmpc/r_uav", this->dynamicExecRobotRadius_, 0.30);
+    this->nh_.param("tmpc/safety_margin", this->dynamicExecClearance_, 0.25);
     this->nh_.param("tmpc/receding_horizon_max_playback_time", this->recedingMaxPlaybackTime_, 0.20);
     this->visPeriod_ = std::max(0.05, this->visPeriod_);
     this->failHoldTime_ = std::max(0.0, this->failHoldTime_);
     this->brakeTime_ = std::max(0.1, this->brakeTime_);
     this->staticExecClearance_ = std::max(0.0, this->staticExecClearance_);
+    this->dynamicExecRobotRadius_ = std::max(0.05, this->dynamicExecRobotRadius_);
+    this->dynamicExecClearance_ = std::max(0.0, this->dynamicExecClearance_);
     this->recedingMaxPlaybackTime_ = std::max(0.0, this->recedingMaxPlaybackTime_);
 
     if (this->usePredefinedGoal_) {
@@ -206,14 +210,24 @@ void tmpcNavigation::planCB(const ros::TimerEvent&) {
     } else {
         ++this->consecutivePlanFailures_;
         bool keepPrevious = false;
+        const bool frontEndFailed =
+            (plan_status == "short_ref" ||
+             plan_status == "guidance_failed" ||
+             plan_status == "guidance_short_ref" ||
+             plan_status == "guidance_start_blocked" ||
+             plan_status == "guidance_no_goals" ||
+             plan_status == "no_guided_topology");
         {
             std::lock_guard<std::mutex> tk(this->trajMutex_);
-            if (this->ready_ && !this->activeTraj_.empty() && this->activeTrajDt_ > 1e-6) {
+            if (!frontEndFailed &&
+                this->ready_ && !this->activeTraj_.empty() && this->activeTrajDt_ > 1e-6) {
                 const double age = (ros::Time::now() - this->trajStartTime_).toSec();
                 const double horizon = (double)(this->activeTraj_.size() - 1) * this->activeTrajDt_;
                 keepPrevious = age < std::min(horizon, this->failHoldTime_) &&
                                !this->execTrajectoryHitsStaticMap(this->activeTraj_,
-                                                                  this->activeTrajDt_);
+                                                                  this->activeTrajDt_) &&
+                               !this->execTrajectoryHitsDynamicObstacles(this->activeTraj_,
+                                                                         this->activeTrajDt_);
             }
         }
         if (keepPrevious) {
@@ -309,14 +323,15 @@ void tmpcNavigation::trajExeCB(const ros::TimerEvent&) {
             immediate.push_back(this->sampleSnapshot(traj, traj_dt, t));
         }
         immediate.push_back(pt);
-        if (this->execTrajectoryHitsStaticMap(immediate, 0.0)) {
+        if (this->execTrajectoryHitsStaticMap(immediate, 0.0) ||
+            this->execTrajectoryHitsDynamicObstacles(immediate, traj_dt)) {
             {
                 std::lock_guard<std::mutex> tk(this->trajMutex_);
                 this->ready_ = false;
                 this->activeTraj_.clear();
             }
             ROS_ERROR_THROTTLE(0.5,
-                "[T-MPC++ Nav] active setpoint intersects static map; stopping before publish.");
+                "[T-MPC++ Nav] active setpoint intersects obstacle prediction; stopping before publish.");
             this->stop();
             return;
         }
@@ -445,7 +460,8 @@ bool tmpcNavigation::buildBrakeTrajectory(std::vector<ExecPoint>& traj,
         ep.a = aBrake;
         traj.push_back(ep);
     }
-    if (this->execTrajectoryHitsStaticMap(traj, dt)) {
+    if (this->execTrajectoryHitsStaticMap(traj, dt) ||
+        this->execTrajectoryHitsDynamicObstacles(traj, dt)) {
         traj.clear();
         return false;
     }
@@ -480,6 +496,48 @@ bool tmpcNavigation::execTrajectoryHitsStaticMap(const std::vector<ExecPoint>& t
         prevMargin = margin;
         havePrev = true;
         ++k;
+    }
+    return false;
+}
+
+bool tmpcNavigation::execTrajectoryHitsDynamicObstacles(const std::vector<ExecPoint>& traj,
+                                                        double dt) const {
+    if (traj.empty()) return false;
+
+    std::vector<Eigen::Vector3d> obsPos, obsVel, obsSize;
+    this->getObstacles(obsPos, obsVel, obsSize);
+    if (obsPos.empty()) return false;
+
+    const double planDt = (dt > 1e-6) ? dt : 0.05;
+    auto hitsAt = [&](const Eigen::Vector3d& p, double t) {
+        for (size_t j = 0; j < obsPos.size(); ++j) {
+            const Eigen::Vector3d v =
+                (j < obsVel.size()) ? obsVel[j] : Eigen::Vector3d::Zero();
+            const Eigen::Vector3d o = obsPos[j] + v * std::max(0.0, t);
+            const double obsRadius = (j < obsSize.size())
+                ? 0.5 * std::max(obsSize[j].x(), obsSize[j].y())
+                : 0.25;
+            const double required =
+                this->dynamicExecRobotRadius_ + std::max(0.10, obsRadius)
+                + this->dynamicExecClearance_;
+            if ((p.head<2>() - o.head<2>()).norm() < required) return true;
+        }
+        return false;
+    };
+
+    Eigen::Vector3d prev = traj.front().p;
+    if (hitsAt(prev, 0.0)) return true;
+    for (size_t k = 1; k < traj.size(); ++k) {
+        const Eigen::Vector3d p = traj[k].p;
+        const double t0 = (double)(k - 1) * planDt;
+        const double t1 = (double)k * planDt;
+        const double dist = (p - prev).norm();
+        const int samples = std::max(1, (int)std::ceil(dist / 0.10));
+        for (int i = 1; i <= samples; ++i) {
+            const double u = (double)i / (double)samples;
+            if (hitsAt(prev + u * (p - prev), t0 + u * (t1 - t0))) return true;
+        }
+        prev = p;
     }
     return false;
 }
