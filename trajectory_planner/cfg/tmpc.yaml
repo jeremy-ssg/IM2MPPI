@@ -15,7 +15,7 @@ tmpc:
   horizon_steps: 50              # 2.5 s at dt=0.05, enough for a 5 m local goal at 2 m/s
 
   # -- Lap geometry (UAV flies the lap at a fixed altitude) ------------
-  z_lap: 1.0                     # [m] horizontal-plane altitude for guidance + z_ref
+  z_lap: 1.0                     # [m] fallback altitude before odom/reference z is available
   r_uav: 0.30                    # [m] robot disc radius
 
   # -- Guidance planner (Visibility-PRM + homotopy) -------------------
@@ -24,7 +24,7 @@ tmpc:
   require_guided_topology: true  # if Visibility-PRM finds no guided topology path, brake/hold instead of driving the plain reference
   prm_samples_n: 180             # Guard/Connector sample budget for the internal Visibility-PRM
   homotopy_method: "h_signature" # h_signature | winding | uvd
-  visibility_dt: 0.20            # [s] time resolution for (x,y,t) visibility checks
+  visibility_dt: 0.20            # [s] time resolution for (x,y,z,t) visibility checks
   smoothing_resolution: 0.05     # [s] cubic-spline resampling of guidance trajectories
 
   # -- Goal grid along the reference path (Frenet placement) ----------
@@ -83,9 +83,9 @@ tmpc:
   v_ref: 2.0                     # reference cruise speed [m/s]
 
   # -- 3-D vertical avoidance (UAV) ----------------------------------
-  #   Off by default because the paper/Open-source T-MPC++ topology planner is
-  #   2-D in (x,y,t). Turn on only for UAV-specific fly-over experiments.
-  enable_vertical_avoidance: false
+  #   UAV mode uses a 3-D Visibility-PRM front-end, so vertical branches and
+  #   over-obstacle guidance are enabled by default.
+  enable_vertical_avoidance: true
   vertical_clearance: 0.4        # [m] required clearance above an obstacle's top
 
   # -- Obstacle prediction interface ---------------------------------

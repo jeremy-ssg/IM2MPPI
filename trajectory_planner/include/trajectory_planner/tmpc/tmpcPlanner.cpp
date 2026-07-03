@@ -149,7 +149,7 @@ enum class GuidanceNodeType {
 };
 
 struct GuidanceNode {
-    Eigen::Vector2d p = Eigen::Vector2d::Zero();
+    Eigen::Vector3d p = Eigen::Vector3d::Zero();
     int k = 0;
     GuidanceNodeType type = GuidanceNodeType::Guard;
     bool goal = false;
@@ -166,7 +166,7 @@ struct GuidanceCandidate {
 };
 
 static bool sameGuidanceSample(const GuidanceNode& a, const GuidanceNode& b) {
-    return a.k == b.k && (a.p - b.p).norm() < 0.18;
+    return a.k == b.k && (a.p - b.p).norm() < 0.22;
 }
 
 static int stableClassId(const std::string& sig) {
@@ -178,11 +178,11 @@ static int stableClassId(const std::string& sig) {
     return (int)(h & 0x3fffffff);
 }
 
-static Eigen::Vector2d interpolateGuidancePath(
+static Eigen::Vector3d interpolateGuidancePath(
     const std::vector<GuidanceNode>& nodes,
     const std::vector<int>& path,
     int queryK) {
-    if (path.empty()) return Eigen::Vector2d::Zero();
+    if (path.empty()) return Eigen::Vector3d::Zero();
     if (queryK <= nodes[path.front()].k) return nodes[path.front()].p;
     for (size_t i = 0; i + 1 < path.size(); ++i) {
         const GuidanceNode& a = nodes[path[i]];
@@ -225,7 +225,7 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/vz_max",              vzMax_,           1.0);
     nh_.param("tmpc/az_max",              azMax_,           2.0);
     nh_.param("tmpc/v_ref",               vRef_,            2.0);
-    nh_.param("tmpc/enable_vertical_avoidance", vertical_,  false);
+    nh_.param("tmpc/enable_vertical_avoidance", vertical_,  true);
     nh_.param("tmpc/vertical_clearance",  vClearance_,      0.4);
     nh_.param<std::string>("tmpc/prediction_source", predictionSource_, "constant_velocity");
     nh_.param("tmpc/max_obstacles",       maxObstacles_,    12);
@@ -411,6 +411,13 @@ Eigen::Vector3d tmpcPlanner::referencePoint3(const Eigen::Vector2d& xy, int k) c
     return Eigen::Vector3d(xy.x(), xy.y(), referenceZAt(k));
 }
 
+Eigen::Vector3d tmpcPlanner::guidanceVizPoint3(const Eigen::Vector3d& p,
+                                               double extraOffset) const {
+    Eigen::Vector3d q = p;
+    q.z() += guidanceProcessZOffset_ + extraOffset;
+    return q;
+}
+
 Eigen::Vector3d tmpcPlanner::guidanceVizPoint3(const Eigen::Vector2d& xy, int k,
                                                double extraOffset) const {
     Eigen::Vector3d p = referencePoint3(xy, k);
@@ -441,7 +448,7 @@ void tmpcPlanner::setObstacles(const std::vector<Eigen::Vector3d>& obstaclesPos,
 void tmpcPlanner::setReference(const std::vector<Eigen::Vector3d>& refPath) {
     refPath_ = refPath;
     // Keep a sane fallback altitude from the reference if it has one. The actual
-    // local horizon is still built at the UAV's current z so the guidance plane,
+    // local horizon is still built at the UAV's current z so the guidance volume,
     // static-map checks and RViz markers do not drift away from the vehicle.
     if (!refPath_.empty()) {
         double zsum = 0.0;
@@ -701,7 +708,7 @@ void tmpcPlanner::buildStaticAwareReference() {
 }
 
 // ---------------------------------------------------------------------------
-// Guidance: in-package Visibility-PRM in (x,y,t), following the official
+// Guidance: in-package Visibility-PRM in (x,y,z,t), following the official
 // Guard/Connector admission rule. Samples are classified into guards/connectors
 // with forward-time visibility checks against dynamic obstacle tubes and the
 // inflated static map. Each goal runs a DFS over the propagated graph, and
@@ -721,7 +728,45 @@ bool tmpcPlanner::runGuidance() {
     const double halfWidth = std::max(0.5, 0.5 * goalLatSpread_);
     const double sampleSpread = std::max(halfWidth, 0.5 * goalLatSpread_ + rUav_ + 0.5);
     const double guidanceSpeedLimit = std::max(2.0, std::max(vMax_, vRef_) + 1.0);
+    const double guidanceVzLimit = std::max(0.6, vzMax_ + 0.5);
     const int propagationSteps = std::max(1, (int)std::round(0.10 / std::max(1e-3, dt_)));
+    const double zNominal = referenceZAt(0);
+    const double zDown = 0.65;
+    const double zUp = vertical_ ? std::max(1.25, vClearance_ + 1.1) : 1.0;
+    const double softZMin = std::max(0.05, zNominal - zDown);
+    double softZMax = zNominal + zUp;
+    if (visibleStaticZMax_ > softZMin + 0.45) {
+        softZMax = std::min(softZMax, visibleStaticZMax_ - 0.05);
+    }
+    if (softZMax < zNominal + 0.25) softZMax = zNominal + zUp;
+    auto clampGuidanceZ = [&](double z) {
+        return std::max(softZMin, std::min(softZMax, z));
+    };
+    auto zLayersForK = [&](int k) {
+        std::vector<double> zs;
+        auto addZ = [&](double z) {
+            z = clampGuidanceZ(z);
+            for (double old : zs) {
+                if (std::abs(old - z) < 0.12) return;
+            }
+            zs.push_back(z);
+        };
+        addZ(referenceZAt(k));
+        addZ(zNominal);
+        addZ(0.5 * (zNominal + softZMax));
+        addZ(softZMax);
+        int obsLayers = 0;
+        for (size_t j = 0; j < obsTop_.size() && obsLayers < 3; ++j) {
+            if (k >= 0 && j < obsPredPos_.size() && k < (int)obsPredPos_[j].size()) {
+                const double dxy = (localRef_[std::min(k, (int)localRef_.size() - 1)].head<2>()
+                                  - obsPredPos_[j][k].head<2>()).norm();
+                if (dxy > sampleSpread + obsRadius_[j] + 1.0) continue;
+            }
+            addZ(obsTop_[j] + vClearance_ + 0.12);
+            ++obsLayers;
+        }
+        return zs;
+    };
     std::vector<GuidanceNode> nodes;
     std::vector<int> goalIds;
     struct StaticTopoAnchor {
@@ -740,25 +785,28 @@ bool tmpcPlanner::runGuidance() {
         return (k <= 0) ? 0.0 : staticPostCheckClearance_;
     };
 
-    auto staticFree = [&](const Eigen::Vector2d& p, int k) -> bool {
+    auto staticFree = [&](const Eigen::Vector3d& p, int k) -> bool {
         // Use the same checker as the MPC post-check. It internally handles the
         // local static point-cloud map and falls back to the global occ map when
         // available. This avoids guidance accepting samples that the solver later
         // rejects as static collisions.
-        return !pointHitsStaticMapWithMargin(
-            referencePoint3(p, k), staticMarginAtK(k));
+        return !pointHitsStaticMapWithMargin(p, staticMarginAtK(k));
     };
 
-    auto dynamicFree = [&](const Eigen::Vector2d& p, int k) -> bool {
+    auto dynamicFree = [&](const Eigen::Vector3d& p, int k) -> bool {
         for (size_t j = 0; j < obsPredPos_.size(); ++j) {
             if (k >= (int)obsPredPos_[j].size()) continue;
             const double required = rUav_ + obsRadius_[j] + safetyMargin_;
-            if ((p - obsPredPos_[j][k].head<2>()).norm() < required) return false;
+            const double dxy = (p.head<2>() - obsPredPos_[j][k].head<2>()).norm();
+            if (dxy >= required) continue;
+            if (j < obsTop_.size() && p.z() >= obsTop_[j] + vClearance_) continue;
+            return false;
         }
         return true;
     };
 
-    auto sampleFree = [&](const Eigen::Vector2d& p, int k) -> bool {
+    auto sampleFree = [&](const Eigen::Vector3d& p, int k) -> bool {
+        if (!p.allFinite()) return false;
         return staticFree(p, k) && dynamicFree(p, k);
     };
 
@@ -767,7 +815,7 @@ bool tmpcPlanner::runGuidance() {
             goalIds.push_back(id);
     };
 
-    auto addNode = [&](const Eigen::Vector2d& p, int k,
+    auto addNode = [&](const Eigen::Vector3d& p, int k,
                        GuidanceNodeType type, double goalCost) -> int {
         k = std::max(0, std::min(N, k));
         if (!sampleFree(p, k)) return -1;
@@ -815,7 +863,7 @@ bool tmpcPlanner::runGuidance() {
         for (size_t i = 0; i < nodes.size(); ++i) {
             if (nodes[i].replaced) continue;
             GuidanceVizNode v;
-            v.p = guidanceVizPoint3(nodes[i].p, nodes[i].k);
+            v.p = guidanceVizPoint3(nodes[i].p);
             if (nodes[i].type == GuidanceNodeType::Goal) {
                 v.type = 2;
             } else if (nodes[i].type == GuidanceNodeType::Connector) {
@@ -841,11 +889,11 @@ bool tmpcPlanner::runGuidance() {
         }
     };
 
-    auto nearestRefIndex = [&](const Eigen::Vector2d& p) {
+    auto nearestRefIndex = [&](const Eigen::Vector3d& p) {
         int bestK = 0;
         double bestD2 = std::numeric_limits<double>::infinity();
         for (int k = 0; k < (int)localRef_.size(); ++k) {
-            const double d2 = (p - localRef_[k].head<2>()).squaredNorm();
+            const double d2 = (p.head<2>() - localRef_[k].head<2>()).squaredNorm();
             if (d2 < bestD2) {
                 bestD2 = d2;
                 bestK = k;
@@ -854,45 +902,69 @@ bool tmpcPlanner::runGuidance() {
         return bestK;
     };
 
-    auto goalCost = [&](const Eigen::Vector2d& p) {
+    auto goalCost = [&](const Eigen::Vector3d& p) {
         const int k = nearestRefIndex(p);
         const double longCost = 2.0 * (double)std::abs(N - k) / (double)std::max(1, N);
-        const double latCost = (p - localRef_[k].head<2>()).norm();
-        return longCost + latCost;
+        const double latCost = (p.head<2>() - localRef_[k].head<2>()).norm();
+        const double zCost = 0.35 * std::abs(p.z() - referenceZAt(k));
+        return longCost + latCost + zCost;
     };
 
-    auto projectGoalToFree = [&](Eigen::Vector2d& p) -> bool {
+    auto projectGoalToFree = [&](Eigen::Vector3d& p) -> bool {
         const int k = N;
         for (size_t j = 0; j < obsPredPos_.size(); ++j) {
             if (k >= (int)obsPredPos_[j].size()) continue;
             const Eigen::Vector2d o = obsPredPos_[j][k].head<2>();
             const double required = rUav_ + obsRadius_[j] + safetyMargin_;
-            Eigen::Vector2d d = p - o;
-            if (d.norm() >= required) continue;
-            if (d.norm() < 1e-6) d = p - currPos_.head<2>();
+            Eigen::Vector2d d = p.head<2>() - o;
+            if (d.norm() >= required ||
+                (j < obsTop_.size() && p.z() >= obsTop_[j] + vClearance_)) {
+                continue;
+            }
+            Eigen::Vector3d raised = p;
+            if (j < obsTop_.size()) {
+                raised.z() = clampGuidanceZ(obsTop_[j] + vClearance_ + 0.12);
+                if (sampleFree(raised, k)) {
+                    p = raised;
+                    continue;
+                }
+            }
+            if (d.norm() < 1e-6) d = p.head<2>() - currPos_.head<2>();
             if (d.norm() < 1e-6) d = localTangent(localRef_, N);
-            p = o + d.normalized() * (required + 0.05);
+            const Eigen::Vector2d pushed = o + d.normalized() * (required + 0.05);
+            p.x() = pushed.x();
+            p.y() = pushed.y();
         }
         if (sampleFree(p, k)) return true;
 
         const double step = map_ ? std::max(0.10, map_->getRes()) : 0.10;
         const double maxRadius = std::max(1.2, staticPostCheckClearance_ + rUav_ + 0.8);
         const int dirs = 24;
-        const Eigen::Vector2d base = p;
+        const Eigen::Vector3d base = p;
+        const std::vector<double> zs = zLayersForK(k);
         for (double r = step; r <= maxRadius + 1e-9; r += step) {
             for (int d = 0; d < dirs; ++d) {
                 const double th = 2.0 * M_PI * (double)d / (double)dirs;
-                Eigen::Vector2d q = base + r * Eigen::Vector2d(std::cos(th), std::sin(th));
-                if (sampleFree(q, k)) {
-                    p = q;
-                    return true;
+                for (double z : zs) {
+                    Eigen::Vector3d q = base;
+                    q.x() += r * std::cos(th);
+                    q.y() += r * std::sin(th);
+                    q.z() = z;
+                    if (sampleFree(q, k)) {
+                        p = q;
+                        return true;
+                    }
                 }
             }
         }
         return sampleFree(p, k);
     };
 
-    const int startId = addNode(currPos_.head<2>(), 0, GuidanceNodeType::Guard, 0.0);
+    Eigen::Vector3d startPoint = currPos_;
+    if (!std::isfinite(startPoint.z()) || std::abs(startPoint.z()) < 1e-3)
+        startPoint.z() = zNominal;
+    startPoint.z() = clampGuidanceZ(startPoint.z());
+    const int startId = addNode(startPoint, 0, GuidanceNodeType::Guard, 0.0);
     if (startId < 0) {
         cacheGuidanceViz();
         lastGuidanceNodes_ = (int)nodes.size();
@@ -908,9 +980,9 @@ bool tmpcPlanner::runGuidance() {
     if (map_ || localStaticMapFresh()) {
         const int minAnchorGap = std::max(2, N / 8);
         int lastAnchorK = -1000;
-        Eigen::Vector3d prev = referencePoint3(localRef_[0].head<2>(), 0);
+        Eigen::Vector3d prev = localRef_[0];
         for (int k = 1; k < N; ++k) {
-            Eigen::Vector3d p = referencePoint3(localRef_[k].head<2>(), k);
+            Eigen::Vector3d p = localRef_[k];
             const bool blocked = segmentHitsStaticMapWithMargin(prev, p, staticPostCheckClearance_);
             prev = p;
             if (!blocked) continue;
@@ -927,11 +999,12 @@ bool tmpcPlanner::runGuidance() {
 
     bool directRefDynamicBlocked = false;
     for (int k = 1; k <= N && !directRefDynamicBlocked; ++k) {
-        const Eigen::Vector2d p = localRef_[k].head<2>();
+        const Eigen::Vector3d p = localRef_[k];
         for (size_t j = 0; j < obsPredPos_.size(); ++j) {
             if (k >= (int)obsPredPos_[j].size()) continue;
-            const double d = (p - obsPredPos_[j][k].head<2>()).norm();
-            if (d < rUav_ + obsRadius_[j] + safetyMargin_) {
+            const double d = (p.head<2>() - obsPredPos_[j][k].head<2>()).norm();
+            if (d < rUav_ + obsRadius_[j] + safetyMargin_ &&
+                !(j < obsTop_.size() && p.z() >= obsTop_[j] + vClearance_)) {
                 directRefDynamicBlocked = true;
                 break;
             }
@@ -942,41 +1015,45 @@ bool tmpcPlanner::runGuidance() {
     // Goal nodes live at k=N, matching the official guidance planner. They are not
     // deleted when the center reference is blocked; instead collision-free projection
     // and topology filtering decide which goals can actually be used.
-    Eigen::Vector2d refGoal = localRef_.back().head<2>();
-    if (projectGoalToFree(refGoal))
-        addNode(refGoal, N, GuidanceNodeType::Goal, 0.0);
+    std::vector<Eigen::Vector3d> goalSeeds;
+    goalSeeds.push_back(localRef_.back());
     for (const auto& g3 : goalGrid_) {
-        Eigen::Vector2d g = g3.head<2>();
-        const double cost = goalCost(g);
-        if (projectGoalToFree(g))
-            addNode(g, N, GuidanceNodeType::Goal, cost);
+        goalSeeds.push_back(g3);
+    }
+    for (const auto& rawGoal : goalSeeds) {
+        const std::vector<double> zs = zLayersForK(N);
+        for (double z : zs) {
+            Eigen::Vector3d g = rawGoal;
+            g.z() = z;
+            const double cost = goalCost(g);
+            if (projectGoalToFree(g))
+                addNode(g, N, GuidanceNodeType::Goal, cost);
+        }
     }
     std::sort(goalIds.begin(), goalIds.end(), [&](int a, int b) {
         return nodes[a].goalCost < nodes[b].goalCost;
     });
 
     // Space-time visibility (Visibility-PRM): forward-time, speed-feasible, clear of
-    // dynamic tubes (real clearance r_uav+r_obs+margin, per step) and the inflated
-    // static map. Used to classify samples as Guard/Connector.
-    auto isVisibleST = [&](const Eigen::Vector2d& pa, int ka,
-                           const Eigen::Vector2d& pb, int kb) -> bool {
-        Eigen::Vector2d A = pa, B = pb; int kA = ka, kB = kb;
+    // dynamic tubes in 3-D and the inflated static map. Used to classify samples as
+    // Guard/Connector. The topology signature is still computed in xy, but graph
+    // construction is now truly 3-D for the UAV.
+    auto isVisibleST = [&](const Eigen::Vector3d& pa, int ka,
+                           const Eigen::Vector3d& pb, int kb) -> bool {
+        Eigen::Vector3d A = pa, B = pb; int kA = ka, kB = kb;
         if (kA == kB) return false;
         if (kA > kB) { std::swap(A, B); std::swap(kA, kB); }
         const double dtSpan = std::max(1e-3, (double)(kB - kA) * dt_);
-        if ((B - A).norm() / dtSpan > guidanceSpeedLimit) return false;
+        const Eigen::Vector3d dAB = B - A;
+        if (dAB.head<2>().norm() / dtSpan > guidanceSpeedLimit) return false;
+        if (std::abs(dAB.z()) / dtSpan > guidanceVzLimit) return false;
         const int visStep = std::max(1, (int)std::round(visibilityDt_ / dt_));
-        Eigen::Vector3d prevStatic = referencePoint3(A, kA);
+        Eigen::Vector3d prevStatic = A;
         for (int k = kA; k <= kB; ++k) {
             const double u = (double)(k - kA) / (double)std::max(1, kB - kA);
-            const Eigen::Vector2d p2 = A + u * (B - A);
-            for (size_t j = 0; j < obsPredPos_.size(); ++j) {
-                if (k >= (int)obsPredPos_[j].size()) continue;
-                if ((p2 - obsPredPos_[j][k].head<2>()).norm() < rUav_ + obsRadius_[j] + safetyMargin_)
-                    return false;
-            }
+            const Eigen::Vector3d p3 = A + u * (B - A);
+            if (!dynamicFree(p3, k)) return false;
             if ((k - kA) % visStep == 0 || k == kB) {
-                const Eigen::Vector3d p3 = referencePoint3(p2, k);
                 if (segmentHitsStaticMapWithMargin(prevStatic, p3, staticMarginAtK(k))) return false;
                 prevStatic = p3;
             }
@@ -990,15 +1067,15 @@ bool tmpcPlanner::runGuidance() {
     // Connector construction used for topology-distinct guidance paths.
 
     auto makeTrajectoryFromWaypoints =
-        [&](std::vector<std::pair<int, Eigen::Vector2d>> pts) {
+        [&](std::vector<std::pair<int, Eigen::Vector3d>> pts) {
             std::sort(pts.begin(), pts.end(),
-                      [](const std::pair<int, Eigen::Vector2d>& a,
-                         const std::pair<int, Eigen::Vector2d>& b) {
+                      [](const std::pair<int, Eigen::Vector3d>& a,
+                         const std::pair<int, Eigen::Vector3d>& b) {
                           return a.first < b.first;
                       });
             std::vector<Eigen::Vector3d> traj(N + 1);
             for (int k = 0; k <= N; ++k) {
-                Eigen::Vector2d p = pts.front().second;
+                Eigen::Vector3d p = pts.front().second;
                 if (k <= pts.front().first) {
                     p = pts.front().second;
                 } else if (k >= pts.back().first) {
@@ -1012,7 +1089,7 @@ bool tmpcPlanner::runGuidance() {
                         break;
                     }
                 }
-                traj[k] = referencePoint3(p, k);
+                traj[k] = p;
             }
             return traj;
         };
@@ -1027,13 +1104,7 @@ bool tmpcPlanner::runGuidance() {
                     prev, p3, std::max(staticMarginAtK(k - 1), staticMarginAtK(k)))) {
                 return false;
             }
-            if (k > 0) {
-                for (size_t j = 0; j < obsPredPos_.size(); ++j) {
-                    if (k >= (int)obsPredPos_[j].size()) continue;
-                    const double d = (p3.head<2>() - obsPredPos_[j][k].head<2>()).norm();
-                    if (d < rUav_ + obsRadius_[j] + safetyMargin_) return false;
-                }
-            }
+            if (k > 0 && !dynamicFree(p3, k)) return false;
             prev = p3;
         }
         return true;
@@ -1059,6 +1130,13 @@ bool tmpcPlanner::runGuidance() {
             // signature and fragment equivalent topology classes.
             if (minClear >= halfWidth + safetyMargin_ + 0.8) continue;
 
+            if (bestK < (int)obsPredPos_[j].size() && j < obsTop_.size() &&
+                traj[bestK].z() >= obsTop_[j] + vClearance_) {
+                oss << j << ":OVER;";
+                ++relevant;
+                continue;
+            }
+
             double wind = 0.0;
             for (int k = 1; k <= N && k < (int)obsPredPos_[j].size(); ++k) {
                 Eigen::Vector2d a = traj[k - 1].head<2>() - obsPredPos_[j][k - 1].head<2>();
@@ -1078,7 +1156,11 @@ bool tmpcPlanner::runGuidance() {
             const int k = std::max(0, std::min(N, a.k));
             const Eigen::Vector2d rel = traj[k].head<2>() - a.p;
             const double signedSide = cross2d(a.tangent, rel);
-            if (std::abs(signedSide) > 0.05) {
+            const double dz = traj[k].z() - referenceZAt(k);
+            if (dz > 0.35) {
+                oss << "S" << a.k << "U;";
+                ++relevant;
+            } else if (std::abs(signedSide) > 0.05) {
                 oss << "S" << a.k << (signedSide >= 0.0 ? "L" : "R") << ";";
                 ++relevant;
             }
@@ -1088,22 +1170,22 @@ bool tmpcPlanner::runGuidance() {
     };
 
     auto connectorTrajectorySignature =
-        [&](int aId, const Eigen::Vector2d& p, int k, int bId) {
-            std::vector<std::pair<int, Eigen::Vector2d>> pts;
+        [&](int aId, const Eigen::Vector3d& p, int k, int bId) {
+            std::vector<std::pair<int, Eigen::Vector3d>> pts;
             pts.push_back({nodes[aId].k, nodes[aId].p});
             pts.push_back({k, p});
             pts.push_back({nodes[bId].k, nodes[bId].p});
             return topologySignature(makeTrajectoryFromWaypoints(pts));
         };
 
-    auto connectorCost = [&](int aId, const Eigen::Vector2d& p, int k, int bId) {
-        std::vector<std::pair<int, Eigen::Vector2d>> pts;
+    auto connectorCost = [&](int aId, const Eigen::Vector3d& p, int k, int bId) {
+        std::vector<std::pair<int, Eigen::Vector3d>> pts;
         pts.push_back({nodes[aId].k, nodes[aId].p});
         pts.push_back({k, p});
         pts.push_back({nodes[bId].k, nodes[bId].p});
         std::sort(pts.begin(), pts.end(),
-                  [](const std::pair<int, Eigen::Vector2d>& a,
-                     const std::pair<int, Eigen::Vector2d>& b) {
+                  [](const std::pair<int, Eigen::Vector3d>& a,
+                     const std::pair<int, Eigen::Vector3d>& b) {
                       return a.first < b.first;
                   });
         double length = 0.0;
@@ -1116,32 +1198,35 @@ bool tmpcPlanner::runGuidance() {
         return length + gc;
     };
 
-    auto connectorPathValid = [&](int aId, const Eigen::Vector2d& p, int k, int bId) {
+    auto connectorPathValid = [&](int aId, const Eigen::Vector3d& p, int k, int bId) {
         const int ka = nodes[aId].k;
         const int kb = nodes[bId].k;
         if (k <= std::min(ka, kb) || k >= std::max(ka, kb)) return false;
         if (!isVisibleST(nodes[aId].p, ka, p, k)) return false;
         if (!isVisibleST(p, k, nodes[bId].p, kb)) return false;
 
-        std::vector<std::pair<int, Eigen::Vector2d>> pts;
+        std::vector<std::pair<int, Eigen::Vector3d>> pts;
         pts.push_back({ka, nodes[aId].p});
         pts.push_back({k, p});
         pts.push_back({kb, nodes[bId].p});
         std::sort(pts.begin(), pts.end(),
-                  [](const std::pair<int, Eigen::Vector2d>& a,
-                     const std::pair<int, Eigen::Vector2d>& b) {
+                  [](const std::pair<int, Eigen::Vector3d>& a,
+                     const std::pair<int, Eigen::Vector3d>& b) {
                       return a.first < b.first;
                   });
         if (pts[0].first == pts[1].first || pts[1].first == pts[2].first) return false;
         const double dt01 = (double)(pts[1].first - pts[0].first) * dt_;
         const double dt12 = (double)(pts[2].first - pts[1].first) * dt_;
-        const Eigen::Vector2d v01 = (pts[1].second - pts[0].second) / std::max(1e-3, dt01);
-        const Eigen::Vector2d v12 = (pts[2].second - pts[1].second) / std::max(1e-3, dt12);
-        if (v01.norm() > guidanceSpeedLimit || v12.norm() > guidanceSpeedLimit) return false;
+        const Eigen::Vector3d v01 = (pts[1].second - pts[0].second) / std::max(1e-3, dt01);
+        const Eigen::Vector3d v12 = (pts[2].second - pts[1].second) / std::max(1e-3, dt12);
+        if (v01.head<2>().norm() > guidanceSpeedLimit || v12.head<2>().norm() > guidanceSpeedLimit)
+            return false;
+        if (std::abs(v01.z()) > guidanceVzLimit || std::abs(v12.z()) > guidanceVzLimit)
+            return false;
         return guidanceTrajectorySafe(makeTrajectoryFromWaypoints(pts));
     };
 
-    auto addConnector = [&](int aId, const Eigen::Vector2d& p, int k, int bId) -> int {
+    auto addConnector = [&](int aId, const Eigen::Vector3d& p, int k, int bId) -> int {
         if (aId < 0 || bId < 0 || aId == bId) return -1;
         if (!connectorPathValid(aId, p, k, bId)) return -1;
         const std::string newSig = connectorTrajectorySignature(aId, p, k, bId);
@@ -1172,7 +1257,7 @@ bool tmpcPlanner::runGuidance() {
     };
 
     struct GuidanceSample {
-        Eigen::Vector2d p = Eigen::Vector2d::Zero();
+        Eigen::Vector3d p = Eigen::Vector3d::Zero();
         int k = 0;
     };
     std::vector<GuidanceSample> samples;
@@ -1189,7 +1274,7 @@ bool tmpcPlanner::runGuidance() {
             (size_t)std::min(maxSamplesViz, (int)samplesToCache.size()));
         for (size_t i = 0; i < samplesToCache.size(); i += (size_t)stride) {
             lastGuidanceVizSamples_.push_back(
-                guidanceVizPoint3(samplesToCache[i].p, samplesToCache[i].k, -0.03));
+                guidanceVizPoint3(samplesToCache[i].p, -0.03));
         }
     };
 
@@ -1209,15 +1294,27 @@ bool tmpcPlanner::runGuidance() {
         const double alphas[] = {0.25, 0.50, 0.75};
         for (double a : alphas) {
             const int k = std::max(1, std::min(N - 1, (int)std::round(a * (double)N)));
-            const Eigen::Vector2d base = (1.0 - a) * currPos_.head<2>() + a * nodes[gid].p;
+            const Eigen::Vector3d base = (1.0 - a) * startPoint + a * nodes[gid].p;
             Eigen::Vector2d t = localTangent(localRef_, k);
-            if (t.norm() < 1e-6) t = (nodes[gid].p - currPos_.head<2>());
+            if (t.norm() < 1e-6) t = (nodes[gid].p.head<2>() - startPoint.head<2>());
             if (t.norm() < 1e-6) t = Eigen::Vector2d::UnitX();
             t.normalize();
             const Eigen::Vector2d nrm(-t.y(), t.x());
             const double offs[] = {0.0, -0.35 * sampleSpread, 0.35 * sampleSpread,
                                    -0.70 * sampleSpread, 0.70 * sampleSpread};
-            for (double off : offs) samples.push_back({base + off * nrm, k});
+            for (double off : offs) {
+                Eigen::Vector3d q = base;
+                q.x() += off * nrm.x();
+                q.y() += off * nrm.y();
+                samples.push_back({q, k});
+                if (std::abs(off) < 1e-9) {
+                    for (double z : zLayersForK(k)) {
+                        Eigen::Vector3d qz = q;
+                        qz.z() = z;
+                        samples.push_back({qz, k});
+                    }
+                }
+            }
         }
     }
 
@@ -1232,12 +1329,20 @@ bool tmpcPlanner::runGuidance() {
         for (const auto& anchor : staticAnchors) {
             for (int dk : timeOffsets) {
                 const int k = std::max(1, std::min(N - 1, anchor.k + dk));
-                const Eigen::Vector2d c = localRef_[k].head<2>();
+                const Eigen::Vector3d c = localRef_[k];
                 Eigen::Vector2d t = localTangent(localRef_, k);
                 if (t.norm() < 1e-6) t = anchor.tangent;
                 t.normalize();
                 const Eigen::Vector2d nrm(-t.y(), t.x());
-                for (double off : offsets) samples.push_back({c + off * nrm, k});
+                for (double off : offsets) {
+                    for (double z : zLayersForK(k)) {
+                        Eigen::Vector3d q = c;
+                        q.x() += off * nrm.x();
+                        q.y() += off * nrm.y();
+                        q.z() = z;
+                        samples.push_back({q, k});
+                    }
+                }
             }
         }
     }
@@ -1248,17 +1353,23 @@ bool tmpcPlanner::runGuidance() {
         (uint32_t)(++guidanceSampleCounter_ * 2654435761u) ^
         (uint32_t)(obsPredPos_.size() * 131u) ^
         (uint32_t)(std::llround((currPos_.x() + 50.0) * 10.0) * 73856093u) ^
-        (uint32_t)(std::llround((currPos_.y() + 50.0) * 10.0) * 19349663u);
+        (uint32_t)(std::llround((currPos_.y() + 50.0) * 10.0) * 19349663u) ^
+        (uint32_t)(std::llround((zNominal + 20.0) * 10.0) * 83492791u);
     std::mt19937 rng(seed);
     std::uniform_int_distribution<int> kDist(1, std::max(1, N - 1));
     std::uniform_real_distribution<double> latDist(-sampleSpread, sampleSpread);
+    std::uniform_real_distribution<double> zDist(softZMin, softZMax);
     const int sampleBudget = std::max(20, prmSamplesN_);
     for (int iter = 0; iter < sampleBudget; ++iter) {
         const int k = kDist(rng);
-        const Eigen::Vector2d c = localRef_[k].head<2>();
+        Eigen::Vector3d c = localRef_[k];
         const Eigen::Vector2d t = localTangent(localRef_, k);
         const Eigen::Vector2d nrm(-t.y(), t.x());
-        samples.push_back({c + latDist(rng) * nrm, k});
+        const double lat = latDist(rng);
+        c.x() += lat * nrm.x();
+        c.y() += lat * nrm.y();
+        c.z() = zDist(rng);
+        samples.push_back({c, k});
     }
 
     // Low-discrepancy deterministic corridor samples keep the graph connected when
@@ -1271,12 +1382,18 @@ bool tmpcPlanner::runGuidance() {
         for (int s = 1; s <= longSamples; ++s) {
             const int k = std::max(1, std::min(N - 1,
                 (int)std::round((double)s * N / (double)(longSamples + 1))));
-            const Eigen::Vector2d c = localRef_[k].head<2>();
+            const Eigen::Vector3d c = localRef_[k];
             const Eigen::Vector2d t = localTangent(localRef_, k);
             const Eigen::Vector2d nrm(-t.y(), t.x());
             for (int li = -halfLat; li <= halfLat; ++li) {
                 const double off = (halfLat > 0) ? sampleSpread * (double)li / (double)halfLat : 0.0;
-                samples.push_back({c + off * nrm, k});
+                for (double z : zLayersForK(k)) {
+                    Eigen::Vector3d q = c;
+                    q.x() += off * nrm.x();
+                    q.y() += off * nrm.y();
+                    q.z() = z;
+                    samples.push_back({q, k});
+                }
             }
         }
     }
@@ -1299,8 +1416,16 @@ bool tmpcPlanner::runGuidance() {
             const Eigen::Vector2d t = localTangent(localRef_, k);
             const Eigen::Vector2d nrm(-t.y(), t.x());
             const Eigen::Vector2d o = obsPredPos_[j][k].head<2>();
-            samples.push_back({o + sep * nrm, k});
-            samples.push_back({o - sep * nrm, k});
+            const std::vector<double> zs = zLayersForK(k);
+            for (double z : zs) {
+                samples.push_back({Eigen::Vector3d(o.x() + sep * nrm.x(), o.y() + sep * nrm.y(), z), k});
+                samples.push_back({Eigen::Vector3d(o.x() - sep * nrm.x(), o.y() - sep * nrm.y(), z), k});
+            }
+            if (j < obsTop_.size()) {
+                Eigen::Vector3d over(localRef_[k].x(), localRef_[k].y(),
+                                     clampGuidanceZ(obsTop_[j] + vClearance_ + 0.15));
+                samples.push_back({over, k});
+            }
         }
     }
 
@@ -1316,7 +1441,7 @@ bool tmpcPlanner::runGuidance() {
     }
 
     auto classifySample = [&](const GuidanceSample& sample) {
-        const Eigen::Vector2d p = sample.p;
+        const Eigen::Vector3d p = sample.p;
         const int k = std::max(1, std::min(N - 1, sample.k));
         if (!sampleFree(p, k)) return;
 
@@ -1380,8 +1505,7 @@ bool tmpcPlanner::runGuidance() {
     auto makeTrajectory = [&](const std::vector<int>& path) {
         std::vector<Eigen::Vector3d> traj(N + 1);
         for (int k = 0; k <= N; ++k) {
-            Eigen::Vector2d p = interpolateGuidancePath(nodes, path, k);
-            traj[k] = referencePoint3(p, k);
+            traj[k] = interpolateGuidancePath(nodes, path, k);
         }
         // Smooth the piecewise-linear guidance so the local MPC tracks a smooth
         // reference (the paper fits cubic splines) -> smoother optimized trajectory.
@@ -1477,9 +1601,24 @@ bool tmpcPlanner::runGuidance() {
         if ((int)candidates.size() >= std::max(1, numTrajP_)) break;
     }
 
+    auto guidanceUsesVerticalOvertake = [&](const std::vector<Eigen::Vector3d>& traj) {
+        for (int k = 1; k < (int)traj.size() && k <= N; ++k) {
+            for (size_t j = 0; j < obsPredPos_.size(); ++j) {
+                if (k >= (int)obsPredPos_[j].size() || j >= obsTop_.size()) continue;
+                const double dxy = (traj[k].head<2>() - obsPredPos_[j][k].head<2>()).norm();
+                if (dxy < rUav_ + obsRadius_[j] + safetyMargin_ + 0.25 &&
+                    traj[k].z() >= obsTop_[j] + vClearance_) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
     for (const auto& cand : candidates) {
         TMPCBranch b;
         b.guided = true;
+        b.overTake = guidanceUsesVerticalOvertake(cand.traj);
         b.classId = stableClassId(cand.signature);
         b.guidanceTraj = cand.traj;
         branches_.push_back(std::move(b));
@@ -1536,7 +1675,7 @@ bool tmpcPlanner::runGuidance() {
         if (!b.guided || prevGuidanceSeed_.size() >= maxPrevSeeds) continue;
         for (int k = 2; k <= N && prevGuidanceSeed_.size() < maxPrevSeeds; k += 4) {
             if (k < (int)b.guidanceTraj.size()) {
-                prevGuidanceSeed_.emplace_back(b.guidanceTraj[k].head<2>(), k);
+                prevGuidanceSeed_.emplace_back(b.guidanceTraj[k], k);
             }
         }
     }
@@ -2201,6 +2340,7 @@ bool tmpcPlanner::segmentHitsStaticMapWithMargin(const Eigen::Vector3d& a,
 
 bool tmpcPlanner::trajectoryHitsDynamicObstacles(const std::vector<Eigen::VectorXd>& states,
                                                  bool allowVerticalOvertake) const {
+    (void)allowVerticalOvertake;
     if (obsPredPos_.empty()) return false;
     for (size_t k = 1; k < states.size(); ++k) {
         const auto& s = states[k];
@@ -2211,8 +2351,7 @@ bool tmpcPlanner::trajectoryHitsDynamicObstacles(const std::vector<Eigen::Vector
             const double required = rUav_ + obsRadius_[j] + safetyMargin_;
             const double dxy = (p - obsPredPos_[j][k].head<2>()).norm();
             if (dxy >= required) continue;
-            if (allowVerticalOvertake && j < obsTop_.size() &&
-                s(2) >= obsTop_[j] + vClearance_) {
+            if (j < obsTop_.size() && s(2) >= obsTop_[j] + vClearance_) {
                 continue;
             }
             return true;
@@ -2346,8 +2485,11 @@ void tmpcPlanner::publishGuidancePaths() const {
     addNodeList(2, mid++, 0.10, 0.95, 0.25, 1.70 * guidanceNodeScale_);  // goals
 
     for (size_t i = 0; i < branches_.size(); ++i) {
-        if (!branches_[i].guided || branches_[i].overTake) continue;
+        if (!branches_[i].guided) continue;
         double rgb[3]; guidancePalette((size_t)guidedCount, rgb);
+        if (branches_[i].overTake) {
+            rgb[0] = 0.20; rgb[1] = 0.85; rgb[2] = 1.00;
+        }
         auto m = lineMarker(mid++, rgb[0], rgb[1], rgb[2], 0.11, "tmpc_guidance");
         m.color.a = 1.0;
         const double zOffset = guidanceProcessZOffset_ + 0.05 * (double)guidedCount;

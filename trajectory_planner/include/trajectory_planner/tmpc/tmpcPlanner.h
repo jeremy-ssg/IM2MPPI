@@ -8,7 +8,7 @@
 
         1. setObstacles()  : detector obstacles -> constant-velocity predictions
         2. setReference()  : ref path + ego state -> static-aware local reference
-        3. runGuidance()   : internal Visibility-PRM -> P topology-distinct (x,y,t) trajs,
+        3. runGuidance()   : internal Visibility-PRM -> P topology-distinct (x,y,z,t) trajs,
                              lifted to 3D at z_lap
         4. optimizeBranches(): for each guidance traj i (plus 1 unguided in T-MPC++),
                              solve a local MPC tracking that traj and locked to its
@@ -17,7 +17,7 @@
 
     DESIGN STATUS (see trajectory_planner/docs/TMPC_INTEGRATION.md):
       - The topology part is implemented locally: a Guard/Connector Visibility-PRM in
-        (x,y,t), per-goal DFS path enumeration, and topology-signature filtering. This
+        (x,y,z,t), per-goal DFS path enumeration, and topology-signature filtering. This
         keeps the benchmark self-contained while following the official T-MPC++ pipeline.
       - The local planner is the in-package OSQP double-integrator MPC. Guided
         branches track their own topology path and add Eq.8/Eq.9 half-plane
@@ -57,7 +57,7 @@ struct TMPCBranch {
     bool                           feasible = false;
     std::string                    status = "pending";
     double                         cost = std::numeric_limits<double>::infinity(); // J_i*
-    std::vector<Eigen::Vector3d>   guidanceTraj;     // 3D, z=z_lap (warm start source)
+    std::vector<Eigen::Vector3d>   guidanceTraj;     // 3D guidance/warm-start source
     std::vector<Eigen::VectorXd>   statesSol;        // local-MPC optimized states
     std::vector<Eigen::VectorXd>   controlsSol;
 };
@@ -160,6 +160,8 @@ private:
     void updateDiagnosticsAfterSolve();
     double referenceZAt(int k) const;
     Eigen::Vector3d referencePoint3(const Eigen::Vector2d& xy, int k) const;
+    Eigen::Vector3d guidanceVizPoint3(const Eigen::Vector3d& p,
+                                      double extraOffset = 0.0) const;
     Eigen::Vector3d guidanceVizPoint3(const Eigen::Vector2d& xy, int k,
                                       double extraOffset = 0.0) const;
 
@@ -266,7 +268,7 @@ private:
     int  prevClassId_  = -1;     // executed class last iteration (consistency)
     // Visibility-PRM graph propagation: guidance samples from the previous iteration,
     // re-seeded (time-decremented) so topology classes persist across cycles.
-    std::vector<std::pair<Eigen::Vector2d, int>> prevGuidanceSeed_;
+    std::vector<std::pair<Eigen::Vector3d, int>> prevGuidanceSeed_;
     std::vector<Eigen::Vector3d> lastGuidanceVizSamples_;
     std::vector<GuidanceVizNode> lastGuidanceVizNodes_;
     std::vector<std::pair<int, int>> lastGuidanceVizEdges_;
