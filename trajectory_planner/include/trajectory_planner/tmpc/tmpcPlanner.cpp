@@ -206,7 +206,7 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/num_trajectories_P",  numTrajP_,        4);
     nh_.param("tmpc/add_unguided_planner",addUnguided_,     true);
     nh_.param("tmpc/require_guided_topology", requireGuidedTopology_, true);
-    nh_.param("tmpc/prm_samples_n",       prmSamplesN_,     100);
+    nh_.param("tmpc/prm_samples_n",       prmSamplesN_,     300);
     nh_.param<std::string>("tmpc/homotopy_method", homotopyMethod_, "h_signature");
     nh_.param("tmpc/visibility_dt",       visibilityDt_,    0.20);
     nh_.param("tmpc/smoothing_resolution",smoothingRes_,    0.05);
@@ -286,6 +286,14 @@ void tmpcPlanner::initParam() {
     ROS_INFO("[tmpcPlanner] init: P=%d unguided=%d require_guided=%d horizon=%d dt=%.3f z_lap=%.2f pred=%s",
              numTrajP_, (int)addUnguided_, (int)requireGuidedTopology_,
              horizon_, dt_, zLap_, predictionSource_.c_str());
+    if (predictionSource_ != "constant_velocity") {
+        ROS_WARN("[tmpcPlanner] prediction_source=%s requested, but this implementation is locked to constant_velocity.",
+                 predictionSource_.c_str());
+    }
+    if (homotopyMethod_ != "h_signature") {
+        ROS_WARN("[tmpcPlanner] homotopy_method=%s requested, but this implementation currently uses h_signature topology signatures.",
+                 homotopyMethod_.c_str());
+    }
 }
 
 void tmpcPlanner::setMap(const std::shared_ptr<mapManager::occMap>& map) { map_ = map; }
@@ -387,9 +395,21 @@ void tmpcPlanner::updateCurrStates(const Eigen::Vector3d& pos,
 void tmpcPlanner::setObstacles(const std::vector<Eigen::Vector3d>& obstaclesPos,
                                const std::vector<Eigen::Vector3d>& obstaclesVel,
                                const std::vector<Eigen::Vector3d>& obstaclesSize) {
-    obsPos_  = obstaclesPos;
-    obsVel_  = obstaclesVel;
-    obsSize_ = obstaclesSize;
+    // Keep the three obstacle arrays index-consistent. The prediction builder uses
+    // the same index j to read position, velocity and size; a size mismatch would
+    // otherwise become an out-of-bounds read and can randomly break guidance.
+    const size_t n = std::min(obstaclesPos.size(),
+                              std::min(obstaclesVel.size(), obstaclesSize.size()));
+    obsPos_.assign(obstaclesPos.begin(), obstaclesPos.begin() + n);
+    obsVel_.assign(obstaclesVel.begin(), obstaclesVel.begin() + n);
+    obsSize_.assign(obstaclesSize.begin(), obstaclesSize.begin() + n);
+
+    if (obstaclesPos.size() != obstaclesVel.size() ||
+        obstaclesPos.size() != obstaclesSize.size()) {
+        ROS_WARN_THROTTLE(1.0,
+            "[tmpcPlanner] obstacle array size mismatch: pos=%zu vel=%zu size=%zu; using first %zu obstacles.",
+            obstaclesPos.size(), obstaclesVel.size(), obstaclesSize.size(), n);
+    }
 }
 
 void tmpcPlanner::setReference(const std::vector<Eigen::Vector3d>& refPath) {
@@ -683,7 +703,10 @@ bool tmpcPlanner::runGuidance() {
     };
 
     auto staticFree = [&](const Eigen::Vector2d& p, int k) -> bool {
-        if (!map_) return true;
+        // Use the same checker as the MPC post-check. It internally handles the
+        // local static point-cloud map and falls back to the global occ map when
+        // available. This avoids guidance accepting samples that the solver later
+        // rejects as static collisions.
         return !pointHitsStaticMapWithMargin(
             Eigen::Vector3d(p.x(), p.y(), zLap_), staticMarginAtK(k));
     };
@@ -837,7 +860,7 @@ bool tmpcPlanner::runGuidance() {
 
     // Static-obstacle anchors (for the topology signature's static left/right).
     bool directRefStaticBlocked = false;
-    if (map_) {
+    if (map_ || localStaticMapFresh()) {
         const int minAnchorGap = std::max(2, N / 8);
         int lastAnchorK = -1000;
         Eigen::Vector3d prev = localRef_[0]; prev.z() = zLap_;
@@ -907,7 +930,7 @@ bool tmpcPlanner::runGuidance() {
                 if ((p2 - obsPredPos_[j][k].head<2>()).norm() < rUav_ + obsRadius_[j] + safetyMargin_)
                     return false;
             }
-            if (map_ && ((k - kA) % visStep == 0 || k == kB)) {
+            if ((k - kA) % visStep == 0 || k == kB) {
                 const Eigen::Vector3d p3(p2.x(), p2.y(), zLap_);
                 if (segmentHitsStaticMapWithMargin(prevStatic, p3, staticMarginAtK(k))) return false;
                 prevStatic = p3;
@@ -915,6 +938,11 @@ bool tmpcPlanner::runGuidance() {
         }
         return true;
     };
+
+    // Keep the paper's Visibility-PRM admission rule: start and goals are guard-like
+    // nodes, but graph connectivity is created by Connector samples. We deliberately
+    // do not add a direct start-goal edge here, because that bypasses the Guard /
+    // Connector construction used for topology-distinct guidance paths.
 
     auto makeTrajectoryFromWaypoints =
         [&](std::vector<std::pair<int, Eigen::Vector2d>> pts) {
@@ -949,12 +977,10 @@ bool tmpcPlanner::runGuidance() {
         Eigen::Vector3d prev = traj.front();
         for (int k = 0; k <= N; ++k) {
             const Eigen::Vector3d& p3 = traj[k];
-            if (map_) {
-                if (pointHitsStaticMapWithMargin(p3, staticMarginAtK(k))) return false;
-                if (k > 0 && segmentHitsStaticMapWithMargin(
-                        prev, p3, std::max(staticMarginAtK(k - 1), staticMarginAtK(k)))) {
-                    return false;
-                }
+            if (pointHitsStaticMapWithMargin(p3, staticMarginAtK(k))) return false;
+            if (k > 0 && segmentHitsStaticMapWithMargin(
+                    prev, p3, std::max(staticMarginAtK(k - 1), staticMarginAtK(k)))) {
+                return false;
             }
             if (k > 0) {
                 for (size_t j = 0; j < obsPredPos_.size(); ++j) {
@@ -983,7 +1009,10 @@ bool tmpcPlanner::runGuidance() {
                     bestK = k;
                 }
             }
-            if (minClear >= halfWidth + rUav_ + obsRadius_[j] + 0.8) continue;
+            // minClear is already measured after subtracting r_uav+r_obs. Do not
+            // add the radii again here, otherwise far-away obstacles enter the
+            // signature and fragment equivalent topology classes.
+            if (minClear >= halfWidth + safetyMargin_ + 0.8) continue;
 
             double wind = 0.0;
             for (int k = 1; k <= N && k < (int)obsPredPos_[j].size(); ++k) {
@@ -1118,9 +1147,25 @@ bool tmpcPlanner::runGuidance() {
         if (k >= 1 && k <= N - 1) samples.push_back({seed.first, k});
     }
 
+    // Deterministic bridge candidates between the start and each goal. These do not
+    // change the Visibility-PRM rule: a candidate is still kept only if it sees zero
+    // guard-like nodes (Guard) or forms a valid Connector. They only reduce the
+    // probability that the random sampler misses the narrow set of points visible to
+    // both the start-side graph and a goal.
     for (int gid : goalIds) {
-        const int midK = std::max(1, std::min(N - 1, N / 2));
-        samples.push_back({0.5 * (currPos_.head<2>() + nodes[gid].p), midK});
+        const double alphas[] = {0.25, 0.50, 0.75};
+        for (double a : alphas) {
+            const int k = std::max(1, std::min(N - 1, (int)std::round(a * (double)N)));
+            const Eigen::Vector2d base = (1.0 - a) * currPos_.head<2>() + a * nodes[gid].p;
+            Eigen::Vector2d t = localTangent(localRef_, k);
+            if (t.norm() < 1e-6) t = (nodes[gid].p - currPos_.head<2>());
+            if (t.norm() < 1e-6) t = Eigen::Vector2d::UnitX();
+            t.normalize();
+            const Eigen::Vector2d nrm(-t.y(), t.x());
+            const double offs[] = {0.0, -0.35 * sampleSpread, 0.35 * sampleSpread,
+                                   -0.70 * sampleSpread, 0.70 * sampleSpread};
+            for (double off : offs) samples.push_back({base + off * nrm, k});
+        }
     }
 
     // Deterministic connector candidates around static blocks. Random samples alone
@@ -1192,7 +1237,8 @@ bool tmpcPlanner::runGuidance() {
                                - (rUav_ + obsRadius_[j]);
             if (clear < bestClear) { bestClear = clear; bestK = k; }
         }
-        if (bestClear > sampleSpread + rUav_ + obsRadius_[j] + 1.0) continue;
+        // bestClear is also clearance after subtracting r_uav+r_obs.
+        if (bestClear > sampleSpread + safetyMargin_ + 1.0) continue;
         const double sep = rUav_ + obsRadius_[j] + std::max(0.55, 0.35 * goalLatSpread_);
         for (int dk : {-4, -2, 0, 2, 4}) {
             const int k = std::max(1, std::min(N - 1, bestK + dk));
@@ -1224,6 +1270,9 @@ bool tmpcPlanner::runGuidance() {
         for (size_t i = 0; i < nodes.size(); ++i) {
             if (nodes[i].replaced || nodes[i].type != GuidanceNodeType::Guard) continue;
             if (isVisibleST(p, k, nodes[i].p, nodes[i].k)) visibleGuards.push_back((int)i);
+            // Standard Visibility-PRM only accepts exactly two visible Guards as a
+            // Connector. More than two visible Guards means this sample does not
+            // define a sparse, topology-separating connection, so it is discarded.
             if (visibleGuards.size() > 2) break;
         }
 
@@ -1232,12 +1281,22 @@ bool tmpcPlanner::runGuidance() {
             if (nodes[gid].replaced) continue;
             if (isVisibleST(p, k, nodes[gid].p, nodes[gid].k)) visibleGoals.push_back(gid);
         }
+        std::sort(visibleGoals.begin(), visibleGoals.end(), [&](int a, int b) {
+            const double sa = nodes[a].goalCost + 0.05 * (p - nodes[a].p).norm();
+            const double sb = nodes[b].goalCost + 0.05 * (p - nodes[b].p).norm();
+            return sa < sb;
+        });
 
         if (visibleGoals.empty() && visibleGuards.empty()) {
+            // Guard: no other guard-like node is visible from this sample.
             addNode(p, k, GuidanceNodeType::Guard, 0.0);
         } else if (visibleGoals.empty() && visibleGuards.size() == 2) {
+            // Connector: exactly two Guards are visible.
             addConnector(visibleGuards[0], p, k, visibleGuards[1]);
         } else if (!visibleGoals.empty() && visibleGuards.size() == 1) {
+            // Multi-goal extension from the paper: if a connector can connect to
+            // multiple goals, select the best goal. Samples with one visible Guard
+            // and no visible Goal are intentionally discarded.
             for (int gid : visibleGoals) {
                 if (addConnector(visibleGuards[0], p, k, gid) >= 0) break;
             }
@@ -1255,7 +1314,9 @@ bool tmpcPlanner::runGuidance() {
         }
         // Smooth the piecewise-linear guidance so the local MPC tracks a smooth
         // reference (the paper fits cubic splines) -> smoother optimized trajectory.
-        std::vector<Eigen::Vector3d> smoothed = smoothPolyline(traj, 2);
+        const int smoothingPasses = std::max(0, std::min(6,
+            (int)std::round(0.10 / std::max(1e-3, smoothingRes_))));
+        std::vector<Eigen::Vector3d> smoothed = smoothPolyline(traj, smoothingPasses);
         return guidanceTrajectorySafe(smoothed) ? smoothed : traj;
     };
 
@@ -1273,6 +1334,8 @@ bool tmpcPlanner::runGuidance() {
 
     std::vector<GuidanceCandidate> rawCandidates;
     auto addRawCandidate = [&](const std::vector<int>& path) -> bool {
+        // A valid Visibility-PRM guidance path should contain at least one Connector
+        // between the start-side Guard and a Goal.
         if (path.size() < 3 || !nodes[path.back()].goal) return false;
         GuidanceCandidate cand;
         cand.nodes = path;
@@ -1358,10 +1421,10 @@ bool tmpcPlanner::runGuidance() {
         lastPlanStatus_ = "no_guided_topology";
         ROS_WARN_THROTTLE(1.0,
             "[tmpcPlanner] internal Visibility-PRM found no guided topology path "
-            "(nodes=%zu goals=%zu expansions=%d ref_blocked=%d static=%d dynamic=%d); "
+            "(nodes=%zu goals=%zu raw=%zu samples=%zu expansions=%d ref_blocked=%d static=%d dynamic=%d); "
             "rejecting this plan instead of using a straight unguided fallback.",
-            nodes.size(), goalIds.size(), expansions, (int)directReferenceBlocked,
-            (int)directRefStaticBlocked, (int)directRefDynamicBlocked);
+            nodes.size(), goalIds.size(), rawCandidates.size(), samples.size(), expansions,
+            (int)directReferenceBlocked, (int)directRefStaticBlocked, (int)directRefDynamicBlocked);
         if (requireGuidedTopology_) return false;
     }
 
@@ -1855,6 +1918,10 @@ void tmpcPlanner::decide() {
 bool tmpcPlanner::plan() {
     auto t0 = std::chrono::steady_clock::now();
     resetDiagnostics();
+    // Never let downstream getters/controllers reuse a stale branch after a failed
+    // guidance/solve cycle. prevClassId_ is intentionally kept for consistency.
+    bestIdx_ = -1;
+    bestClassId_ = -1;
 
     buildConstantVelocityPredictions();
     buildGoalGrid();
@@ -1870,6 +1937,8 @@ bool tmpcPlanner::plan() {
     }
     if (!runGuidance()) {
         planTimeMs_ = 0.0;
+        bestIdx_ = -1;
+        bestClassId_ = -1;
         if (lastPlanStatus_ == "running") lastPlanStatus_ = "guidance_failed";
         return false;
     }
@@ -1904,7 +1973,7 @@ bool tmpcPlanner::plan() {
 
 bool tmpcPlanner::getBestTrajectory(std::vector<Eigen::Vector3d>& traj) const {
     traj.clear();
-    if (bestIdx_ < 0) return false;
+    if (bestIdx_ < 0 || bestIdx_ >= (int)branches_.size() || !branches_[bestIdx_].feasible) return false;
     for (const auto& s : branches_[bestIdx_].statesSol)
         traj.emplace_back(s(0), s(1), s(2));
     return true;
@@ -1912,14 +1981,14 @@ bool tmpcPlanner::getBestTrajectory(std::vector<Eigen::Vector3d>& traj) const {
 
 bool tmpcPlanner::getBestStates(std::vector<Eigen::VectorXd>& states) const {
     states.clear();
-    if (bestIdx_ < 0) return false;
+    if (bestIdx_ < 0 || bestIdx_ >= (int)branches_.size() || !branches_[bestIdx_].feasible) return false;
     states = branches_[bestIdx_].statesSol;
     return true;
 }
 
 bool tmpcPlanner::getBestControls(std::vector<Eigen::VectorXd>& controls) const {
     controls.clear();
-    if (bestIdx_ < 0) return false;
+    if (bestIdx_ < 0 || bestIdx_ >= (int)branches_.size() || !branches_[bestIdx_].feasible) return false;
     controls = branches_[bestIdx_].controlsSol;
     return true;
 }
@@ -2079,7 +2148,7 @@ bool tmpcPlanner::getBestTrajectory(nav_msgs::Path& traj) const {
     traj.poses.clear();
     traj.header.stamp = ros::Time::now();
     traj.header.frame_id = "map";
-    if (bestIdx_ < 0) return false;
+    if (bestIdx_ < 0 || bestIdx_ >= (int)branches_.size() || !branches_[bestIdx_].feasible) return false;
     for (const auto& s : branches_[bestIdx_].statesSol) {
         geometry_msgs::PoseStamped ps;
         ps.header = traj.header;

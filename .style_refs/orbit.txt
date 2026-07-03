@@ -1,0 +1,842 @@
+                                                                              arising from perception-limited sensor ranges. Therefore, we pro-
+                                                                              pose Orbit Planner: an obstacle uncertainty-aware and probabilistic
+                                                                              cost-weighted trajectory generation method under perception-limited
+
+Orbit Planner: Obstacle                                                       constraint. As a result, the adaptability of UAVs to unknown envi-
+                                                                              ronments is improved, enhancing the success rate of planning and
+                                                                              ensuring safety. Specifically, a probabilistic cost-weighted kinody-
+Uncertainty-Aware and                                                         namic search method is proposed, which computes trajectory costs
+                                                                              using probabilistic weights. On this basis, different penalty weights
+Probabilistic Cost-Weighted                                                   are assigned for traveling in free and unknown spaces, ensuring that
+                                                                              paths are prioritized to be found from free space. Additionally, an
+                                                                              obstacle uncertainty-aware planning method is leveraged to actively
+Trajectory Planner Under                                                      avoid potential obstacles in unknown space, reducing the flight risk
+                                                                              caused by obstacle uncertainty. Finally, comparative simulation and
+Perception-Limited Constraint                                                 experimental validation demonstrate that the proposed algorithm can
+                                                                              enhance flight safety and increase the replanning success rate.
+
+
+                                                                              I. INTRODUCTION
+                                                                                  Motion planning for UAVs achieves safe navigation by
+GANG SUN        , Graduate Student Member, IEEE
+                                                                              utilizing the localization and mapping information provided
+                                                                              by the perception module. Traditionally, motion planning is
+XUETAO ZHANG , Member, IEEE
+Dalian University of Technology, Dalian, China                                decoupled from the perception [1], [2], [3], which neglects
+                                                                              the impact of the trajectory on the acquisition of the per-
+YISHA LIU , Member, IEEE                                                      ception information. In recent years, some methods couple
+Dalian Maritime University, Dalian, China                                     the perception module [4], [5], [6] with the motion planning
+XUEBO ZHANG , Senior Member, IEEE                                             module, which are referred to as perception-aware methods.
+Nankai University, Tianjin, China                                             Perception-aware planning methods aim to perform motion
+                                                                              planning by considering uncertainty constraints related to
+YAN ZHUANG , Senior Member, IEEE                                              localization or obstacles, maximizing the observation of tex-
+Dalian University of Technology, Dalian, China
+                                                                              ture distribution and obstacles in the environment, thereby
+                                                                              improving localization accuracy and reducing the flight
+                                                                              risk caused by obstacle uncertainty. This article studies a
+   Motion planning of UAVs is crucial for enabling autonomous flight,         perception-aware planning method that considers obstacle
+ensuring safety and efficiency in navigating complex environments.            uncertainty, achieving safe flight by actively avoiding ob-
+However, current methods lack consideration of obstacle uncertainty           stacles in unknown spaces.
+
+                                                                              A. Motivation
+Received 17 February 2025; revised 15 May 2025 and 18 July 2025;                  The problem of autonomous navigation in unknown en-
+accepted 2 December 2025. Date of publication 8 December 2025; date of        vironments has been extensively studied, with different ap-
+current version 2 March 2026.                                                 proaches to handling unknown spaces. Some methods adopt
+DOI. No. 10.1109/TAES.2025.3641555                                            optimistic assumptions, treating unknown spaces as free.
+This work was supported in part by the National Natural Science Foun-         In contrast, some methods adopt pessimistic assumptions,
+dation of China under Grant 62473075, Grant U22B2041, and Grant               viewing unknown spaces as obstacles and only allowing
+62473070, in part by the Natural Science Foundation of Liaoning Province      UAVs to plan trajectories within known areas or the range
+under Grant 2025-MSLH-162, and in part by the Fundamental Research            currently perceivable by the sensors. However, there are still
+Funds for the Central Universities under Grant DUT25Z2524.                    some problems of the current methods.
+Authors’ addresses: Gang Sun, Xuetao Zhang, and Yan Zhuang are with the
+Intelligent Robotic Laboratory, the School of Control Science and Engi-           1) Optimistic methods improve the success rate of tra-
+neering, and the School of Computer Science and Technology, Dalian Uni-              jectory planning, which ensure safety through high-
+versity of Technology, Dalian, 116024, China, E-mail: (sungang@mail.                 frequency replanning and emergency stop strategies.
+dlut.edu.cn; zhangxuetao@dlut.edu.cn; zhuang@dlut.edu.cn); Yisha Liu                 However, high-frequency replanning is difficult to
+is with the School of Information Science and Technology, Dalian Mar-
+itime University, Dalian 116026, China, E-mail: (liuyisha@dlmu.edu.cn);
+                                                                                     achieve due to constraints on onboard computing
+Xuebo Zhang is with the College of Artificial Intelligence, Institute of             power and lightweight requirements, and emergency
+Robotics and Automatic Information System (IRAIS), Tianjin Key Labo-                 stop strategies can increase the execution time. Pes-
+ratory of Intelligent Robotics, Nankai University, Tianjin 300350, China,            simistic methods ensure the safety of trajectories
+E-mail: (zhangxuebo@nankai.edu.cn). (Corresponding author: Xuetao                    but result in overly conservative generated paths.
+Zhang.)
+                                                                                     Moreover, the path search will fail when known
+This article has supplementary downloadable material available at                    spaces are inaccessible.
+https://doi.org/10.1109/TAES.2025.3641555, provided by the authors.               2) Most existing planning methods neglect the uncer-
+                                                                                     tainty of obstacles. However, due to the limited per-
+0018-9251 © 2025 IEEE                                                                ception range of the sensors, collisions may occur
+
+2838                                                 IEEE TRANSACTIONS ON AEROSPACE AND ELECTRONIC SYSTEMS VOL. 62                                 2026
+
+   Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+        between the trajectory planned in the previous frame                  the searched path as a guide to allocate time for nonlinear
+        and obstacles in the current map. As a result, it is                  trajectory optimization or convex optimization. During the
+        possible that the planning fails or the replanning is                 path search process, the dynamic constraints of the UAVs
+        not timely.                                                           are typically not considered. Generally, a collision-free
+                                                                              3-D path is obtained in the configuration space. In some
+B. Contributions                                                              methods, the path search is modeled as a graph search
+    To tackle the challenges outlined above, this arti-                       problem based on the A* algorithm [7], which offers fast
+cle presents Orbit Planner: an obstacle uncertainty-aware                     search speed and guarantees optimality and completeness
+and probabilistic cost-weighted trajectory planner un-                        under certain resolutions. Subsequently, Harabor et al. [8]
+der perception-limited constraint. A probabilistic cost-                      further optimized the A* algorithm by proposing a jump
+weighted kinodynamic search method is introduced, which                       point search algorithm, which can find paths with the same
+calculates trajectory costs using probabilistic weights.                      optimization performance as A* in a shorter time. However,
+Specifically, different cost weights are assigned to tra-                     it is only applicable to occupancy grid maps with fixed
+jectories that pass through areas with varying occupancy                      voxel sizes. In some studies, path search is modeled as
+probabilities. Thus, a path through free space is prioritized                 a sampling method based on rapidly exploring random
+for discovery. When a path cannot be found in free space,                     trees and the improved algorithms [7], [9], [10], [11], [12],
+unknown spaces are also included in the search for fea-                       [13]. Through continuous improvement, these methods can
+sible paths to improve the search success rate. Besides,                      achieve asymptotic optimality and probabilistic complete-
+an obstacle uncertainty-aware motion planning method is                       ness. However, the methods above do not consider the
+leveraged to generate two trajectories, a safety-guided con-                  dynamic constraints during the search process. Incorpo-
+servative trajectory and a goal-guided aggressive trajectory.                 rating dynamic constraints in the path search phase can
+The two trajectories share a portion of the initial section.                  alleviate the burden of trajectory generation in the back-end,
+As the execution approaches the nonoverlapping region,                        resulting in trajectories with lower energy consumption.
+the uncertainty of the obstacles decreases due to changes in                  Webb et al. [14] proposed an improved rapidly exploring
+localization and camera view. Observations at this position                   random tree method that considers UAV flight dynamics,
+determine which trajectory to execute. The contributions                      calculating state transitions using a cost function that takes
+are as follows.                                                               time and energy into account. Zhou et al. [15] proposed
+                                                                              a kinodynamic A* search algorithm that considers UAV
+    1) A probabilistic cost-weighted kinodynamic search                       flight dynamics, generating a series of motion primitives by
+       method is proposed, which computes trajectory costs                    calculating state transitions in a discrete UAV control space,
+       using probabilistic weights. Under the strategy, dif-                  and obtaining a path that accounts for dynamic constraints
+       ferent penalty weights are assigned for travel in                      through a search approach. This article refines this search
+       free and unknown spaces, ensuring that paths are                       method with the proposed probabilistic cost-weighted plan-
+       prioritized to be found from free space and improve                    ning strategy that accounts for obstacle uncertainty under
+       the search success rate.                                               perception constraints.
+    2) An obstacle uncertainty-aware planning method is                            Camera can provide information about the distribu-
+       proposed to actively avoid potential obstacles in                      tion of obstacles within their perception range. However,
+       unknown space, which includes a visibility-aware                       most methods overlook the uncertainty of obstacles in
+       local state determination strategy for reducing the                    the environment, which affects the trajectory performance
+       risk of the flight caused by obstacle uncertainty.                     of autonomous flight in unknown environments. Many
+    3) Comparative simulation and real-world tests are con-                   strategies have been proposed to address the issue of safe
+       ducted to verify that the proposed algorithm can                       flight in unknown environments. Some methods utilize op-
+       enhance flight safety and shorten trajectory length.                   timistic assumptions, treating unknown spaces as free of
+                                                                              obstacles [15], [16]. Optimistic assumptions help improve
+    The rest of this article is organized as follows. In Sec-                 the success rate of trajectory planning, ensuring safety
+tion II, related work is introduced. The system overview                      through high-frequency replanning and emergency stop
+is presented in Section III. In Section IV, an Orbit Plan-                    strategies. However, high-frequency replanning is challeng-
+ner method is introduced including a probabilistic cost-                      ing to achieve due to constraints on onboard computational
+weighted kinodynamic path search method and an obstacle-                      power and lightweight requirements, and emergency stop
+aware trajectory generation method. Experimental results                      strategies can increase task execution time, which contra-
+are presented in Section VI. Finally, Section VII concludes                   dicts the intention of high-speed flight. In contrast, some
+this article.                                                                 methods treat unknown spaces as obstacles and only allow
+                                                                              UAVs to plan trajectories within known areas [17] or the
+II. RELATED WORK                                                              range currently perceivable by the sensors [18], [19]. These
+    The motion planning problem for UAVs can be divided                       constraints ensure the safety of the trajectories, however,
+into two stages: the first stage is path search, where a                      which results in overly conservative trajectory generation.
+collision-free path is obtained using methods based on sam-                   Tordesillas et al. [20] proposed a strategy for simultane-
+pling, search, or learning. The second stage involves using                   ous planning in known collision-free areas and unknown
+
+SUN ET AL.: ORBIT PLANNER                                                                                                                          2839
+
+Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+                                                             Fig. 1. System overview.
+
+
+regions, which, contrary to optimistic assumptions, always                   on map uncertainty. Wang et al. [26] proposed adapting the
+plans safe trajectories. However, during the path search pro-                trajectory speed based on the distribution of obstacles to
+cess, dynamic constraints are not considered, and backup                     achieve safe flight. However, the approach cannot actively
+trajectories are not used for actively observing unknown                     observe unknown spaces and tends to be conservative. Zhou
+spaces. None of the aforementioned methods account for                       et al. [27] proposed a trajectory generation framework for
+the uncertainty of obstacles during the planning process,                    actively observing unknown spaces, which avoids potential
+affecting the performance of high-speed flight in unknown                    obstacles in occluded areas and maneuvers around obstacles
+environments.                                                                to ensure safe flight. However, regardless of whether there
+    Wang et al. [21] proposed a visibility-guided,                           are obstacles behind, the UAV always detours, increasing
+perception-aware aerial tracking trajectory planning frame-                  the trajectory length and execution time, which contradicts
+work, which actively adjusts the relative distance between                   the intention of high-speed flight.
+the UAV and the target to reduce the possibility of occlusion.                   Therefore, Orbit Planner is proposed, which is capable
+Jesus et al. [22] proposed a perception-aware UAV trajec-                    of actively avoiding obstacles in unknown spaces to enhance
+tory planner in dynamic environments, aiming to avoid                        planning safety. Additionally, by employing a probabilistic
+dynamic obstacles while ensuring visibility constraints.                     cost-weighted kinodynamic planning approach, the pro-
+Subsequently, a perception-aware trajectory planner based                    posed method prioritizes paths through known safe spaces,
+on deep learning is proposed [23], which can achieve                         further improving safety, increasing the planning success
+similar experimental results with lower time consumption                     rate, and reducing energy consumption.
+compared to optimization-based methods. However, the
+aforementioned methods do not actively avoid potential                       III. SYSTEM OVERVIEW
+obstacles that may appear in unknown spaces. Some                                The overview of the system is illustrated in Fig. 1. The
+methods consider the uncertainty of obstacles in unknown                     UAV is equipped with a stereo depth camera that provides
+spaces and actively avoid potential obstacles to ensure safe                 image information for localization and depth information
+flight. Richter et al. [24] proposed using learned heuristic                 for obstacle avoidance. First, after obtaining point cloud
+functions to guide path search, allowing sensors to acquire                  information, an occupancy grid map is constructed based
+more information about visible areas. However, the method                    on Bayesian updates, and the map is inflated according to
+is implemented in 2-D space and cannot be generalized to                     the radius of the UAV. A kinodynamic path search with
+complex 3-D environments. Heiden et al. [25] proposed                        occupancy probability weighting is conducted on this map.
+a planning framework that considers obstacle uncertainty,                    Specifically, a series of motion primitives is generated by
+simulating future measurements of obstacles through gener-                   discretizing the control states. The voxels traversed by each
+ating trajectories to maximize the safety of replanning based                primitive are accessed, and the occupancy cost is calculated
+
+2840                                               IEEE TRANSACTIONS ON AEROSPACE AND ELECTRONIC SYSTEMS VOL. 62                                  2026
+
+  Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+                                                                                Algorithm 1: Kinodynamic Path Searching with
+                                                                                Probabilistic Cost Weight.
+                                                                                Input: Occupancy Grid Map G, Initial and End State
+                                                                                  xs , xe ;
+                                                                                Output: A Kinodynamic Path P;
+                                                                                  1: Set State xs , xe ;
+                                                                                  2: Initialize OpenList, CloseList;
+                                                                                  3: Choose Node N with Minimum Cost in Openlist;
+                                                                                  4: Insert Node N in Closelist;
+                                                                                  5: if N is Goal or Successful Connection then
+  Fig. 2. Illustration of searching with/without kinodynamic method.
+                                                                                  6:        Backtrack N to Obtain Path P;
+                                                                                  7:        Return Path P;
+                                                                                  8: else
+based on the occupancy probabilities. The cost of each                            9:        Discrete Control Input;
+primitive is calculated by combining control costs, time                        10:           Calculate Trajectory;
+costs, and occupancy costs. An admissible heuristic cost                        11:         Expand the Neighbour Nodes of N to Obtain
+is designed to accelerate the search process, resulting in a                                N;
+kinodynamic path with low occupancy probability.                                12:         Calculate Cost for all Ni in N ;
+    Next, a trajectory (green trajectory in Fig. 1) that ac-                    13:         h = kino(N, Ni ) + prob(N, Ni );
+counts for obstacle uncertainty is generated under per-                         14:         Continuously Select Optimal Path and
+ception constraints. Specifically, a safe flight corridor is                                Expand;
+generated for the front-end path, within which a goal-guided                    15: end if
+original aggressive trajectory is generated. To ensure the
+safety, a safety-guided backup trajectory is generated to
+promptly avoid unknown obstacles at critical locations. Key                   physically meaningful flat output space, which overlaps
+point is identified through trajectory visibility, and a series               with the configuration space. It is sufficient to plan the flat
+of candidate viewpoints are generated based on visibility                     output trajectory for drones. Specifically, the flat outputs
+and the key point. The optimal viewpoint is determined by                     consist of four variables: 3-D position and yaw angle. The
+evaluating visibility of unknown space, the distance to the                   remaining states can be represented by a combination of
+endpoint, and the cost of generating trajectories. The opti-                  these four variables and their finite-order derivatives. The
+mal viewpoint serves as the starting point for the alternative                flat output space is defined as
+trajectory. When the original trajectory intersects with the
+alternative trajectory during execution, the trajectory to be                                            σ = [x y z ψ ]                                (2)
+executed is chosen based on the intersection with current                     where
+obstacles.
+                                                                                                σ (t ) = [t0 , tM ] → R3 × SO (2)                       (3)
+IV. KINODYNAMIC PATH SEARCHING WITH OCCU-
+    PANCY PROBABILISTIC COST WEIGHT                                           B. Kinodynamic Path Searching
+
+A. Differential Flatness                                                          Only the position trajectory is planned, while the yaw
+                                                                              angle is defined as the projection of the velocity trajectory
+    Before introducing the proposed algorithm, we first                       onto the x − y plane to keep facing the forward area dur-
+define the state space for the UAV trajectory planning. The                   ing the flight. Typically, the path planning for UAVs only
+full state space of the UAV is s ∈ R12 , which includes 3-D                   considers the kinematic model in 3-D space, neglecting the
+position, velocity, attitude angles, and angular velocities                   dynamic model. As shown in Fig. 2, the path obtained by
+                 s = [x y z φ θ ψ ẋ ẏ ż p q r ] .                 (1)     searching above the obstacle is shorter without considering
+                                                                              the dynamic model. However, the resulting trajectory (green
+The first three dimensions (x, y, z ) represent position in                   trajectory) experiences significant turns due to the initial
+3-D space. (φ, θ, ψ ) denote Euler angles (roll, pitch, yaw)                  speed, which is detrimental in terms of both safety and
+about three principal axes. (ẋ, ẏ, ż ) describe linear velocities          energy consumption. A path that passes below the obsta-
+along translational axes. ( p, q, r ) indicate angular velocities             cle is obtained when dynamics are considered during the
+about body-fixed axes (roll rate, pitch rate, yaw rate). The                  search process, represented by the blue dashed line in the
+first six dimensions characterize pose attributes, while the                  figure. Intuitively, this trajectory is smoother and does not
+latter six define kinematic rates, collectively describing full               exhibit abrupt changes in direction. Therefore, it is crucial to
+rigid-body dynamics with six-degrees-of-freedom (three                        consider UAV dynamics during the path planning process.
+translational + three rotational). Typically, planning in a                       First, a series of motion primitives are generated for the
+12-D full state space is not undertaken due to high com-                      UAV. The trajectory in 3-D space can be expressed as
+plexity. Fortunately, the differential flatness property [28]                                                                 
+of the quadrotor has been well studied and shown to have                                       p(t ) := px (t ) py (t ) pz (t ) .         (4)
+
+SUN ET AL.: ORBIT PLANNER                                                                                                                          2841
+
+Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+According to the differential flatness property, only the flat
+output variables need to be planned. However, yaw angle in
+not included in the trajectory. To provide the UAV with
+directional information, the yaw angle is defined as the
+projection of the velocity trajectory onto the x − y plane.
+Once the position trajectory is generated, the yaw angle
+trajectory can also be computed. The state is set to position
+and velocity, and the input is the acceleration. The input a
+can be discretizing in each of the three directions as values
+in [−amax , amax ]. The state-space model can be expressed                                  Fig. 3. Illustration of occupancy grid map.
+as
+                            ẋ = Ax + Bu                                (5)   the location of the sensor in different directions. The corre-
+where                                                                         sponding grid probability of being unoccupied increases if
+                                                                        a ray passes through free space. The probability of that grid
+   x = px py pz vx vy vz                 u = ax     ay    az        .   (6)   being occupied increases if the ray intersects an obstacle.
+The analytical solution of this equation is                                        Next, the probability update process of the occupancy
+                               t                                             grid map is introduced. During the kth update, the UAV
+          x(t ) = eAt x (0) +     eA(t−τ ) Bu(τ )dτ                     (7)   position xk ∈ R3 and a series of point clouds Pk are used
+                                     0                                        as inputs, and Bayesian probability is applied to update the
+where x (0) represents the initial state. Once the control input              occupancy probabilities. If a point cloud falls within a grid
+is discretizing, the trajectory can be solved for a given initial             cell, that grid cell increments its “occupied” count. If a ray
+state. After generating a series of motion primitives, the                    from the camera to the point cloud passes through a grid cell,
+optimal goal is to minimize the control input and trajectory                  that cell increments its “free” count. Considering a Markov
+time. Similar to A search, a heuristic cost function is de-                   process, for a given grid cell n at any point before time k,
+signed to accelerate convergence. The cost function for the                   the probability is denoted as P (n | x1:k , P1:k ), simplified as
+trajectory is defined as                                                      P1:k (n ). Thus, P1:k (n ) = [1 + P]−1 , where
+                            T
+                                                                                                 1 − Pk (n ) 1 − P1:k−1 (n ) P (n )
+                 J (T ) =       |a(t )|2 dt + ρT.            (8)                          P=                                          .            (10)
+                               0                                                                   Pk (n )     P1:k−1 (n ) 1 − P (n )
+With this definition, when the input acceleration is ad and                   Here, P (n ) is the prior probability, typically set to P (n ) =
+the time is τ , the cost of input and time for J trajectories                 0.5 when there is no prior state information. By taking the
+can be written as                                                                                          P(·) (n )
+                                                                              logarithm, L(·) (n ) = log( 1−P             ), which is calculated by
+                                                                                                               (· ) ( n )
+                        J              
+                               2
+                   gc =       ad j  + ρ τ.              (9)                                    L1:k (n ) = L1:k−1 (n ) + Lk (n ).                (11)
+                            j =1
+                                                                              Using lhit to represent an “occupied” update value and lmiss
+C. Occupancy Probabilistic Cost Weight
+                                                                              to represent a “free” update value
+    Meanwhile, to prioritize searching process within
+known spaces, a weighted cost calculation method is pro-                                       Lk (n ) = nhit · lhit + nmiss · lmiss               (12)
+posed by evaluating the occupancy probability. After up-
+dating the point cloud map, to enhance the environment                        where nhit and nmiss represent the “occupied” and “free”
+perception and navigation capabilities, an occupancy grid                     counts, respectively.
+map [29] is constructed to update the occupancy status of                         To ensure the flight safety, the path is first searched in
+the surrounding environment in real-time. The occupancy                       obstacle-free space. However, in some cases, a valid path
+grid map divides the environment into small grids, each                       cannot be searched in the obstacle-free space. Therefore,
+representing the occupancy status of the corresponding area,                  the path is allowed to pass through unknown spaces to find
+indicating whether the area is occupied or free space.                        a feasible solution. The cost of the trajectory is modified as
+    Typically, the occupancy grid map uses three different                    follows:
+values to represent the status of each grid. The “occupied”                                      J 
+                                                                                                                  
+                                                                                                     2
+status indicates that the grid is occupied by an object, such                             gc =      ad j  + ρ τ +   wi hi                        (13)
+as a wall or an obstacle. The “free” status indicates that                                        j =1                       i∈{o, f ,u}
+the grid is free space without obstacles and the “unknown”
+status represents an uncertain or undetected grid state. Fig. 3               where i∈{o, f ,u} wi hi represents the occupancy probability
+shows the representation of the occupancy grid status. The                    cost of the grid. By visiting all grids traversed by the path,
+point cloud data is first filtered to remove noise or irrel-                  the state of each grid is recorded, as well as the number of
+evant points. Next, raycasting is employed to update the                      occupancy, free, and unknown states represented by wo, w f ,
+occupancy status of the grid map. Rays are emitted from                       wu , respectively. The costs corresponding to the different
+
+2842                                                IEEE TRANSACTIONS ON AEROSPACE AND ELECTRONIC SYSTEMS VOL. 62                                  2026
+
+   Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+                                                                                Algorithm 2: Obstacle Uncertainty-aware Trajectory
+                                                                                Generation Process.
+                                                                                Input: Depth Image I, Initial and End State xs , xe ,
+                                                                                   Planning Parameters Set P m , A Kinodynamic Path
+                                                                                   P;
+                                                                                Output: An Obstacle Uncertainty-aware Backup
+                                                                                 Trajectory To and a Goal-guided High-speed
+                                                                                 Trajectory Tg;
+                                                                                 1: Set State xs , xe ;
+                                                                                 2: Point Cloud Pc ← ProjectDepthImage(I );
+                                                                                 3: Mio ← GenerateOccandInflate(Pc );
+                                                                                 4: Safety Flight Corridor F ← GeneSFC(P);
+                                                                                 5: Tg ← OptimizeTraj(xs , xe , trajCost, dt, F);
+                                                                                 6: xb ← FindBackupStart(Tg);
+                                                                                 7: L ← LineExtraction(F, xb );
+                                                                                 8: Possible EndPoints Set P ← Sample(F, xs , p);
+                                                                                 9: Vis(Mo ) ← CalVVis(Mo, P) +
+                                                                                     CalHVis(Mo, P);
+                                                                                10: cost2 ← Vis(Mo ) + Dis(Mo ) + TrajC(xe );
+                                                                                11: Best Local EndPoint xl ← EvalCost(cost2);
+                                                                                12: To ← OptimizeTraj(xs , xl , trajCost, dt, F);
+Fig. 4. Illustration of different searching situations. (a) Bilateral known
+   environments: When both sides are free spaces, the path is obtained
+achieving minimum-time trajectory with optimized control input. (b)–(c)
+Hybrid known-unknown domains: When one side is known space and the
+   other is unknown space, the UAV navigates prioritizes verified free
+                                                                              trajectory. h pcs uses the same cost as the cost function, which
+  spaces to ensure safety margin. (d) Dual-unknown exploration: When          ensures h pcs never overestimates the real cost. h is less or
+ both sides are unknown spaces, comparative evaluation selects optimal        equal than true total cost, as both terms are individually
+                    path through cost-benefit analysis.                       conservative. Algorithm 1 presents the kinodynamic path
+                                                                              searching with occupancy probabilistic cost weight (PCW).
+states are as follows:                                                        Specifically, the state node is initialized based on the current
+                    ⎧                                                         state, with the Openlist storing expanded nodes and their
+                    ⎨ 0          i = f ree
+                                                                              corresponding costs, and the Closelist tracking nodes that
+               wi = amax
+                       2
+                           · τ i = unknown                           (14)
+                    ⎩                                                         have already been expanded. Expansion starts from the
+                         ∞        i = occ.
+                                                                              initial node until the goal node is found. During expansion,
+    The cost for free space is 0, allowing passing. The cost                  the neighbors of each node are computed by discretizing
+for occupancy space is infinite, prohibiting the trajectory                   the acceleration. The cost for each node is calculated by
+from passing through grids in the occupancy state under any                   summing the trajectory cost gc and the heuristic cost h. In
+circumstances. The cost for unknown grids is the maximum                      each expansion step, the node with the lowest cost is added
+of the single trajectory generation time and input cost. This                 to the Closelist, and the current node is selected as the
+ensures that the path prioritizes searching in known spaces.                  parent node for expansion. Once the goal is reached, the
+As shown in Fig. 4, when both sides are free spaces, the                      searching terminates, and the nodes in the Closelist form
+path obtained has the minimum time and input cost. When                       the final path.
+both sides are unknown spaces, the time and input cost
+are calculated, and the optimal path is selected. When one
+                                                                              D. Obstacle Uncertainty-Aware Trajectory Generation
+side is known space and the other is unknown space, the
+path will prioritize passing through the known space. In                          The perception range of the camera is limited, leading
+searching problems, heuristic functions are often designed                    to unknown spaces. Some methods treat unknown spaces
+using Euclidean or Manhattan distances, but these only con-                   as obstacles, resulting in overly conservative trajectory
+sider kinematics and not dynamics. In order to speed up the                   generation. Others treat unknown spaces as free space,
+search, we design an admissible heuristic: h = hsg + h pcs ,                  making the trajectories too aggressive and compromising
+where hsg is obtained by minimizing (5) from the current                      safe flight. The fundamental limitation of both methods lies
+state to the end state. By applying the Pontryagin minimum                    in their failure to account for obstacle uncertainty. As shown
+principle, the optimal trajectory from the current state to the               in Fig. 5, methods disregarding obstacle uncertainty (red
+goal state is computed based on the designed cost function,                   trajectories) fail to evade promptly when encountering sud-
+and its cost is hsg. h pcs is calculated by      i∈{o, f ,u} wi hi .          denly appearing obstacles, resulting in collisions or abrupt
+h = hsg + h pcs is admissible because hsg is computed via                     stops, while methods incorporating obstacle uncertainty
+Pontryagin principle in obstacle-free space, which is guar-                   (blue trajectories) can proactively mitigate collision risks
+anteed to be a lower bound for any kinodynamically feasible                   through anticipatory avoidance maneuvers. Therefore, this
+
+SUN ET AL.: ORBIT PLANNER                                                                                                                          2843
+
+Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+   Fig. 5. Illustration of method with/without obstacle uncertainty
+ awareness. Blue trajectory: Obstacle uncertainty-aware trajectory. Red
+    trajectory: Trajectory without considering obstacle uncertainty.
+
+
+
+
+                                                                                        Fig. 7. Illustration of horizontal and vertical angle.
+
+
+                                                                              velocity, and acceleration, is chosen as the starting state
+                                                                              for the backup trajectory planning. A virtual line (Line 7)
+                                                                              intersects the field of view at the starting point and the
+                                                                              corridor of the latter half. By sampling along this line,
+                                                                              multiple positions are obtained (Line 8). Connecting these
+                                                                              positions to the endpoint of the high-speed trajectory yields
+                                                                              directions corresponding to those positions. The cost of
+                                                                              the sampled positions and directions is evaluated using the
+             Fig. 6. Illustration of the proposed method.
+                                                                              following formula to select the optimal path point, which
+                                                                              is:
+section proposes a method that combines high-speed trajec-                                     f = λvis fvis + λdis fdis + λcos fcos               (15)
+tories with backup trajectories to balance high-speed flight
+                                                                                                                  +
+and safety. When there are obstacles in front of the UAV, and                 where λvis , λdis , and λcos ∈ R represent the visibility of the
+it is uncertain whether the unknown area is passable, two                     unknown space, the distance from the current position to the
+trajectories are generated with their first halves overlapping.               local endpoint, and the cost of generating the trajectory,
+As the execution approaches the nonoverlapping area, the                      respectively. The cost of generating the trajectory is an
+certainty of the environment increases due to changes in po-                  aspect of the dynamic path search, and the distance to the
+sition and camera visibility. The uncertainty of the obstacles                local endpoint also accounts for dynamic constraints. The
+decreases, and the decision on which trajectory to execute is                 visibility of the unknown space is the weighted sum of the
+made based on observations at that time. Fig. 6 illustrates the               current horizontal and vertical field of view angles, which
+process of generating aggressive and backup trajectories.                     can be expressed as
+The red trajectory is generated based on the current local                                                        −1             −1
+                                                                                                  fvis = θvervis θver + θhorvis θhor               (16)
+map. However, due to occlusions in the current field of view,
+it is unknown whether there are other obstacles behind the                    where θver and θhor are the vertical and horizontal field of
+blue one. Therefore, the trajectory is not necessarily safe. It               view angles of the sensor, and θvervis and θhorvis are the
+is crucial to select the starting and ending states and plan a                current maximum observable vertical and horizontal field
+backup trajectory.                                                            of view angles, which are illustrated in Fig. 7. After deter-
+     The detailed procedure is described in Algorithm 2.                      mining the optimal sampling point, the backup trajectory is
+First, grid maps and safe flight corridors are constructed                    generated based on the starting and ending states (Line 10).
+based on point cloud data (Lines 1–4). For the starting state,                When the trajectory reaches the starting point of the backup
+using current limited observations and the red trajectory, a                  trajectory, the selection of which trajectory to continue
+point on the red trajectory can be identified (Line 6) that can               executing is determined by observing the current trajectory
+fully observe the latter half of the trajectory, represented                  state.
+by the blue point (xb ) in the figure. The yellow triangle                        Next, we briefly describe the trajectory optimization ap-
+indicates the field of view. This position corresponds to the                 proach. Leveraging the proven differential flatness property,
+first location where the latter half of the trajectory is fully               we plan trajectories in the flat output space (x, y, z, ψ ).
+observed. The state at this point, which includes position,                   The yaw angle computation follows the tangent direction
+
+2844                                                IEEE TRANSACTIONS ON AEROSPACE AND ELECTRONIC SYSTEMS VOL. 62                                  2026
+
+   Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+of the position trajectory, thus only position trajectory plan-                                            TABLE I
+ning is implemented. The safe flight corridor F is defined                         Trajectory Performance With and Without Dynamic Constraint
+as overlapping polyhedrons Pi , (i = 1, . . . , M ), requiring
+a smooth trajectory z (t ) : [0, tM ] → R3 with constraints:
+z (0) = z0 , z (tM ) = z f (boundary), z (tk ) = pk (waypoints),
+||ż (t )||22 ≤ vmax , ||z̈ (t )||22 ≤ amax (dynamics), z (t ) ∈ Fi
+(safety). Our framework employs the MINCO trajectory                                                        TABLE II
+                                                                                Trajectory Performance With and Without Uncertainty Consideration
+class [30], characterized by piecewise polynomial functions
+that minimize control effort. The trajectory family in Rm
+satisfies
+                   ⎧                                           ⎫
+                   ⎨                           c = M(q, T ),⎬
+                                              
+      TMINCO = z (t ) : [0, T ] → Rm  q ∈ Rm(M−1) ,
+                   ⎩                           T ∈ RM          ⎭             space. By constructing trajectories through a mathematical
+                                                      >0
+                                                                              induction approach, Orbit guarantees that every executed
+where each M-segment trajectory maintains N = 2s − 1 (s
+                                                                              path lies entirely within the union of currently known free
+= 3 for a minimum jerk) degree continuity. The constituent
+                                                                              regions and unexplored areas. The initial trajectory achieves
+polynomials are formulated as
+                                                                              safety through collision-free verification of its goal-guided
+                   zi (t ) = c
+                              i β (t ), t ∈ [0, Ti ]
+                                                                              segment and strict confinement of the safety-guided portion
+                                                                              within mapped free space. For subsequent planning cycles,
+with coefficient matrix c = (c                      
+                                       1 , . . . , cM ) ∈ R
+                                                           2Ms×m
+                                                                 ,            the system either retains the prior trajectory (preserving
+where ci encodes the polynomial parameters for seg-                           safety through environmental invariance) or generates new
+ment i. The temporal configuration is governed by                             trajectories constrained by updated safety corridors that
+T = (T1 , . . . , TM ) . This parameterization scheme uti-                   actively avoid detected obstacles. This dual mechanism
+lizes two fundamental components: spatial parameters q =                      maintains persistent safety across all planning iterations
+(q1 , . . . , qM−1 ) defining intermediate states and temporal                while enabling efficient computation, as demonstrated by
+parameters T controlling segment durations.                                   its superior performance in comparative evaluations with
+     The mapping:c = M(q, T ) permits efficient trajectory                    state-of-the-art planners.
+computation while preserving C 2 continuity. Through dif-
+ferentiable programming, we derive gradients for cost func-                   V. EXPERIMENTS
+tions J (q, T ) = J (M(q, T ), T ), which is
+                                                                              A. Experiments Setup
+           ∂J   ∂J ∂M             ∂J   ∂J ∂M   ∂J
+              =       ,              =       +    .                               Four simulation scenarios are set up based on different
+           ∂q   ∂c ∂q             ∂T   ∂c ∂T   ∂T                             obstacle densities and one scene with long walls (abbrevi-
+This architecture achieves linear time complexity for gradi-                  ated as LW) is set up. The same target position is set for each
+ent computation, enabling deployment in time-critical mo-                     method in all environments, and the performance of each
+tion planning systems. Therefore, the optimization problem                    method in different scenarios is recorded. First, the results
+can be formulated as                                                          section presents both qualitative and quantitative experi-
+                 T                                                           mental results of trajectories obtained with and without kin-
+      min               z(s ) (t ) 2 dt + ρT                                  odynamic path searching. The quantitative results will in-
+      z (t ),T
+                ⎧
+                 0
+                                                                            clude metrics such as execution time, trajectory length, and
+                ⎪                               Ai x bi                      energy consumption. In addition, the experimental results
+                ⎪
+                ⎪zi (t ) ∈ Fi = x ∈ R        3                ,
+                ⎪
+                ⎪                                ∀t ∈ [0, T ]                 demonstrate the scenarios where the proposed method is
+                ⎪
+                ⎪
+                ⎪
+                ⎪                                                             applicable when using optimistic assumptions, pessimistic
+                ⎪
+                ⎨ z (t ) 2 ≤ vmax ∀t ∈ [0, T ]
+                     (1)        2
+                                                                              assumptions, and PCW. They verify that the proposed PCW
+           s.t.    z (t ) 22 ≤ amax ∀t ∈ [0, T ]
+                     (2)
+                ⎪
+                ⎪                                                             method is suitable for a wider range of scenarios and can
+                ⎪
+                ⎪z(0:s−1) (0) = z0
+                ⎪
+                ⎪                                                             improve both success rate and safety. Finally, the results
+                ⎪
+                ⎪z(0:s−1) (T ) = z f
+                ⎪
+                ⎪                                                             section will also provide qualitative and quantitative exper-
+                ⎩                                                             imental results of the proposed Orbit Planner, which consid-
+                 z (tk ) = qk , k = 1, . . . , N.
+                                                                              ers obstacle uncertainty under perception constraints. The
+     To address this issue, the MINCO framework transforms                    quantitative results will include metrics such as execution
+it into an unconstrained optimization problem solved by a                     time, trajectory length, energy consumption, and success
+limited-memory BFGS method.                                                   rate.
+                                                                                  Fig. 8 shows a visual representation of the UAV flight
+E. Safety Analysis and Completeness                                           process, with the meaning of each part explained in the
+    The Orbit framework ensures trajectory safety under                       figure. During the flight, the UAV first generates a local
+two key environmental assumptions: the environment re-                        target after receiving the global target trigger. It searches
+mains static between planning iterations, and the occupancy                   for a path (red line) using the current inflated map (colored
+detection system produces no false negatives in known free                    grids) and the start-end states, then a safe flight corridor
+
+SUN ET AL.: ORBIT PLANNER                                                                                                                          2845
+
+Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+                  Fig. 8. Illustration of UAV flight.
+
+
+
+
+                                                                             Fig. 10. Trajectory with (a) Orbit Planner with probabilistic weight and
+                                                                                (b) Orbit Planner pessimistic assumption. (a) PCW. (b) Pessimistic
+                                                                                                           assumption.
+
+
+
+
+Fig. 9. Trajectory with (a) regular search and (b) kinodynamic search.
+
+                            TABLE III
+                         Quantitative Results
+
+
+
+
+                                                                               Fig. 11. Trajectory with (a) Orbit Planner with PCW and (b) Orbit
+                                                                             Planner with optimistic assumption. (a) PCW. (b) Optimistic assumption.
+
+
+                                                                                 We conduct experiments to compare the performance of
+                                                                             the optimistic assumption, the pessimistic assumption, and
+(green cubes) is generated along this path. Trajectories (blue               the proposed PCW method. Fig. 10 illustrates the experi-
+line) are generated within the corridor, and the decision                    mental results of PCW and the pessimistic assumption when
+to replan is based on collision detection and time-domain                    using the same back-end optimizer. The top row of Fig. 10
+replanning. To consider UAV dynamics during the search                       presents depth images at critical position, where obstacles
+process and obtain smoother, more energy-efficient trajec-                   fully occupy the field of view. Under the pessimistic as-
+tories, a dynamic-constrained search method is used.                         sumption, no feasible path to the local goal can be planned,
+                                                                             resulting in the drone being stuck in its current position.
+B. Kinodynamic Search With Probabilistic Cost Weight
+                                                                             In contrast, the PCW method, leveraging PCW, attempts
+    Fig. 9(a) shows the search method without considering                    to explore unknown spaces when no solution can be found
+UAV dynamics, while Fig. 9(b) shows the method that con-                     in the known environment. This approach allows the drone
+siders dynamics, resulting in smoother paths. As shown in                    to navigate around the obstacles from the left, successfully
+Table III, the performance of the trajectories time, trajectory              finding a viable path (black trajectory in the figure).
+length, and energy achieved by considering dynamics is                           Fig. 11 compares the results of the PCW method with the
+better than those without dynamic consideration. Without                     optimistic assumption using the same back-end optimizer.
+considering dynamics, the traditional A* search causes path                  The top-left image in Fig. 11 shows a critical depth map,
+reversals and knots during trajectory guidance, reducing                     where the large depth values on the far left correspond to
+overall trajectory performance. The table only shows the                     navigable regions in the 3-D space. The optimistic assump-
+results of a single experiment.                                              tion selects the nearer unknown region above rather than
+
+2846                                               IEEE TRANSACTIONS ON AEROSPACE AND ELECTRONIC SYSTEMS VOL. 62                                  2026
+
+  Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+ Fig. 12. Trajectory with (a) Orbit Planner and (b) AM Planner in the
+                      scene with 100 obstacles.
+
+
+                                                                              Fig. 13. Trajectories generated by Orbit Planner (green trajectory) and
+the navigable region on the left. However, due to excessive                                        AM Planner (red trajectory).
+velocity, the drone fails to decelerate in time upon detecting
+obstacles, resulting in a collision. The top-right image in
+Fig. 11, taken from a transformed perspective, depicts the                    of execution time, trajectory length, and energy consump-
+outcome of this experiment, where the drone has collided                      tion. Multiple experiments are conducted in each scenario,
+with an obstacle. Conversely, the PCW method priori-                          and the average values are recorded. In each experiment,
+tizes traversing navigable spaces and successfully navigates                  4–6 target positions are set, and the target positions re-
+through the left passage, safely reaching the target position.                main unchanged in each scenario. Fig. 13 demonstrates
+                                                                              the experimental results of both methods in the long-wall
+                                                                              scenario. The red trajectory is generated by the Orbit Plan-
+C. Uncertainty Awareness
+                                                                              ner, while the green trajectory corresponds to the AM
+    Considering obstacle uncertainty during planning can                      planner. The proposed method, leveraging a probabilistic
+prevent trajectory collisions caused by obstacle occlusion.                   cost-weighted kinodynamic planning approach, produces
+Usually, when a UAV trajectory collides with a suddenly                       smoother trajectories with better directional continuity. Fur-
+detected obstacle, a new safe trajectory can be obtained                      thermore, when encountering occluded environments, it
+through emergency stops or replanning. However, emer-                         actively avoids obstacles without abrupt stops that would
+gency stops can cause violent shaking during flight, which                    necessitate replanning. The quantitative results are listed in
+not only affects the positioning accuracy of visual odometry                  Table III. A trajectory that reaches the global goal without
+but also increases task execution time. If a replanning                       collisions during the process is considered a successful plan.
+strategy is used, relying on the frequency of replanning                      The success rate is calculated as the ratio of successful
+may cause delays, leading to potential hazards. Therefore,                    plans to total plans. The results in the table show that
+a planning method is proposed, which considers obstacle                       the proposed method improves the planning success rate
+uncertainty under perception constraints, achieving both                      by considering obstacle uncertainty. Additionally, energy
+safety and high-speed flight by simultaneously planning                       consumption is lower than the methods that do not consider
+safe and backup trajectories. This section records the per-                   dynamic constraints. The energy consumption is calculated
+formance of the proposed method (Orbit Planner) and the                       as the integral of the square of acceleration over time.
+comparison method (abbreviated as AM Planner in the                               We conduct comparative analyses between two
+table) [31], across different metrics such as trajectory ex-                  uncertainty-aware methods (Raptor [27] and FASTER [20])
+ecution time, trajectory length, energy consumption, and                      and our proposed approach Orbit Planner across metrics
+success rate in scenarios with varying numbers of obstacles.                  including trajectory length, execution time, energy con-
+AM Planner uses the front-end A* search and the back-end                      sumption, and computational efficiency. Qualitative results
+MINCO [30] trajectory, which overlooks the obstacle un-                       further demonstrate how different approaches address ob-
+certainty. Fig. 12(a) shows the trajectory generated by Orbit                 stacle uncertainty. Raptor, a risk-aware planning method,
+Planner, while Fig. 12(b) shows the trajectory generated by                   proactively avoids potential obstacles in occluded areas
+AM Planner. Intuitively, AM Planner that does not con-                        through probabilistic risk assessment. FASTER generates
+sider obstacle uncertainty fails to plan a safe trajectory in                 trajectories in both known and unknown spaces, selecting
+time when encountering a suddenly detected obstacle, only                     executable paths through collision checks during flight.
+avoiding a collision at the last moment. As listed in Table II,               Initial tests in pillar obstacle environments (see Fig. 14)
+the execution time and trajectory length are both extended.                   show trajectories under four target configurations: blue
+The method that considers obstacle uncertainty plans a                        trajectory for FASTER, green trajectory for Raptor, and
+backup trajectory at the starting position and executes it                    black trajectory for our Orbit Planner. While all methods
+in a timely manner when an obstacle is detected at a critical                 successfully navigated targets a, b, and c, FASTER failed to
+point, ensuring safe flight. Additionally, it outperforms the                 find a viable path to target d. Quantitative analysis confirms
+method that does not consider obstacle uncertainty in terms                   the superior performance of the proposed method across
+
+SUN ET AL.: ORBIT PLANNER                                                                                                                          2847
+
+Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+                                                                             Fig. 15. Results of the trajectory performance comparison in uncertain
+                                                                                  obstacle scenarios. (a) Orbit Planner. (b) Raptor. (c) FASTER.
+
+                                                                             D. Real-World Tests
+                                                                                  Fig. 16 depicts the UAV platform and algorithmic
+                                                                             workflow employed for experimental validation. The UAV
+                                                                             platform comprises propellers, protective guards, motors,
+                                                                             electronic speed controllers (ESCs), a frame, an onboard
+                                                                             computer (NUC11 with an Intel Core i7-1165G7 CPU
+                                                                             [4-core, 4.7 GHz base clock)], a stereo camera Intel
+                                                                             Realsense T265 for obtaining the states of the drone, a
+                                                                             depth camera (Intel Realsense D435if) for obtaining the
+  Fig. 14. Results of the trajectory performance comparison in pillar        depth image employed for constructing occupancy grid
+    obstacle scenarios. (Blue: FASTER, Green: Raptor, Black: Orbit           map, and a flight controller (Pixhawk4 autopilot). The
+         Planner). (a) Goal 1. (b) Goal 2. (c) Goal 3. (d) Goal 4.           ground station is responsible for issuing target positions
+                                                                             and monitoring real-time flight trajectories, maps, and
+                                                                             odometry data. Localization and mapping, as well as
+                              TABLE IV
+       Quantitative Results Comparisons in Pillar Obstacle Scene             planning and control algorithms, are executed on the
+                                                                             onboard computer, which communicates with the ground
+                                                                             station via a shared local area network.
+                                                                                  The perception module processes input images and IMU
+                                                                             data to estimate the state while leveraging depth images
+                                                                             to construct an environmental map. The planning module
+                                                                             employs kinodynamic path finding with PCW to determine
+                                                                             a kinodynamic path, which serves as the foundation for
+                                                                             generating an uncertainty-aware trajectory. This trajectory
+                                                                             guides the motion of the drone, with control signals pro-
+                                                                             duced by a cascaded PID controller and transmitted to the
+                                                                             flight controller.
+                                                                                  Fig. 17 illustrates the experimental scene, which mea-
+                                                                             sures 8 m × 5 m. The experiments are conducted in
+                                                                             an indoor environment with natural lighting and ample
+                           TABLE V                                           illumination. The scene featured rich environmental tex-
+          Replan Time Comparisons in Pillar Obstacle Scene                   tures, enabling highly accurate visual-inertial localization
+                                                                             throughout the tests. The initial position of the UAV is
+                                                                             designated as the starting point, while the green dot marks
+                                                                             the target endpoint. An L-shaped obstacle is placed in the
+                                                                             center of the environment, partially obscuring the line of
+                                                                             sight at the starting position and preventing it from ob-
+all four scenarios in trajectory length, execution time, en-                 serving the entirety of the obstacle. Fig. 18 presents the
+ergy consumption, and computational efficiency, success                      flight trajectories and maps of the proposed method and the
+or failure (S/F) as listed in Tables IV and V. Compara-                      baseline method within this scenario. From the figure, it is
+tive trajectories under obstacle uncertainty (see Fig. 15)                   evident that the baseline method fails to promptly replan
+reveal distinct behavioral patterns: detours in Raptor en-                   feasible trajectories when encountering newly discovered
+hance safety through conservative obstacle avoidance de-                     obstacles after bypassing the initial obstacle. As a result,
+spite increased path length, while the front-end JPS search                  the UAV performs an emergency stop to ensure safety but
+of FASTER, lacking dynamic feasibility constraints, which                    still experiences minor collisions with the obstacles, which
+induces sharp trajectory bends at critical locations, thereby                does not cause the UAV to crash. After that, it replans a
+elevating energy costs.                                                      trajectory to the endpoint while hovering.
+
+2848                                               IEEE TRANSACTIONS ON AEROSPACE AND ELECTRONIC SYSTEMS VOL. 62                                  2026
+
+  Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+                                                           Fig. 16. Algorithmic workflow.
+
+
+
+
+             Fig. 17. Illustration of real world test scene.
+
+
+
+
+                                                                                         Fig. 19. Position-time curve of the Orbit planner.
+
+
+
+
+                                                                                          Fig. 20. Position-time curve of the AM planner.
+
+
+                                                                                  In contrast, the proposed Orbit Planner method accounts
+                                                                              for obstacle uncertainty and immediately transitions to a
+                                                                              safe trajectory upon detecting new obstacles after bypassing
+                                                                              the initial obstacle. This allows for smooth and safe flight.
+ Fig. 18. Trajectory with (a) AM Planner and (b) Orbit Planner in the         The position-time curves are depicted in Figs. 19 and 20
+                           real-world test.                                   of the baseline methods and the proposed method. It can
+
+SUN ET AL.: ORBIT PLANNER                                                                                                                          2849
+
+Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+be observed that the baseline methods involve a 5-second                         [9] H. Zhang, S. Wang, Y. Liu, P. Ji, R. Yu, and T. Chao, “EFP:
+hovering period, resulting in longer task completion times                           Efficient frontier-based autonomous UAV exploration strategy for
+compared to the proposed method. The supplementary                                   unknown environments,” IEEE Robot. Autom. Lett., vol. 9, no. 3,
+                                                                                     pp. 2941–2948, Mar. 2024.
+video demonstrating the experimental process and results                        [10] Y. Huang, C.-T. Tsao, and H.-H. Lee, “Efficiency improvement
+can be accessed online.1                                                             to neural-network-driven optimal path planning via region and
+                                                                                     guideline prediction,” IEEE Robot. Autom. Lett., vol. 9, no. 2,
+VI. CONCLUSION                                                                       pp. 1851–1858, Feb. 2024.
+                                                                                [11] M. Kim, J. Ahn, and J. Park, “Targettree-RRT*: Continuous-
+    This article presents a novel motion planning method                             curvature path planning algorithm for autonomous parking in com-
+for UAVs that addresses obstacle uncertainty arising from                            plex environments,” IEEE Trans. Autom. Sci. Eng., vol. 21, no. 1,
+perception-limited sensor ranges. By introducing an ob-                              pp. 606–617, May 2022.
+stacle uncertainty-aware and probabilistic cost-weighted                        [12] A. Saccuti, R. Monica, and J. Aleotti, “Protamp-RRT: A probabilistic
+trajectory generation strategy, the proposed method signif-                          integrated task and motion planner based on RRT,” IEEE Robot.
+                                                                                     Autom. Lett., vol. 8, no. 12, pp. 8398–8405, Jun. 2023.
+icantly enhances the safety and efficiency of autonomous                        [13] H. Ji, H. Xie, C. Wang, and H. Yang, “E-RRT*: Path planning for
+flight. Specifically, the probabilistic cost-weighted kino-                          hyper-redundant manipulators,” IEEE Robot. Autom. Lett., vol. 8,
+dynamic search method computes trajectory costs with                                 no. 12, pp. 8128–8135, Dec. 2023.
+varying penalty weights, prioritizing paths within known                        [14] D. J. Webb and J. Van Den Berg, “Kinodynamic RRT*:
+free spaces. Additionally, our planning approach actively                            Asymptotically optimal motion planning for robots with lin-
+                                                                                     ear dynamics,” in Proc. IEEE Int. Conf. Robot. Autom., 2013,
+avoids potential obstacles in unknown safe regions, thereby                          pp. 5054–5061.
+reducing flight risks associated with obstacle uncertainty.                     [15] B. Zhou, F. Gao, L. Wang, C. Liu, and S. Shen, “Robust and efficient
+Simulation and experimental validation demonstrate that                              quadrotor trajectory generation for fast autonomous flight,” IEEE
+the proposed algorithm not only improves flight safety but                           Robot. Autom. Lett., vol. 4, no. 4, pp. 3529–3536, May 2019.
+also saves trajectory energy, providing a reliable solution                     [16] V. Usenko, L. von Stumberg, A. Pangercic, and D. Cremers, “Real-
+                                                                                     time trajectory replanning for MAVs using uniform b-splines and a
+for UAV autonomous operation in complex environments.                                3D circular buffer,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst.,
+Future research could explore the application of this method                         2017, pp. 215–222.
+in dynamic environments and its integration with other                          [17] S. Liu, M. Watterson, S. Tang, and V. Kumar, “High speed navigation
+sensing technologies to tackle even more challenging flight                          for quadrotors with limited onboard sensing,” in Proc. IEEE Int. Conf.
+scenarios.                                                                           Robot. Autom., 2016, pp. 1484–1491.
+                                                                                [18] B. T. Lopez and J. P. How, “Aggressive 3-D collision avoidance
+REFERENCES                                                                           for high-speed navigation,” in Proc. IEEE Int. Conf. Robot. Autom.,
+                                                                                     2017, pp. 5759–5765.
+ [1] J. Zhang, Y. Cui, and J. Ren, “Dynamic mission planning algorithm          [19] M. Nieuwenhuisen and S. Behnke, “Search-based 3D planning and
+     for UAV formation in battlefield environment,” IEEE Trans. Aerosp.              trajectory optimization for safe micro aerial vehicle flight under
+     Electron. Syst., vol. 59, no. 4, pp. 3750–3765, Aug. 2023.                      sensor visibility constraints,” in Proc. Int. Conf. Robot. Autom., 2019,
+ [2] T. Marcucci, P. Nobel, R. Tedrake, and S. Boyd, “Fast path planning             pp. 9123–9129.
+     through large collections of safe boxes,” IEEE Trans. Robot., vol. 40,     [20] J. Tordesillas, B. T. Lopez, M. Everett, and J. P. How, “Faster: Fast
+     pp. 3795–3811, 2024.                                                            and safe trajectory planner for navigation in unknown environments,”
+ [3] S. Ruan, W. Liu, X. Wang, X. Meng, and G. S. Chirikjian, “PRIMP:                IEEE Trans. Robot., vol. 38, no. 2, pp. 922–938, Mar. 2021.
+     Probabilistically-informed motion primitives for efficient affor-          [21] G. Li, A. Tunchez, and G. Loianno, “Pcmpc: Perception-constrained
+     dance learning from demonstration,” IEEE Trans. Robot., vol. 40,                model predictive control for quadrotors with suspended loads using
+     pp. 2868–2887, 2024.                                                            a single camera and IMU,” in Proc. IEEE Int. Conf. Robot. Autom.,
+ [4] G. Sun, X. Zhang, Y. Liu, X. Zhang, and Y. Zhuang, “Safety-driven               2021, pp. 2012–2018.
+     and localization uncertainty-driven perception-aware trajectory plan-      [22] J. Tordesillas and J. P. How, “Panther: Perception-aware trajec-
+     ning for quadrotor unmanned aerial vehicles,” IEEE Trans. Intell.               tory planner in dynamic environments,” IEEE Access, vol. 10,
+     Transp. Syst., vol. 25, no. 8, pp. 8837–8848, Aug. 2024.                        pp. 22662–22677, 2022.
+ [5] X. Chen, Y. Zhang, B. Zhou, and S. Shen, “Apace: Agile and                 [23] J. Tordesillas and J. P. How, “Deep-panther: Learning-based
+     perception-aware trajectory generation for quadrotor flights,” in               perception-aware trajectory planner in dynamic environments,”
+     Proc. IEEE Int. Conf. Robot. Autom., 2024, pp. 17858–17864.                     IEEE Robot. Autom. Lett., vol. 8, no. 3, pp. 1399–1406, Nov. 2023.
+ [6] G. Sun, X. Zhang, Y. Liu, H. Wang, X. Zhang, and Y. Zhuang,                [24] C. Richter and N. Roy, “Learning to plan for visibility in navigation
+     “Topology-guided perception-aware receding horizon trajectory                   of unknown environments,” in Proc. Int. Symp. Exp. Robot., 2017,
+     generation for UAVs,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots               pp. 387–398.
+     Syst., 2023, pp. 3070–3076.                                                [25] E. Heiden, K. Hausman, G. S. Sukhatme, and A.-a. Agha-
+ [7] M. Przybylski, “Asymptotically optimal A* for kinodynamic plan-                 mohammadi, “Planning high-speed safe trajectories in confidence-
+     ning,” IEEE Robot. Autom. Lett., vol. 9, no. 5, pp. 4353–4360,                  rich maps,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2017,
+     May 2024.                                                                       pp. 2880–2886.
+ [8] D. Harabor and A. Grastien, “Online graph pruning for pathfinding          [26] L. Wang and Y. Guo, “Speed adaptive robot trajectory generation
+     on grid maps,” in Proc. AAAI Conf. Artif. Intell., 2011, vol. 25, no. 1,        based on derivative property of b-spline curve,” IEEE Robot. Autom.
+     pp. 1114–1119.                                                                  Lett., vol. 8, no. 4, pp. 1905–1911, Dec. 2023.
+                                                                                [27] B. Zhou, J. Pan, F. Gao, and S. Shen, “RAPTOR: Robust
+                                                                                     and perception-aware trajectory replanning for quadrotor fast
+                                                                                     flight,” IEEE Trans. Robot., vol. 37, no. 6, pp. 1992–2009,
+                                                                                     Dec. 2021.
+                                                                                [28] D. Mellinger and V. Kumar, “Minimum snap trajectory generation
+1 [Online].                                                                          and control for quadrotors,” in Proc. IEEE Int. Conf. Robot. Autom.,
+              Available:    https://www.youtube.com/watch?v=1YygMb
+                                                                                     2011, pp. 2520–2525.
+Rr7Ak.
+
+
+2850                                                  IEEE TRANSACTIONS ON AEROSPACE AND ELECTRONIC SYSTEMS VOL. 62                                    2026
+
+   Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+[29] Y. Ren, Y. Cai, F. Zhu, S. Liang, and F. Zhang, “ROG-map: An                                        Yisha Liu (Member, IEEE) received the B.S.
+     efficient robocentric occupancy grid map for large-scene and high-                                  and Ph.D. degrees in control theory and con-
+     resolution Lidar-based motion planning,” in Proc. IEEE/RSJ Int.                                     trol engineering from the Dalian University of
+     Conf. Intell. Robots Syst., 2024, pp. 8119–8125.                                                    Technology, Dalian, China, in 2005 and 2011,
+[30] Z. Wang, X. Zhou, C. Xu, and F. Gao, “Geometrically constrained tra-                                respectively.
+                                                                                                            She is currently a Professor with the College
+     jectory optimization for multicopters,” IEEE Trans. Robot., vol. 38,                                of Information Science and Technology, Dalian
+     no. 5, pp. 3259–3278, Oct. 2022.                                                                    Maritime University, Dalian. Her current re-
+[31] J. Ji, N. Pan, C. Xu, and F. Gao, “Elastic tracker: A spatio-temporal                               search interests include mobile robot and UAV’s
+     trajectory planner for flexible aerial tracking,” in Proc. Int. Conf.                               road detection, path planning, object detection
+     Robot. Autom., 2022, pp. 47–53.                                                                     and tracking, and outdoor scene understanding.
+
+
+
+
+                                                                                                         Xuebo Zhang (Senior Member, IEEE) received
+                                                                                                         the B.Eng. degree in automation from Tian-
+                          Gang Sun (Graduate Student Member, IEEE)                                       jin University, Tianjin, China, in 2002, and the
+                          received the B.Eng. degree in automation in                                    Ph.D. degree in control theory and control en-
+                          2021 and the M.Eng. degree in control science                                  gineering from Nankai University, Tianjin, in
+                          and engineering in 2024 from the Dalian Uni-                                   2011.
+                          versity of Technology, Dalian, China, where he                                    He is currently a Professor with the Institute
+                          is currently working toward the Ph.D. degree in                                of Robotics and Automatic Information System
+                          artificial intelligence with the Intelligent Robot                             (IRAIS) and also Tianjin Key Laboratory of
+                          Lab.                                                                           Intelligent Robotics, Nankai University. His re-
+                             His current research interests include motion                               search interests include mobile robotics, motion
+                          planning and perception-aware planning.              planning, visual sensor network, localization and mapping.
+                                                                                 Dr. Zhang is an Technical Editor of IEEE/ASME TRANSACTIONS ON
+                                                                               MECHATRONICS and an Associate Editor of the ASME Journal of Dynamic
+                                                                               Systems, Measurement, and Control.
+
+
+
+
+                                                                                                         Yan Zhuang (Senior Member, IEEE) received
+                           Xuetao Zhang (Member, IEEE) received the                                      the B.S. and M.S. degrees from Northeastern
+                           B.Eng. degree in electronic science and technol-                              University, Shenyang, China, in 1997 and 2000,
+                           ogy from the Hebei University of Technology,                                  respectively, and the Ph.D. degree from the
+                           Tianjin, China, in 2015, and the Ph.D. degree                                 Dalian University of Technology, Dalian, China,
+                           in control science and engineering from Nankai                                in 2004, all in control theory and control engi-
+                           University, Tianjin, in 2020.                                                 neering.
+                              He is currently an Associate Professor with                                   He is currently a Professor with the School
+                           the Intelligent Robotic Laboratory, School of                                 of Control Science and Engineering, and also
+                           Artificial Intelligence, and also with the School                             with the College of Artificial Intelligence, Dalian
+                           of Control Science and Engineering, Dalian Uni-                               University of Technology. His current research
+                           versity of Technology, Dalian, China. His cur-      interests include mobile robot 3-D environment perception and mapping,
+rent research interests include autonomous exploration, motion planning,       outdoor scene understanding, and machine learning in robotics.
+visual servoing, and state estimation for autonomous rotorcraft UAVs.
+
+
+
+
+SUN ET AL.: ORBIT PLANNER                                                                                                                             2851
+
+Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:25 UTC from IEEE Xplore. Restrictions apply.
+

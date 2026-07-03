@@ -1,0 +1,43 @@
+[INFO] [1779167511.725963, 105.046000]: [eval] Wrote summary to /home/dutjj/IM2MPPI/results/im2_full_gdb_20260519_130947/_tmp_M4_im2_full_seed1/im2_mppi_summary.json
+[INFO] [1779167511.727005, 105.047000]: [eval] CR_strict=0  CR_near=0  CR_tail=0  min_clr=nan  cvar5=None  p95_lat=None ms  diag=no_clear_single_cause
+... logging to /home/dutjj/.ros/log/f9f61b18-5340-11f1-a11d-d1d0ac0853a4/roslaunch-MSI-17227.log
+Checking log directory for disk usage. This may take a while.
+Press Ctrl-C to interrupt
+Done checking log file disk usage. Usage is <1GB.
+]2;/home/dutjj/IM2MIPP/src/IM2MPPI/trajectory_planner/launch/eval/evaluate_planner.launch
+[1mstarted roslaunch server http://MSI:38781/[0m
+
+SUMMARY
+========
+
+PARAMETERS
+ * /planner_evaluator/algorithm: im2_mppi
+ * /planner_evaluator/collision_near_miss: 0.3
+ * /planner_evaluator/collision_strict: 0.15
+ * /planner_evaluator/collision_tail: 0.5
+ * /planner_evaluator/cvar_alpha: 0.05
+ * /planner_evaluator/duration: 90
+ * /planner_evaluator/goal_radius: 0.8
+ * /planner_evaluator/goal_topic: /move_base_simple...
+ * /planner_evaluator/obstacle_topic: /onboard_detector...
+ * /planner_evaluator/odom_topic: /CERLAB/quadcopte...
+ * /planner_evaluator/output_dir: /home/dutjj/IM2MP...
+ * /planner_evaluator/path_topic: 
+ * /planner_evaluator/plan_time_topic: /im2mppi/plan_tim...
+ * /planner_evaluator/target_topic: /autonomous_fligh...
+ * /rosdistro: noetic
+ * /rosversion: 1.17.4
+
+NODES
+  /
+    planner_evaluator (trajectory_planner/evaluate_intent_mpc_im2mppi.py)
+
+[1mROS_MASTER_URI=http://localhost:11311[0m
+]2;/home/dutjj/IM2MIPP/src/IM2MPPI/trajectory_planner/launch/eval/evaluate_planner.launch http://localhost:11311
+[1mprocess[planner_evaluator-1]: started with pid [17243][0m
+[1m[planner_evaluator-1] process has finished cleanly
+log file: /home/dutjj/.ros/log/f9f61b18-5340-11f1-a11d-d1d0ac0853a4/planner_evaluator-1*.log[0m
+all processes on machine have died, roslaunch will exit
+shutting down processing monitor...
+... shutting down processing monitor complete
+[1mdone[0m

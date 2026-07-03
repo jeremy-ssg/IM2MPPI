@@ -1,0 +1,69 @@
+Error in XmlRpcClient::writeRequest: write error (Connection refused).
+Error in XmlRpcDispatch::work: couldn't find source iterator
+Error in XmlRpcClient::writeRequest: write error (Connection refused).
+Error in XmlRpcDispatch::work: couldn't find source iterator
+Error in XmlRpcClient::writeRequest: write error (Connection refused).
+Error in XmlRpcDispatch::work: couldn't find source iterator
+Error in XmlRpcClient::writeRequest: write error (Connection refused).
+Error in XmlRpcDispatch::work: couldn't find source iterator
+Error in XmlRpcClient::writeRequest: write error (Connection refused).
+Error in XmlRpcDispatch::work: couldn't find source iterator
+Error in XmlRpcClient::writeRequest: write error (Connection refused).
+Error in XmlRpcDispatch::work: couldn't find source iterator
+[31m[keyboard_control-10] process has died [pid 16748, exit code -9, cmd /home/dutjj/IM2MIPP/devel/lib/uav_simulator/keyboard_control __name:=keyboard_control __log:=/home/dutjj/.ros/log/f9f61b18-5340-11f1-a11d-d1d0ac0853a4/keyboard_control-10.log].
+log file: /home/dutjj/.ros/log/f9f61b18-5340-11f1-a11d-d1d0ac0853a4/keyboard_control-10*.log[0m
+... logging to /home/dutjj/.ros/log/f9f61b18-5340-11f1-a11d-d1d0ac0853a4/roslaunch-MSI-16697.log
+Checking log directory for disk usage. This may take a while.
+Press Ctrl-C to interrupt
+Done checking log file disk usage. Usage is <1GB.
+]2;/home/dutjj/IM2MIPP/src/IM2MPPI/uav_simulator/launch/start.launch
+[1mstarted roslaunch server http://MSI:35379/[0m
+
+SUMMARY
+========
+
+PARAMETERS
+ * /gazebo/enable_ros_network: True
+ * /robot_description: <?xml version="1....
+ * /rosdistro: noetic
+ * /rosversion: 1.17.4
+ * /use_sim_time: True
+
+NODES
+  /
+    baselink_cameralink (tf/static_transform_publisher)
+    gazebo (gazebo_ros/gzserver)
+    gazebo_gui (gazebo_ros/gzclient)
+    gt_acc_throttle (topic_tools/throttle)
+    gt_odom_throttle (topic_tools/throttle)
+    gt_pose_throttle (topic_tools/throttle)
+    gt_vel_throttle (topic_tools/throttle)
+    keyboard_control (uav_simulator/keyboard_control)
+    quadcopterTF (uav_simulator/quadcopterTFBroadcaster)
+    spawn_gazebo_model (gazebo_ros/spawn_model)
+
+[1mROS_MASTER_URI=http://localhost:11311[0m
+]2;/home/dutjj/IM2MIPP/src/IM2MPPI/uav_simulator/launch/start.launch http://localhost:11311
+[1mprocess[gazebo-1]: started with pid [16712][0m
+[1mprocess[gazebo_gui-2]: started with pid [16715][0m
+[1mprocess[gt_pose_throttle-3]: started with pid [16722][0m
+[1mprocess[gt_vel_throttle-4]: started with pid [16723][0m
+[1mprocess[gt_acc_throttle-5]: started with pid [16724][0m
+[1mprocess[gt_odom_throttle-6]: started with pid [16729][0m
+[1mprocess[spawn_gazebo_model-7]: started with pid [16738][0m
+[1mprocess[quadcopterTF-8]: started with pid [16741][0m
+[1mprocess[baselink_cameralink-9]: started with pid [16745][0m
+[1mprocess[keyboard_control-10]: started with pid [16748][0m
+[1m[spawn_gazebo_model-7] process has finished cleanly
+log file: /home/dutjj/.ros/log/f9f61b18-5340-11f1-a11d-d1d0ac0853a4/spawn_gazebo_model-7*.log[0m
+[baselink_cameralink-9] killing on exit
+[quadcopterTF-8] killing on exit
+[gt_odom_throttle-6] killing on exit
+[gt_acc_throttle-5] killing on exit
+[gt_vel_throttle-4] killing on exit
+[gt_pose_throttle-3] killing on exit
+[gazebo_gui-2] killing on exit
+[gazebo-1] killing on exit
+shutting down processing monitor...
+... shutting down processing monitor complete
+[1mdone[0m

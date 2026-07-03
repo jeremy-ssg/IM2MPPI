@@ -1,0 +1,2 @@
+config,n,Length,CR#,CR_nm#,CR_tail#,MinClr,CVaR@5%,CVaR@10%,TrkRMS,Jerk,Lat_avg,Lat_p95,Lat_max,Length_std,CR#_std,CR_nm#_std,CR_tail#_std,MinClr_std,CVaR@5%_std,CVaR@10%_std,TrkRMS_std,Jerk_std,Lat_avg_std,Lat_p95_std,Lat_max_std
+M4_im2_full,1,7946.29,0,0,0,,,,,,,,,0,0,0,0,,,,,,,,

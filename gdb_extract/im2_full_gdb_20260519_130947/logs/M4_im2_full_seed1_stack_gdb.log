@@ -1,0 +1,874 @@
+[trackingController]: Simulation option is set to (0: px4/1: sim): 1
+[trackingController]: Body rate control is set to: 0
+[trackingController]: Attitude control is set to: 0
+[trackingController]: Acceleration control is set to: 1
+[trackingController]: Position p is set to: [2, 2, 1.8].
+[trackingController]: Position i is set to: [0, 0, 0.1].
+[trackingController]: Position d is set to: [0, 0, 0].
+[trackingController]: Velocity p is set to:[1, 1, 1].
+[trackingController]: Velocity i is set to:[0, 0, 0].
+[trackingController]: Velocity d is set to:[0, 0, 0].
+[trackingController]: Attitude control tau is set to: 0.3
+[trackingController]: Hover thrust is set to: 0.7
+[trackingController]: Dsiplay message is set to: 0
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+[trackingController]: Simulation option is set to (0: px4/1: sim): 1
+[AutoFlight]: Takeoff Height: 1m.
+[AutoFlight]: Odom and mavros topics are ready.
+[0m[INFO] [1779167410.625049990, 4.295000000]: [IM2-MPPI Nav] use_fake_detector = 1[0m
+[0m[INFO] [1779167410.625752385, 4.296000000]: [IM2-MPPI Nav] use_predictor      = 1[0m
+[0m[INFO] [1779167410.627596570, 4.296000000]: [IM2-MPPI Nav] closed_loop_intent = 1 (match_dist = 1.00 m)[0m
+[0m[INFO] [1779167410.635300151, 4.301000000]: [IM2-MPPI Nav] loaded 440 waypoints[0m
+[Fake Detector]: No use mocap param. Use default value.
+[Fake Detector]: The history for tracking is set to: 100
+[dynamicMap]: Sensor input mode: depth image (0)/pointcloud (1). Your option: 0
+[dynamicMap]: Localizaiton mode: pose (0)/odom (1). Your option: 1
+[dynamicMap]: Depth topic: /no_topic
+[dynamicMap]: No poincloud topic name. Use default: /camera/depth/points
+[dynamicMap]: Odom topic: /CERLAB/quadcopter/odom
+[dynamicMap]: robot size: [0.5, 0.5, 0.3]
+[dynamicMap]: fx, fy, cx, cy: [554.255, 554.255, 320.5, 240.5]
+[dynamicMap]: Depth scale factor: 10
+[dynamicMap]: Depth min value: 0.5
+[dynamicMap]: Depth depth max value: 5
+[dynamicMap]: Depth filter margin: 2
+[dynamicMap]: Depth skip pixel: 2
+[dynamicMap]: Depth image columns: 640
+[dynamicMap]: Depth image rows: 480
+[dynamicMap]: Raycast max length: 5
+[dynamicMap]: P hit: 0.7
+[dynamicMap]: P miss: 0.35
+[dynamicMap]: P min: 0.12
+[dynamicMap]: P max: 0.97
+[dynamicMap]: P occ: 0.8
+[dynamicMap]: Map resolution: 0.1
+[dynamicMap]: Ground height: -0.1
+[dynamicMap]: Map size: [80, 40, 5]
+[dynamicMap]: Local update range: [5, 5, 5]
+[dynamicMap]: Local bound inflate: 3
+[dynamicMap]: Clean local map option is set to: 0
+[dynamicMap]: the prebuilt map absolute dir is found: /home/dutjj/IM2MIPP/src/IM2MPPI/autonomous_flight/cfg/saved_map/demo_map.pcd
+[dynamicMap]: Local map size: [20, 20, 6]
+[dynamicMap]: Max visualization height: 2.5
+[dynamicMap]: Visualize map option. local (0)/global (1): 1
+[dynamicMap]: Not display messages
+[dynamicMap]: Map loaded with 25579 data points. 
+[onboardDetector]: Localizaiton mode: pose (0)/odom (1). Your option: 0
+[onboardDetector]: Depth topic: /no_topic
+[onboardDetector]: Aligned depth topic: /no_topic
+[onboardDetector]: No aligned depth image topic name. Use default: /camera/color/image_raw
+[onboardDetector]: Pose topic: /CERLAB/quadcopter/pose
+[onboardDetector]: fx, fy, cx, cy: [554.255, 554.255, 320.5, 240.5]
+[onboardDetector]: Depth scale factor: 10
+[onboardDetector]: Depth min value: 0.5
+[onboardDetector]: Depth depth max value: 5
+[onboardDetector]: Depth filter margin: 10
+[onboardDetector]: Depth skip pixel: 2
+[onboardDetector]: Depth image columns: 640
+[onboardDetector]: Depth image rows: 480
+[onboardDetector]: fxC, fyC, cxC, cyC: [554.255, 554.255, 320.5, 240.5]
+[onboardDetector]: Raycast max length: 5
+[onboardDetector]: min num of points for a voxel to be occupied in voxel filter is set to be: 15
+[onboardDetector]: Ground height is set to: 0.1
+[onboardDetector]: DBSCAN Minimum point in each cluster is set to: 20
+[onboardDetector]: DBSCAN epsilon is set to: 0.1
+[onboardDetector]: The threshold for boununding box IOU filtering is set to: 0.05
+[onboardDetector]: The YOLO overwrite distance is set to: 3
+[onboardDetector]: The history for tracking is set to: 100
+[onboardDetector]: The prediction size is set to: 20
+[onboardDetector]: The time difference for the system is set to: 0.033
+[onboardDetector]: The similarity threshold for data association is set to: 0.02
+[onboardDetector]: The similarity threshold for data association is set to: 0.015
+[onboardDetector]: The frames skiped in classification when comparing two point cloud is set to: 5
+[onboardDetector]: The velocity threshold for dynamic classification is set to: 0.15
+[onboardDetector]: The voting threshold for dynamic classification is set to: 0.8
+[onboardDetector]: The the upper limit of points skipping in classification is set to: 0.5
+[onboardDetector]: History threshold for fixing size parameter is set to: 10
+[onboardDetector]: Dimension threshold for fixing size parameter is set to: 0.4
+[onboardDetector]: The covariance for kalman filter is set to: 0.25
+[onboardDetector]: The noise for prediction for position in Kalman Filter is set to: 0.01
+[onboardDetector]: The noise for prediction for velocity in Kalman Filter is set to: 0.05
+[onboardDetector]: The noise for prediction for acceleration in Kalman Filter is set to: 0.05
+[onboardDetector]: The noise for measurement for position in Kalman Filter is set to: 0.04
+[onboardDetector]: The noise for measurement for velocity in Kalman Filter is set to: 0.3
+[onboardDetector]: The noise for measuremnt for acceleration in Kalman Filter is set to: 0.6
+[onboardDetector]: Number of frames used in KF for observation is set to: 10
+[onboardDetector]: Range of searching dynamic obstacles in box history is set to: 10
+[onboardDetector]: Threshold for forcing dynamic obstacles is set to: 30
+[onboardDetector]: Threshold for dynamic consistency check is set to: 5
+[onboardDetector]: Target object constrain is set to: 1
+[onboardDetector]: target object size is set to: [0.5, 0.5, 1.7].
+[predictor]: The prediction size is set to: 30
+[predictor]: The prediction time step is set to: 0.1
+[predictor]: The prediction z score is set to: 0.674
+[predictor]: The minimum turning time is set to: 2
+[predictor]: The maximum turning time is set to: 3
+[predictor]: Max front prob param is set to: 0.5
+[predictor]: Front angle param is set to: 0.436332
+[predictor]: Stop velocity thereshold param is set to: 0.1
+[predictor]: Front param is set to: 0.332452
+[predictor]: Left param is set to: 1
+[predictor]: Right param is set to: 1
+[predictor]: Stop param is set to: 5.49306
+[predictor]: Prob scale param is set to: 5
+[0m[INFO] [1779167410.980201874, 4.499000000]: [IM2-MPPI] Planner ready. method=cvar_mppi  N=512  H=30  dt=0.050[0m
+[0m[INFO] [1779167410.980243337, 4.499000000]: [IM2-MPPI Nav] Planner ready. method_type = cvar_mppi[0m
+[AutoFlight]: Start taking off...
+[AutoFlight]: Takeoff succeed!
+
+Thread 9 "im2_mppi_naviga" received signal SIGSEGV, Segmentation fault.
+[Switching to Thread 0x7fffb3bff000 (LWP 17199)]
+0x00007ffff69aaf93 in onboardDetector::fakeDetector::getDynamicObstaclesHist(std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, Eigen::Matrix<double, 3, 1, 0, 3, 1> const&) () from /home/dutjj/IM2MIPP/devel/lib/libonboard_detector.so
+
+===== info threads =====
+  Id   Target Id                                           Frame 
+  1    Thread 0x7fffec40f000 (LWP 17163) "im2_mppi_naviga" 0x00007ffff7a2723f in __GI___clock_nanosleep (clock_id=clock_id@entry=0, flags=flags@entry=0, req=0x7fffffffcf80, rem=0x7fffffffcf90) at ../sysdeps/unix/sysv/linux/clock_nanosleep.c:78
+  2    Thread 0x7fffeb354000 (LWP 17170) "im2_mppi_naviga" 0x00007ffff7a6968e in epoll_wait (epfd=4, events=0x7fffeb350470, maxevents=11, timeout=100) at ../sysdeps/unix/sysv/linux/epoll_wait.c:30
+  3    Thread 0x7fffeab53000 (LWP 17171) "im2_mppi_naviga" 0x00007ffff7a5cbbf in __GI___poll (fds=0x555555f7d460, nfds=1, timeout=100) at ../sysdeps/unix/sysv/linux/poll.c:29
+  4    Thread 0x7fffea352000 (LWP 17172) "im2_mppi_naviga" futex_wait_cancelable (private=<optimized out>, expected=0, futex_word=0x555555ad4458) at ../sysdeps/nptl/futex-internal.h:183
+  5    Thread 0x7fffe9b51000 (LWP 17173) "im2_mppi_naviga" futex_abstimed_wait_cancelable (private=<optimized out>, abstime=0x7fffe9b4d6e0, clockid=<optimized out>, expected=0, futex_word=0x555555ad455c) at ../sysdeps/nptl/futex-internal.h:320
+  6    Thread 0x7fffe9350000 (LWP 17176) "im2_mppi_naviga" 0x00007ffff7a2723f in __GI___clock_nanosleep (clock_id=clock_id@entry=0, flags=flags@entry=0, req=0x7fffe934c4a0, rem=0x7fffe934c4b0) at ../sysdeps/unix/sysv/linux/clock_nanosleep.c:78
+  7    Thread 0x7fffe8b4f000 (LWP 17177) "im2_mppi_naviga" futex_abstimed_wait_cancelable (private=<optimized out>, abstime=0x7fffe8b4b720, clockid=<optimized out>, expected=0, futex_word=0x7ffff7fc68d4 <ros::TimerManager<ros::Time, ros::Duration, ros::TimerEvent>::global()::global+148>) at ../sysdeps/nptl/futex-internal.h:320
+  8    Thread 0x7fffb8bd8000 (LWP 17179) "im2_mppi_naviga" 0x00007ffff7a2723f in __GI___clock_nanosleep (clock_id=clock_id@entry=0, flags=flags@entry=0, req=0x7fffb8bd46b0, rem=0x7fffb8bd46c0) at ../sysdeps/unix/sysv/linux/clock_nanosleep.c:78
+* 9    Thread 0x7fffb3bff000 (LWP 17199) "im2_mppi_naviga" 0x00007ffff69aaf93 in onboardDetector::fakeDetector::getDynamicObstaclesHist(std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, Eigen::Matrix<double, 3, 1, 0, 3, 1> const&) () from /home/dutjj/IM2MIPP/devel/lib/libonboard_detector.so
+  10   Thread 0x7fffb33fe000 (LWP 17200) "im2_mppi_naviga" futex_abstimed_wait_cancelable (private=<optimized out>, abstime=0x7fffb33fa6f0, clockid=<optimized out>, expected=0, futex_word=0x555555ad2da8) at ../sysdeps/nptl/futex-internal.h:320
+  11   Thread 0x7fffb2bfd000 (LWP 17201) "im2_mppi_naviga" futex_abstimed_wait_cancelable (private=<optimized out>, abstime=0x7fffb2bf96f0, clockid=<optimized out>, expected=0, futex_word=0x555555ad2da8) at ../sysdeps/nptl/futex-internal.h:320
+  12   Thread 0x7fffb0b8d000 (LWP 17203) "cuda00005400016" 0x00007ffff7a5cbbf in __GI___poll (fds=0x7fffac0125f0, nfds=2, timeout=-1) at ../sysdeps/unix/sysv/linux/poll.c:29
+  14   Thread 0x7fffa3fff000 (LWP 17206) "cuda-EvtHandlr"  0x00007ffff7a5cbbf in __GI___poll (fds=0x7fffad876d70, nfds=4, timeout=100) at ../sysdeps/unix/sysv/linux/poll.c:29
+  15   Thread 0x7fff95bfd000 (LWP 17207) "im2_mppi_naviga" 0x00007ffff7a5cbbf in __GI___poll (fds=0x7fffad7ca6c0, nfds=2, timeout=100) at ../sysdeps/unix/sysv/linux/poll.c:29
+
+===== thread apply all bt full =====
+
+Thread 15 (Thread 0x7fff95bfd000 (LWP 17207)):
+#0  0x00007ffff7a5cbbf in __GI___poll (fds=0x7fffad7ca6c0, nfds=2, timeout=100) at ../sysdeps/unix/sysv/linux/poll.c:29
+        resultvar = 18446744073709551100
+        sc_cancel_oldtype = 0
+        sc_ret = <optimized out>
+#1  0x00007fffb0f55436 in ?? () from /usr/lib/wsl/drivers/nvmi.inf_amd64_c529a5de48c908c3/libcuda.so.1.1
+No symbol table info available.
+#2  0x00007fffb0e63433 in ?? () from /usr/lib/wsl/drivers/nvmi.inf_amd64_c529a5de48c908c3/libcuda.so.1.1
+No symbol table info available.
+#3  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140735705763840, -9181825557806163878, 140736209069950, 140736209069951, 140736209069952, 140735705749760, 9181908569780148314, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#4  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 14 (Thread 0x7fffa3fff000 (LWP 17206)):
+#0  0x00007ffff7a5cbbf in __GI___poll (fds=0x7fffad876d70, nfds=4, timeout=100) at ../sysdeps/unix/sysv/linux/poll.c:29
+        resultvar = 18446744073709551100
+        sc_cancel_oldtype = 0
+        sc_ret = <optimized out>
+#1  0x00007fffb0f55436 in ?? () from /usr/lib/wsl/drivers/nvmi.inf_amd64_c529a5de48c908c3/libcuda.so.1.1
+No symbol table info available.
+#2  0x00007fffb0e63433 in ?? () from /usr/lib/wsl/drivers/nvmi.inf_amd64_c529a5de48c908c3/libcuda.so.1.1
+No symbol table info available.
+#3  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140735944847360, -9181825557806163878, 140736209069982, 140736209069983, 140736209069984, 140735944833280, 9181957496973842522, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#4  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 12 (Thread 0x7fffb0b8d000 (LWP 17203)):
+#0  0x00007ffff7a5cbbf in __GI___poll (fds=0x7fffac0125f0, nfds=2, timeout=-1) at ../sysdeps/unix/sysv/linux/poll.c:29
+        resultvar = 18446744073709551100
+        sc_cancel_oldtype = 0
+        sc_ret = <optimized out>
+#1  0x00007fffb0f55436 in ?? () from /usr/lib/wsl/drivers/nvmi.inf_amd64_c529a5de48c908c3/libcuda.so.1.1
+No symbol table info available.
+#2  0x00007fffb0e63433 in ?? () from /usr/lib/wsl/drivers/nvmi.inf_amd64_c529a5de48c908c3/libcuda.so.1.1
+No symbol table info available.
+#3  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140736158289920, -9181825557806163878, 140736209069214, 140736209069215, 140736209069216, 140736158275840, 9181989976590276698, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#4  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 11 (Thread 0x7fffb2bfd000 (LWP 17201)):
+#0  futex_abstimed_wait_cancelable (private=<optimized out>, abstime=0x7fffb2bf96f0, clockid=<optimized out>, expected=0, futex_word=0x555555ad2da8) at ../sysdeps/nptl/futex-internal.h:320
+        __ret = -516
+        clockbit = <optimized out>
+        op = <optimized out>
+        __ret = <optimized out>
+        oldtype = 0
+        err = <optimized out>
+        oldtype = <optimized out>
+        err = <optimized out>
+        __ret = <optimized out>
+        clockbit = <optimized out>
+        op = <optimized out>
+        __ret = <optimized out>
+        resultvar = <optimized out>
+        __arg6 = <optimized out>
+        __arg5 = <optimized out>
+        __arg4 = <optimized out>
+        __arg3 = <optimized out>
+        __arg2 = <optimized out>
+        __arg1 = <optimized out>
+        _a6 = <optimized out>
+        _a5 = <optimized out>
+        _a4 = <optimized out>
+        _a3 = <optimized out>
+        _a2 = <optimized out>
+        _a1 = <optimized out>
+#1  __pthread_cond_wait_common (abstime=0x7fffb2bf96f0, clockid=<optimized out>, mutex=0x555555ad2d58, cond=0x555555ad2d80) at pthread_cond_wait.c:520
+        spin = 0
+        buffer = {__routine = 0x7ffff7dc6050 <__condvar_cleanup_waiting>, __arg = 0x7fffb2bf9620, __canceltype = -1296066976, __prev = 0x0}
+        cbuffer = {wseq = 4910, cond = 0x555555ad2d80, mutex = 0x555555ad2d58, private = 0}
+        err = <optimized out>
+        g = 0
+        flags = <optimized out>
+        g1_start = <optimized out>
+        maxspin = 0
+        signals = <optimized out>
+        result = 0
+        wseq = 4910
+        seq = 2455
+        private = <optimized out>
+        maxspin = <optimized out>
+        err = <optimized out>
+        result = <optimized out>
+        wseq = <optimized out>
+        g = <optimized out>
+        seq = <optimized out>
+        flags = <optimized out>
+        private = <optimized out>
+        signals = <optimized out>
+        g1_start = <optimized out>
+        spin = <optimized out>
+        buffer = <optimized out>
+        cbuffer = <optimized out>
+        s = <optimized out>
+#2  __pthread_cond_timedwait (cond=0x555555ad2d80, mutex=0x555555ad2d58, abstime=0x7fffb2bf96f0) at pthread_cond_wait.c:665
+        flags = <optimized out>
+        clockid = <optimized out>
+#3  0x00007ffff7f1d096 in ros::CallbackQueue::callOne(ros::WallDuration) () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#4  0x00007ffff7f70765 in ros::AsyncSpinnerImpl::threadFunc() () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#5  0x00007ffff786643b in ?? () from /lib/x86_64-linux-gnu/libboost_thread.so.1.71.0
+No symbol table info available.
+#6  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140736192303104, -9181825557806163878, 140737488342222, 140737488342223, 140737488342224, 140736192289024, 9181994331687114842, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#7  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 10 (Thread 0x7fffb33fe000 (LWP 17200)):
+#0  futex_abstimed_wait_cancelable (private=<optimized out>, abstime=0x7fffb33fa6f0, clockid=<optimized out>, expected=0, futex_word=0x555555ad2da8) at ../sysdeps/nptl/futex-internal.h:320
+        __ret = -516
+        clockbit = <optimized out>
+        op = <optimized out>
+        __ret = <optimized out>
+        oldtype = 0
+        err = <optimized out>
+        oldtype = <optimized out>
+        err = <optimized out>
+        __ret = <optimized out>
+        clockbit = <optimized out>
+        op = <optimized out>
+        __ret = <optimized out>
+        resultvar = <optimized out>
+        __arg6 = <optimized out>
+        __arg5 = <optimized out>
+        __arg4 = <optimized out>
+        __arg3 = <optimized out>
+        __arg2 = <optimized out>
+        __arg1 = <optimized out>
+        _a6 = <optimized out>
+        _a5 = <optimized out>
+        _a4 = <optimized out>
+        _a3 = <optimized out>
+        _a2 = <optimized out>
+        _a1 = <optimized out>
+#1  __pthread_cond_wait_common (abstime=0x7fffb33fa6f0, clockid=<optimized out>, mutex=0x555555ad2d58, cond=0x555555ad2d80) at pthread_cond_wait.c:520
+        spin = 0
+        buffer = {__routine = 0x7ffff7dc6050 <__condvar_cleanup_waiting>, __arg = 0x7fffb33fa620, __canceltype = -1287674272, __prev = 0x0}
+        cbuffer = {wseq = 4908, cond = 0x555555ad2d80, mutex = 0x555555ad2d58, private = 0}
+        err = <optimized out>
+        g = 0
+        flags = <optimized out>
+        g1_start = <optimized out>
+        maxspin = 0
+        signals = <optimized out>
+        result = 0
+        wseq = 4908
+        seq = 2454
+        private = <optimized out>
+        maxspin = <optimized out>
+        err = <optimized out>
+        result = <optimized out>
+        wseq = <optimized out>
+        g = <optimized out>
+        seq = <optimized out>
+        flags = <optimized out>
+        private = <optimized out>
+        signals = <optimized out>
+        g1_start = <optimized out>
+        spin = <optimized out>
+        buffer = <optimized out>
+        cbuffer = <optimized out>
+        s = <optimized out>
+#2  __pthread_cond_timedwait (cond=0x555555ad2d80, mutex=0x555555ad2d58, abstime=0x7fffb33fa6f0) at pthread_cond_wait.c:665
+        flags = <optimized out>
+        clockid = <optimized out>
+#3  0x00007ffff7f1d096 in ros::CallbackQueue::callOne(ros::WallDuration) () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#4  0x00007ffff7f70765 in ros::AsyncSpinnerImpl::threadFunc() () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#5  0x00007ffff786643b in ?? () from /lib/x86_64-linux-gnu/libboost_thread.so.1.71.0
+No symbol table info available.
+#6  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140736200695808, -9181825557806163878, 140737488342222, 140737488342223, 140737488342224, 140736200681728, 9181991032615360602, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#7  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 9 (Thread 0x7fffb3bff000 (LWP 17199)):
+#0  0x00007ffff69aaf93 in onboardDetector::fakeDetector::getDynamicObstaclesHist(std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, Eigen::Matrix<double, 3, 1, 0, 3, 1> const&) () from /home/dutjj/IM2MIPP/devel/lib/libonboard_detector.so
+No symbol table info available.
+#1  0x00007ffff76c439c in dynamicPredictor::predictor::predict() () from /home/dutjj/IM2MIPP/devel/lib/libdynamic_predictor.so
+No symbol table info available.
+#2  0x00007ffff7efa8a8 in ros::TimerManager<ros::Time, ros::Duration, ros::TimerEvent>::TimerQueueCallback::call() () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#3  0x00007ffff7f1c302 in ros::CallbackQueue::callOneCB(ros::CallbackQueue::TLS*) () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#4  0x00007ffff7f1d2db in ros::CallbackQueue::callOne(ros::WallDuration) () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#5  0x00007ffff7f70765 in ros::AsyncSpinnerImpl::threadFunc() () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#6  0x00007ffff786643b in ?? () from /lib/x86_64-linux-gnu/libboost_thread.so.1.71.0
+No symbol table info available.
+#7  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140736209088512, -9181825557806163878, 140737488342222, 140737488342223, 140737488342224, 140736209074432, 9181992131590117466, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#8  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 8 (Thread 0x7fffb8bd8000 (LWP 17179)):
+#0  0x00007ffff7a2723f in __GI___clock_nanosleep (clock_id=clock_id@entry=0, flags=flags@entry=0, req=0x7fffb8bd46b0, rem=0x7fffb8bd46c0) at ../sysdeps/unix/sysv/linux/clock_nanosleep.c:78
+        sc_cancel_oldtype = 0
+        sc_ret = <optimized out>
+        r = <optimized out>
+#1  0x00007ffff7a2cec7 in __GI___nanosleep (requested_time=<optimized out>, remaining=<optimized out>) at nanosleep.c:27
+        ret = <optimized out>
+#2  0x00007ffff78a9351 in ros::ros_wallsleep(unsigned int, unsigned int) () from /opt/ros/noetic/lib/librostime.so
+No symbol table info available.
+#3  0x00007ffff78a9b1a in ros::Duration::sleep() const () from /opt/ros/noetic/lib/librostime.so
+No symbol table info available.
+#4  0x00007ffff78a8e5a in ros::Rate::sleep() () from /opt/ros/noetic/lib/librostime.so
+No symbol table info available.
+#5  0x00007ffff712e1c8 in mapManager::occMap::startVisualization() () from /home/dutjj/IM2MIPP/devel/lib/libmap_manager.so
+No symbol table info available.
+#6  0x00007ffff7c2fdf4 in ?? () from /lib/x86_64-linux-gnu/libstdc++.so.6
+No symbol table info available.
+#7  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140736292814848, -9181825557806163878, 140737488340142, 140737488340143, 140737488340144, 140736292800768, 9181972365613750362, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#8  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 7 (Thread 0x7fffe8b4f000 (LWP 17177)):
+#0  futex_abstimed_wait_cancelable (private=<optimized out>, abstime=0x7fffe8b4b720, clockid=<optimized out>, expected=0, futex_word=0x7ffff7fc68d4 <ros::TimerManager<ros::Time, ros::Duration, ros::TimerEvent>::global()::global+148>) at ../sysdeps/nptl/futex-internal.h:320
+        __ret = -516
+        clockbit = <optimized out>
+        op = <optimized out>
+        __ret = <optimized out>
+        oldtype = 0
+        err = <optimized out>
+        oldtype = <optimized out>
+        err = <optimized out>
+        __ret = <optimized out>
+        clockbit = <optimized out>
+        op = <optimized out>
+        __ret = <optimized out>
+        resultvar = <optimized out>
+        __arg6 = <optimized out>
+        __arg5 = <optimized out>
+        __arg4 = <optimized out>
+        __arg3 = <optimized out>
+        __arg2 = <optimized out>
+        __arg1 = <optimized out>
+        _a6 = <optimized out>
+        _a5 = <optimized out>
+        _a4 = <optimized out>
+        _a3 = <optimized out>
+        _a2 = <optimized out>
+        _a1 = <optimized out>
+#1  __pthread_cond_wait_common (abstime=0x7fffe8b4b720, clockid=<optimized out>, mutex=0x7ffff7fc6880 <ros::TimerManager<ros::Time, ros::Duration, ros::TimerEvent>::global()::global+64>, cond=0x7ffff7fc68a8 <ros::TimerManager<ros::Time, ros::Duration, ros::TimerEvent>::global()::global+104>) at pthread_cond_wait.c:520
+        spin = 0
+        buffer = {__routine = 0x7ffff7dc6050 <__condvar_cleanup_waiting>, __arg = 0x7fffe8b4b5a0, __canceltype = 0, __prev = 0x0}
+        cbuffer = {wseq = 13369, cond = 0x7ffff7fc68a8 <ros::TimerManager<ros::Time, ros::Duration, ros::TimerEvent>::global()::global+104>, mutex = 0x7ffff7fc6880 <ros::TimerManager<ros::Time, ros::Duration, ros::TimerEvent>::global()::global+64>, private = 0}
+        err = <optimized out>
+        g = 1
+        flags = <optimized out>
+        g1_start = <optimized out>
+        maxspin = 0
+        signals = <optimized out>
+        result = 0
+        wseq = 13369
+        seq = 6684
+        private = <optimized out>
+        maxspin = <optimized out>
+        err = <optimized out>
+        result = <optimized out>
+        wseq = <optimized out>
+        g = <optimized out>
+        seq = <optimized out>
+        flags = <optimized out>
+        private = <optimized out>
+        signals = <optimized out>
+        g1_start = <optimized out>
+        spin = <optimized out>
+        buffer = <optimized out>
+        cbuffer = <optimized out>
+        s = <optimized out>
+#2  __pthread_cond_timedwait (cond=0x7ffff7fc68a8 <ros::TimerManager<ros::Time, ros::Duration, ros::TimerEvent>::global()::global+104>, mutex=0x7ffff7fc6880 <ros::TimerManager<ros::Time, ros::Duration, ros::TimerEvent>::global()::global+64>, abstime=0x7fffe8b4b720) at pthread_cond_wait.c:665
+        flags = <optimized out>
+        clockid = <optimized out>
+#3  0x00007ffff7ef6566 in boost::condition_variable::do_wait_until(boost::unique_lock<boost::mutex>&, boost::detail::mono_platform_timepoint const&) () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#4  0x00007ffff7ef800d in ros::TimerManager<ros::Time, ros::Duration, ros::TimerEvent>::threadFunc() () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#5  0x00007ffff786643b in ?? () from /lib/x86_64-linux-gnu/libboost_thread.so.1.71.0
+No symbol table info available.
+#6  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140737097560064, -9181825557806163878, 140737488341454, 140737488341455, 140737488341456, 140737097545984, 9181796358390831194, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#7  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 6 (Thread 0x7fffe9350000 (LWP 17176)):
+#0  0x00007ffff7a2723f in __GI___clock_nanosleep (clock_id=clock_id@entry=0, flags=flags@entry=0, req=0x7fffe934c4a0, rem=0x7fffe934c4b0) at ../sysdeps/unix/sysv/linux/clock_nanosleep.c:78
+        sc_cancel_oldtype = 0
+        sc_ret = <optimized out>
+        r = <optimized out>
+#1  0x00007ffff7a2cec7 in __GI___nanosleep (requested_time=<optimized out>, remaining=<optimized out>) at nanosleep.c:27
+        ret = <optimized out>
+#2  0x00007ffff78a9351 in ros::ros_wallsleep(unsigned int, unsigned int) () from /opt/ros/noetic/lib/librostime.so
+No symbol table info available.
+#3  0x00007ffff78a9b1a in ros::Duration::sleep() const () from /opt/ros/noetic/lib/librostime.so
+No symbol table info available.
+#4  0x00007ffff78a8e5a in ros::Rate::sleep() () from /opt/ros/noetic/lib/librostime.so
+No symbol table info available.
+#5  0x00007ffff7d6ab67 in AutoFlight::flightBase::publishTarget() () from /home/dutjj/IM2MIPP/devel/lib/libautonomous_flight.so
+No symbol table info available.
+#6  0x00007ffff7c2fdf4 in ?? () from /lib/x86_64-linux-gnu/libstdc++.so.6
+No symbol table info available.
+#7  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140737105952768, -9181825557806163878, 140737488342014, 140737488342015, 140737488342016, 140737105938688, 9181793063614044250, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#8  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 5 (Thread 0x7fffe9b51000 (LWP 17173)):
+#0  futex_abstimed_wait_cancelable (private=<optimized out>, abstime=0x7fffe9b4d6e0, clockid=<optimized out>, expected=0, futex_word=0x555555ad455c) at ../sysdeps/nptl/futex-internal.h:320
+        __ret = -516
+        clockbit = <optimized out>
+        op = <optimized out>
+        __ret = <optimized out>
+        oldtype = 0
+        err = <optimized out>
+        oldtype = <optimized out>
+        err = <optimized out>
+        __ret = <optimized out>
+        clockbit = <optimized out>
+        op = <optimized out>
+        __ret = <optimized out>
+        resultvar = <optimized out>
+        __arg6 = <optimized out>
+        __arg5 = <optimized out>
+        __arg4 = <optimized out>
+        __arg3 = <optimized out>
+        __arg2 = <optimized out>
+        __arg1 = <optimized out>
+        _a6 = <optimized out>
+        _a5 = <optimized out>
+        _a4 = <optimized out>
+        _a3 = <optimized out>
+        _a2 = <optimized out>
+        _a1 = <optimized out>
+#1  __pthread_cond_wait_common (abstime=0x7fffe9b4d6e0, clockid=<optimized out>, mutex=0x555555ad4508, cond=0x555555ad4530) at pthread_cond_wait.c:520
+        spin = 0
+        buffer = {__routine = 0x7ffff7dc6050 <__condvar_cleanup_waiting>, __arg = 0x7fffe9b4d630, __canceltype = -374024592, __prev = 0x0}
+        cbuffer = {wseq = 12311, cond = 0x555555ad4530, mutex = 0x555555ad4508, private = 0}
+        err = <optimized out>
+        g = 1
+        flags = <optimized out>
+        g1_start = <optimized out>
+        maxspin = 0
+        signals = <optimized out>
+        result = 0
+        wseq = 12311
+        seq = 6155
+        private = <optimized out>
+        maxspin = <optimized out>
+        err = <optimized out>
+        result = <optimized out>
+        wseq = <optimized out>
+        g = <optimized out>
+        seq = <optimized out>
+        flags = <optimized out>
+        private = <optimized out>
+        signals = <optimized out>
+        g1_start = <optimized out>
+        spin = <optimized out>
+        buffer = <optimized out>
+        cbuffer = <optimized out>
+        s = <optimized out>
+#2  __pthread_cond_timedwait (cond=0x555555ad4530, mutex=0x555555ad4508, abstime=0x7fffe9b4d6e0) at pthread_cond_wait.c:665
+        flags = <optimized out>
+        clockid = <optimized out>
+#3  0x00007ffff7f1e09f in ros::CallbackQueue::callAvailable(ros::WallDuration) () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#4  0x00007ffff7f593af in ros::internalCallbackQueueThreadFunc() () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#5  0x00007ffff786643b in ?? () from /lib/x86_64-linux-gnu/libboost_thread.so.1.71.0
+No symbol table info available.
+#6  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140737114345472, -9181825557806163878, 140737488341662, 140737488341663, 140737488341664, 140737114331392, 9181794162588801114, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#7  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 4 (Thread 0x7fffea352000 (LWP 17172)):
+#0  futex_wait_cancelable (private=<optimized out>, expected=0, futex_word=0x555555ad4458) at ../sysdeps/nptl/futex-internal.h:183
+        __ret = -512
+        oldtype = 0
+        err = <optimized out>
+        oldtype = <optimized out>
+        err = <optimized out>
+        __ret = <optimized out>
+        resultvar = <optimized out>
+        __arg4 = <optimized out>
+        __arg3 = <optimized out>
+        __arg2 = <optimized out>
+        __arg1 = <optimized out>
+        _a4 = <optimized out>
+        _a3 = <optimized out>
+        _a2 = <optimized out>
+        _a1 = <optimized out>
+#1  __pthread_cond_wait_common (abstime=0x0, clockid=0, mutex=0x555555ad4408, cond=0x555555ad4430) at pthread_cond_wait.c:508
+        spin = 0
+        buffer = {__routine = 0x7ffff7dc6050 <__condvar_cleanup_waiting>, __arg = 0x7fffea34e620, __canceltype = 0, __prev = 0x0}
+        cbuffer = {wseq = 12, cond = 0x555555ad4430, mutex = 0x555555ad4408, private = 0}
+        err = <optimized out>
+        g = 0
+        flags = <optimized out>
+        g1_start = <optimized out>
+        signals = <optimized out>
+        result = 0
+        wseq = 12
+        seq = 6
+        private = <optimized out>
+        maxspin = <optimized out>
+        err = <optimized out>
+        result = <optimized out>
+        wseq = <optimized out>
+        g = <optimized out>
+        seq = <optimized out>
+        flags = <optimized out>
+        private = <optimized out>
+        signals = <optimized out>
+        g1_start = <optimized out>
+        spin = <optimized out>
+        buffer = <optimized out>
+        cbuffer = <optimized out>
+        s = <optimized out>
+#2  __pthread_cond_wait (cond=0x555555ad4430, mutex=0x555555ad4408) at pthread_cond_wait.c:647
+No locals.
+#3  0x00007ffff7f56b87 in ros::ROSOutAppender::logThread() () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#4  0x00007ffff786643b in ?? () from /lib/x86_64-linux-gnu/libboost_thread.so.1.71.0
+No symbol table info available.
+#5  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140737122738176, -9181825557806163878, 140737488341326, 140737488341327, 140737488341328, 140737122724096, 9181799659610069082, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#6  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 3 (Thread 0x7fffeab53000 (LWP 17171)):
+#0  0x00007ffff7a5cbbf in __GI___poll (fds=0x555555f7d460, nfds=1, timeout=100) at ../sysdeps/unix/sysv/linux/poll.c:29
+        resultvar = 18446744073709551100
+        sc_cancel_oldtype = 0
+        sc_ret = <optimized out>
+#1  0x00007ffff78cd46c in XmlRpc::XmlRpcDispatch::work(double) () from /opt/ros/noetic/lib/libxmlrpcpp.so
+No symbol table info available.
+#2  0x00007ffff7eef1aa in ros::XMLRPCManager::serverThreadFunc() () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#3  0x00007ffff786643b in ?? () from /lib/x86_64-linux-gnu/libboost_thread.so.1.71.0
+No symbol table info available.
+#4  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140737131130880, -9181825557806163878, 140737488341182, 140737488341183, 140737488341184, 140737131116800, 9181800758584825946, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#5  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 2 (Thread 0x7fffeb354000 (LWP 17170)):
+#0  0x00007ffff7a6968e in epoll_wait (epfd=4, events=0x7fffeb350470, maxevents=11, timeout=100) at ../sysdeps/unix/sysv/linux/epoll_wait.c:30
+        resultvar = 18446744073709551612
+        sc_cancel_oldtype = 0
+        sc_ret = <optimized out>
+#1  0x00007ffff7efb8d8 in ros::poll_sockets(int, pollfd*, unsigned long, int) () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#2  0x00007ffff7f7725c in ros::PollSet::update(int) () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#3  0x00007ffff7f0905d in ros::PollManager::threadFunc() () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#4  0x00007ffff786643b in ?? () from /lib/x86_64-linux-gnu/libboost_thread.so.1.71.0
+No symbol table info available.
+#5  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140737139523584, -9181825557806163878, 140737488341646, 140737488341647, 140737488341648, 140737139509504, 9181797472397973594, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#6  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+
+Thread 1 (Thread 0x7fffec40f000 (LWP 17163)):
+#0  0x00007ffff7a2723f in __GI___clock_nanosleep (clock_id=clock_id@entry=0, flags=flags@entry=0, req=0x7fffffffcf80, rem=0x7fffffffcf90) at ../sysdeps/unix/sysv/linux/clock_nanosleep.c:78
+        sc_cancel_oldtype = 0
+        sc_ret = <optimized out>
+        r = <optimized out>
+#1  0x00007ffff7a2cec7 in __GI___nanosleep (requested_time=<optimized out>, remaining=<optimized out>) at nanosleep.c:27
+        ret = <optimized out>
+#2  0x00007ffff78a9351 in ros::ros_wallsleep(unsigned int, unsigned int) () from /opt/ros/noetic/lib/librostime.so
+No symbol table info available.
+#3  0x00007ffff7f596b7 in ros::waitForShutdown() () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#4  0x000055555555e8b7 in main ()
+No symbol table info available.
+
+===== bt full =====
+#0  0x00007ffff69aaf93 in onboardDetector::fakeDetector::getDynamicObstaclesHist(std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, std::vector<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > >, std::allocator<std::vector<Eigen::Matrix<double, 3, 1, 0, 3, 1>, std::allocator<Eigen::Matrix<double, 3, 1, 0, 3, 1> > > > >&, Eigen::Matrix<double, 3, 1, 0, 3, 1> const&) () from /home/dutjj/IM2MIPP/devel/lib/libonboard_detector.so
+No symbol table info available.
+#1  0x00007ffff76c439c in dynamicPredictor::predictor::predict() () from /home/dutjj/IM2MIPP/devel/lib/libdynamic_predictor.so
+No symbol table info available.
+#2  0x00007ffff7efa8a8 in ros::TimerManager<ros::Time, ros::Duration, ros::TimerEvent>::TimerQueueCallback::call() () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#3  0x00007ffff7f1c302 in ros::CallbackQueue::callOneCB(ros::CallbackQueue::TLS*) () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#4  0x00007ffff7f1d2db in ros::CallbackQueue::callOne(ros::WallDuration) () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#5  0x00007ffff7f70765 in ros::AsyncSpinnerImpl::threadFunc() () from /opt/ros/noetic/lib/libroscpp.so
+No symbol table info available.
+#6  0x00007ffff786643b in ?? () from /lib/x86_64-linux-gnu/libboost_thread.so.1.71.0
+No symbol table info available.
+#7  0x00007ffff7dbf609 in start_thread (arg=<optimized out>) at pthread_create.c:477
+        ret = <optimized out>
+        pd = <optimized out>
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {140736209088512, -9181825557806163878, 140737488342222, 140737488342223, 140737488342224, 140736209074432, 9181992131590117466, 9181843459558758490}, mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+#8  0x00007ffff7a69353 in clone () at ../sysdeps/unix/sysv/linux/x86_64/clone.S:95
+No locals.
+A debugging session is active.
+
+	Inferior 1 [process 17163] will be killed.
+
+Quit anyway? (y or n) [answered Y; input not from terminal]
+... logging to /home/dutjj/.ros/log/f9f61b18-5340-11f1-a11d-d1d0ac0853a4/roslaunch-MSI-17133.log
+Checking log directory for disk usage. This may take a while.
+Press Ctrl-C to interrupt
+Done checking log file disk usage. Usage is <1GB.
+]2;/home/dutjj/IM2MIPP/src/IM2MPPI/autonomous_flight/launch/im2_mppi_demo.launch
+[1mstarted roslaunch server http://MSI:41873/[0m
+
+SUMMARY
+========
+
+PARAMETERS
+ * /autonomous_flight/desired_acceleration: 1.5
+ * /autonomous_flight/desired_angular_velocity: 0.5
+ * /autonomous_flight/desired_velocity: 1.5
+ * /autonomous_flight/execute_path_times: 10
+ * /autonomous_flight/no_yaw_turning: False
+ * /autonomous_flight/predefined_goal_directory: /cfg/mpc_navigati...
+ * /autonomous_flight/simulation: True
+ * /autonomous_flight/takeoff_height: 1.0
+ * /autonomous_flight/use_fake_detector: True
+ * /autonomous_flight/use_global_planner: False
+ * /autonomous_flight/use_predefined_goal: True
+ * /autonomous_flight/use_predictor: True
+ * /autonomous_flight/use_yaw_control: True
+ * /color_distance: 4.0
+ * /controller/acceleration_control: True
+ * /controller/attitude_control: False
+ * /controller/attitude_control_tau: 0.3
+ * /controller/body_rate_control: False
+ * /controller/hover_thrust: 0.7
+ * /controller/position_d: [0.0, 0.0, 0.0]
+ * /controller/position_i: [0.0, 0.0, 0.1]
+ * /controller/position_p: [2.0, 2.0, 1.8]
+ * /controller/velocity_d: [0.0, 0.0, 0.0]
+ * /controller/velocity_i: [0.0, 0.0, 0.0]
+ * /controller/velocity_p: [1.0, 1.0, 1.0]
+ * /controller/verbose: False
+ * /dynamic_map/body_to_camera: [0.0, 0.0, 1.0, 0...
+ * /dynamic_map/clean_local_map: False
+ * /dynamic_map/depth_filter_margin: 2
+ * /dynamic_map/depth_image_topic: /no_topic
+ * /dynamic_map/depth_intrinsics: [554.254691191187...
+ * /dynamic_map/depth_max_value: 5.0
+ * /dynamic_map/depth_min_value: 0.5
+ * /dynamic_map/depth_scale_factor: 10
+ * /dynamic_map/depth_skip_pixel: 2
+ * /dynamic_map/ground_height: -0.1
+ * /dynamic_map/image_cols: 640
+ * /dynamic_map/image_rows: 480
+ * /dynamic_map/local_bound_inflation: 3.0
+ * /dynamic_map/local_map_size: [20, 20, 6]
+ * /dynamic_map/local_update_range: [5, 5, 5]
+ * /dynamic_map/localization_mode: 1
+ * /dynamic_map/map_resolution: 0.1
+ * /dynamic_map/map_size: [80, 40, 5]
+ * /dynamic_map/max_height_visualization: 2.5
+ * /dynamic_map/odom_topic: /CERLAB/quadcopte...
+ * /dynamic_map/p_hit: 0.7
+ * /dynamic_map/p_max: 0.97
+ * /dynamic_map/p_min: 0.12
+ * /dynamic_map/p_miss: 0.35
+ * /dynamic_map/p_occ: 0.8
+ * /dynamic_map/pose_topic: /CERLAB/quadcopte...
+ * /dynamic_map/prebuilt_map_directory: /cfg/saved_map/de...
+ * /dynamic_map/raycast_max_length: 5.0
+ * /dynamic_map/robot_size: [0.5, 0.5, 0.3]
+ * /dynamic_map/sensor_input_mode: 0
+ * /dynamic_map/verbose: False
+ * /dynamic_map/visualize_global_map: True
+ * /dynamic_predictor/front_angle: 25
+ * /dynamic_predictor/max_front_prob: 0.5
+ * /dynamic_predictor/max_turning_time: 3.0
+ * /dynamic_predictor/min_turning_time: 2.0
+ * /dynamic_predictor/prediction_size: 30
+ * /dynamic_predictor/prediction_time_step: 0.1
+ * /dynamic_predictor/prediction_z_score: 0.674
+ * /dynamic_predictor/prob_scale_param: 5.0
+ * /dynamic_predictor/stop_velocity_thereshold: 0.1
+ * /history_size: 100
+ * /im2_mppi/a_max: 3.0
+ * /im2_mppi/cuda_device: 0
+ * /im2_mppi/cvar_alpha: 0.2
+ * /im2_mppi/cvar_lambda_r: 5.0
+ * /im2_mppi/cvar_num_obstacle_samples: 16
+ * /im2_mppi/d_safe: 0.5
+ * /im2_mppi/dt: 0.05
+ * /im2_mppi/fusion_gamma: 2.0
+ * /im2_mppi/fusion_kappa: 2.0
+ * /im2_mppi/fusion_mode: adaptive
+ * /im2_mppi/horizon_steps: 30
+ * /im2_mppi/lambda: 5.0
+ * /im2_mppi/method_type: cvar_mppi
+ * /im2_mppi/mode_pruning_type: risk_aware
+ * /im2_mppi/num_joint_modes_keep: 4
+ * /im2_mppi/num_modes_per_obstacle: 4
+ * /im2_mppi/num_rollouts: 512
+ * /im2_mppi/random_seed: 1
+ * /im2_mppi/sigma_ax: 0.8
+ * /im2_mppi/sigma_ay: 0.8
+ * /im2_mppi/sigma_az: 0.3
+ * /im2_mppi/sigma_risk: 1.0
+ * /im2_mppi/use_gpu: True
+ * /im2_mppi/use_yaw_postprocess: True
+ * /im2_mppi/v_max: 2.0
+ * /im2_mppi/v_yaw_min: 0.3
+ * /im2_mppi/viz_color_by_weight: True
+ * /im2_mppi/viz_num_rollouts: 20
+ * /im2_mppi/w_acc: 0.05
+ * /im2_mppi/w_dyn: 50.0
+ * /im2_mppi/w_goal: 10.0
+ * /im2_mppi/w_jerk: 0.05
+ * /im2_mppi/w_path: 1.0
+ * /im2_mppi/w_static: 30.0
+ * /im2_mppi/w_vel: 0.1
+ * /odom_topic: /CERLAB/quadcopte...
+ * /onboard_detector/aligned_depth_image_topic: /no_topic
+ * /onboard_detector/body_to_camera: [0.0, 0.0, 1.0, 0...
+ * /onboard_detector/body_to_camera_color: [0.0, 0.0, 1.0, 0...
+ * /onboard_detector/color_intrinsics: [554.254691191187...
+ * /onboard_detector/constrain_size: True
+ * /onboard_detector/dbscan_min_points_cluster: 20
+ * /onboard_detector/dbscan_search_range_epsilon: 0.1
+ * /onboard_detector/depth_filter_margin: 10
+ * /onboard_detector/depth_image_topic: /no_topic
+ * /onboard_detector/depth_intrinsics: [554.254691191187...
+ * /onboard_detector/depth_max_value: 5.0
+ * /onboard_detector/depth_min_value: 0.5
+ * /onboard_detector/depth_scale_factor: 10
+ * /onboard_detector/depth_skip_pixel: 2
+ * /onboard_detector/dynamic_consistency_threshold: 5
+ * /onboard_detector/dynamic_velocity_threshold: 0.15
+ * /onboard_detector/dynamic_voting_threshold: 0.8
+ * /onboard_detector/e_p: 0.25
+ * /onboard_detector/e_q_acc: 0.05
+ * /onboard_detector/e_q_pos: 0.01
+ * /onboard_detector/e_q_vel: 0.05
+ * /onboard_detector/e_r_acc: 0.6
+ * /onboard_detector/e_r_pos: 0.04
+ * /onboard_detector/e_r_vel: 0.3
+ * /onboard_detector/filtering_BBox_IOU_threshold: 0.05
+ * /onboard_detector/fix_size_dimension_threshold: 0.4
+ * /onboard_detector/fix_size_history_threshold: 10
+ * /onboard_detector/frame_skip: 5
+ * /onboard_detector/frames_force_dynamic: 10
+ * /onboard_detector/frames_force_dynamic_check_range: 30
+ * /onboard_detector/ground_height: 0.1
+ * /onboard_detector/history_size: 100
+ * /onboard_detector/image_cols: 640
+ * /onboard_detector/image_rows: 480
+ * /onboard_detector/kalman_filter_averaging_frames: 10
+ * /onboard_detector/localization_mode: 0
+ * /onboard_detector/maximum_skip_ratio: 0.5
+ * /onboard_detector/odom_topic: /CERLAB/quadcopte...
+ * /onboard_detector/pose_topic: /CERLAB/quadcopte...
+ * /onboard_detector/prediction_size: 20
+ * /onboard_detector/raycast_max_length: 5.0
+ * /onboard_detector/retrack_similarity_threshold: 0.015
+ * /onboard_detector/similarity_threshold: 0.02
+ * /onboard_detector/target_object_size: [0.5, 0.5, 1.7]
+ * /onboard_detector/time_difference: 0.033
+ * /onboard_detector/voxel_occupied_thresh: 15
+ * /onboard_detector/yolo_overwrite_distance: 3
+ * /rosdistro: noetic
+ * /rosversion: 1.17.4
+ * /target_obstacle: ['person', 'dynam...
+
+NODES
+  /
+    im2_mppi_navigation_node (autonomous_flight/im2_mppi_navigation_node)
+    tracking_controller_node (tracking_controller/tracking_controller_node)
+
+[1mROS_MASTER_URI=http://localhost:11311[0m
+]2;/home/dutjj/IM2MIPP/src/IM2MPPI/autonomous_flight/launch/im2_mppi_demo.launch http://localhost:11311
+[1mprocess[tracking_controller_node-1]: started with pid [17149][0m
+[1mprocess[im2_mppi_navigation_node-2]: started with pid [17150][0m
+[1m[im2_mppi_navigation_node-2] process has finished cleanly
+log file: /home/dutjj/.ros/log/f9f61b18-5340-11f1-a11d-d1d0ac0853a4/im2_mppi_navigation_node-2*.log[0m
+[tracking_controller_node-1] killing on exit
+shutting down processing monitor...
+... shutting down processing monitor complete
+[1mdone[0m

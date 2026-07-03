@@ -1,0 +1,43 @@
+{
+  "end_of_run": {
+    "last_odom_t_s": 89.95,
+    "last_plan_time_t_s": null,
+    "last_target_t_s": null,
+    "plan_time_stopped_age_s": null,
+    "target_stopped_age_s": null
+  },
+  "num_events": 0,
+  "plan_latency": {
+    "count": 0,
+    "count_gt_100ms": 0,
+    "count_gt_20ms": 0,
+    "count_gt_50ms": 0,
+    "max_ms": null,
+    "mean_ms": null,
+    "p95_ms": null,
+    "p99_ms": null
+  },
+  "target_command": {
+    "count_position_jump_gt_0p3m": 0,
+    "count_position_jump_gt_1m": 0,
+    "max_cmd_accel_mps2": null,
+    "max_cmd_jerk_mps3": null,
+    "max_position_jump_m": null,
+    "p95_position_jump_m": null
+  },
+  "target_stream": {
+    "count": 0,
+    "count_gap_gt_100ms": 0,
+    "count_gap_gt_20ms": 0,
+    "count_gap_gt_50ms": 0,
+    "max_gap_s": null,
+    "mean_gap_s": null,
+    "p95_gap_s": null
+  },
+  "tracking": {
+    "first_error_gt_2m_s": null,
+    "first_error_gt_5m_s": null,
+    "max_target_error_m": null
+  },
+  "verdict": "no_clear_single_cause"
+}

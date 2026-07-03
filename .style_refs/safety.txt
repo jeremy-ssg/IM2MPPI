@@ -1,0 +1,742 @@
+IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 25, NO. 8, AUGUST 2024                                                                         8837
+
+
+
+
+ Safety-Driven and Localization Uncertainty-Driven
+Perception-Aware Trajectory Planning for Quadrotor
+             Unmanned Aerial Vehicles
+   Gang Sun , Graduate Student Member, IEEE, Xuetao Zhang , Member, IEEE, Yisha Liu , Member, IEEE,
+              Xuebo Zhang , Senior Member, IEEE, and Yan Zhuang , Senior Member, IEEE
+
+
+   Abstract— Recent advances in trajectory planning have                            for different tasks such as mapping [1], transportation [2],
+enabled quadrotor unmanned aerial vehicles (UAVs) to navigate                       [3], autonomous exploration [4], [5], [6], [7], inspection [8]
+autonomously in complex environments. However, most of the                          and rescue [9]. However, it is essential to design robust
+existing methods do not consider the perception quality and
+the safety simultaneously. This article proposes a perception-                      localization [10] and planning algorithms to keep UAVs safely
+aware trajectory planning strategy for quadrotors, which can                        navigating in complex environments. Visual-inertial state
+ensure the safety and localization accuracy. In contrast to                         estimation has received much attention in recent years [11],
+the existing methods, the main idea of the proposed method                          which assists the vision system with a low-cost inertial
+lies in that the yaw angle trajectory is planned to actively
+                                                                                    measurement (IMU) [12] for the localization. Typical visual-
+obtain more information in the environment to improve the
+localization accuracy and keep the safe flight simultaneously.                      inertial navigation systems such as SVO [13], OKVIS [14],
+Following the mainstream two-stage motion planning framework,                       VINS [15] and ORB-SLAM3 [16] all track multiple visual
+a coarse-to-fine graph search strategy is proposed to search                        features in the keyframes and adopt nonlinear optimization
+for a safe and perception-aware yaw angle path in the first                         technique to estimate the state of the robot. The quantity and
+stage. Specifically, a Yaw Safety Corridor (YSC) is proposed to
+guarantee the safety, which can observe the obstacles directly
+                                                                                    the quality of the visual features in the view will affect the
+along the tangent direction of the position trajectory. In addition,                localization quality, resulting in the localization uncertainty.
+a dedicated map Fisher Information Field (FIF) is employed to                       For the planning algorithm, most of the existing methods
+evaluate the perception quality. In the second stage, a path-                       focus on the safety of the position trajectory and time-
+guided optimization method is proposed to quickly generate a safe                   optimal performance [17], [18], [19], [20]. However, the
+and perception-aware trajectory. Finally, comparative simulation
+and real-world experiments are conducted to verify the superior
+                                                                                    localization uncertainty is not considered as shown in Fig. 1.
+performance in terms of the perception quality and the safety of                    During the flight, the motion planning algorithm, without
+the proposed method.                                                                considering the localization uncertainty, potentially results
+   Index Terms— Perception awareness, YSC, localization uncer-                      in facing featureless areas such as white walls, which may
+tainty, coarse-to-fine search.                                                      cause a localization failure. Thus, a catastrophic crash may
+                                                                                    happen. However, the trajectory considering the localization
+                      I. I NTRODUCTION                                              uncertainty can keep more visual landmarks in the view
+                                                                                    to increase the localization accuracy as shown in Fig. 2.
+U      NMANNED aerial vehicles (UAVs), especially quadro-
+       tors, equipped with the visual sensors, are suitable                         Therefore, it is necessary to consider the perception quality
+                                                                                    in the motion planning, which is called per ception-awar e
+  Manuscript received 24 June 2022; revised 16 November 2023;                       planning, to improve the performance on the localization
+accepted 29 January 2024. Date of publication 19 February 2024; date of             accuracy.
+current version 1 August 2024. This work was supported in part by the
+National Natural Science Foundation of China under Grant 62103077, Grant
+U22B2041, and Grant U23A20384; in part by the Aeronautical Science
+Foundation of China under Grant 2022Z022063001; and in part by the Natural          A. Motivation
+Science Foundation of Liaoning Province under Grant 2022-KF-12-05. The                 Although some methods have made certain progress in
+Associate Editor for this article was C. G. Claudel. (Corresponding author:
+Xuetao Zhang.)                                                                      perception-aware planning, there are still some problems in
+  Gang Sun, Xuetao Zhang, and Yan Zhuang are with the Intelligent Robotic           the actual applications, which are listed as follows:
+Laboratory, School of Control Science and Engineering, Dalian University               1) Most of the existing methods either aim to guarantee
+of Technology, Dalian 116024, China (e-mail: sungang@mail.dlut.edu.cn;
+zhangxuetao@dlut.edu.cn; zhuang@dlut.edu.cn).                                             the safety without considering the perception awareness,
+  Yisha Liu is with the School of Information Science and Technology, Dalian              or consider the perception awareness without guarantee-
+Maritime University, Dalian 116026, China (e-mail: liuyisha@dlmu.edu.cn).                 ing the safety. In addition, the safety of the yaw angle
+  Xuebo Zhang is with the College of Artificial Intelligence and the Institute of
+Robotics and Automatic Information System (IRAIS), Tianjin Key Laboratory                 trajectory is ignored or formulated as a soft constraint,
+of Intelligent Robotics, Nankai University, Tianjin 300350, China (e-mail:                which can not strictly bound the yaw angle in a safe
+zhangxuebo@nankai.edu.cn).                                                                region.
+  This article has supplementary downloadable material available at
+https://doi.org/10.1109/TITS.2024.3361494, provided by the authors.                    2) The mainstream framework decomposes the motion
+  Digital Object Identifier 10.1109/TITS.2024.3361494                                     planning into a graph search process and a trajectory
+                        1558-0016 © 2024 IEEE. Personal use is permitted, but republication/redistribution requires IEEE permission.
+                                      See https://www.ieee.org/publications/rights/index.html for more information.
+
+     Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:14 UTC from IEEE Xplore. Restrictions apply.
+8838                                                       IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 25, NO. 8, AUGUST 2024
+
+
+
+        optimization process. To get a fine yaw path, many nodes
+        are added to a directed graph, which is computationally
+        intensive. At the same time, current methods generally
+        optimize a trajectory by a gradient-descent method,
+        which can be easily trapped in local minima.
+
+B. Contributions
+   To address the aforementioned issues, we propose a Safety-
+driven and Localization Uncertainty-driven Perception-aware
+trajectory generation method (SLUP). At first, a yaw safety
+corridor is constructed according to the position trajectory
+to evaluate the safety of the yaw angle. Next, a coarse-to-
+fine graph search approach, which efficiently avoids abundant
+useless search, is proposed to first search a relatively rough                     Fig. 1. Without considering the perception awareness, the planned trajectory
+                                                                                   is oriented along the tangent direction of the position trajectory. The
+path in the yaw safety corridor. Then, a fine path is obtained                     texture information in the environment is not utilized, resulting in relatively
+in the vicinity of the rough path, which is strictly bound                         considerable localization uncertainty.
+in the yaw safety corridor, and the localization uncertainty
+is considered simultaneously. The trajectory is parameterized
+to the uniform B-spline, and the convex hull property of
+the B-spline is utilized to satisfy the safety constraint.
+Finally, a path-guided optimization method is proposed to
+generate a yaw angle trajectory, which can eliminate the local
+minima problem and balance the safety and perception quality
+effectively. The contributions of this article are summarized as
+follows:
+   1) A universal yaw safety metric is put forward to evaluate
+       the safety of the yaw angle during the planning, which
+       is employed to construct the yaw safety corridor for
+       planning a safe trajectory.
+   2) A coarse-to-fine graph search strategy is proposed to
+       avoid the abundant useless search, which efficiently
+       searches a safe and perception-aware yaw angle path.                        Fig. 2.     Considering the perception awareness, the planned trajectory
+                                                                                   is oriented along the textured direction. The texture information in the
+       After that, a path-guided optimization method is                            environment is fully utilized to reduce the localization uncertainty.
+       proposed to generate a safe and perception-aware
+       trajectory, which fully utilizes the convex hull property
+       of the B-spline and eliminates the local minima problem.                    in a series of connected cubes. After that, Liu et al. [24]
+   3) Comparative simulation and real-world tests are carried                      utilize connected convex polygons to represent the corridor.
+       out to verify the superior performance in terms of                          To reduce the corridor generation time, Gao et al. [25] further
+       the perception quality and the safety of the proposed                       represent the corridor with axis-aligned cubes. Apart from
+       method.                                                                     that, the corridor representation is generalized to convex free
+                                                                                   polyhedrons at a given coordinate [26]. Global optimality
+                           II. R ELATED W ORK                                      can be guaranteed in the hard-constrained methods. However
+   There are abundant methods on trajectory generation                             they often can not meet the real-time performance due to the
+for quadrotors, which can be categorized into the hard-                            demand of iteratively adding more constraints to get a feasible
+constrained methods and the soft-constrained methods. The                          solution.
+hard-constrained methods construct equality or inequality                             Some methods formulate the trajectory generation problem
+constraints and solve a set of solutions that completely meet                      as a gradient-based nonlinear optimization problem, which
+these constraints. The soft-constrained methods construct the                      considers the safety and the smoothness as soft constraints.
+penalty functions and minimize the value of the penalty                            In the pioneering work, Ratliff et al. [27] utilize the gradient-
+functions through the optimization method to get a set                             descent method to optimize a discrete-time trajectory but
+of solutions. For the hard-constrained methods, in [21],                           suffers from the local minima problem. Oleynikova et al. [28]
+trajectories are represented as piecewise polynomials, and the                     adopt the random restart method that relieves the local
+quadratic programming problem is formulated to generate a                          minima problem. Usenko et al. [29] use uniform B-spline to
+minimum snap trajectory. In [22], the minimum snap trajectory                      parameterize the trajectories to replan in real-time. However,
+is solved in closed form, and waypoints are iteratively added                      the success rate is much low, and the trajectory is not
+to avoid being intersection with obstacles. Chen et al. [23]                       completely safe. Zhou et al. [30] propose a GTO method
+propose a corridor-based planner that plans safe trajectories                      that further exploits the properties of the B-spline to replan
+
+       Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:14 UTC from IEEE Xplore. Restrictions apply.
+SUN et al.: SAFETY-DRIVEN AND LOCALIZATION UNCERTAINTY-DRIVEN PERCEPTION-AWARE TRAJECTORY PLANNING                                                          8839
+
+
+
+                                TABLE I
+                        R EFERENCE S UMMARY
+
+
+
+
+                                                                                Fig. 3. Illustration of Fisher Information Field. Each black cube represents a
+more efficiently. However, since the cost is non-convex,                        voxel grid, which stores the rotation-independent component (blue squares).
+the trajectory often gets stuck in infeasible local minima                      Fisher information at a certain pose can be computed in the constant time by
+and causes a replanning failure. Traditionally, most of the                     a linear transformation.
+exsiting optimization-based methods pre-build a Euclidean
+Signed Distance Functions (ESDF). In [31], an ESDF-free
+gradient-based local planning framework is proposed, which                      not considered. Motivated by the observations, this article
+only computes the gradient when necessary. Soft-constrained                     proposes a safe and perception-aware trajectory generation
+methods fully utilize the gradient information while often                      method, which includes a coarse-to-fine path search strategy
+suffer from the local minima problem. Above all, the common                     and a path-guided trajectory generation strategy.
+problem of these methods is that the perception quality is not
+considered in the planning.                                                                               III. P RELIMINARIES
+   As listed in Tab. I, we categorize the related work into
+perception-aware methods (PA) and not perception-aware                          A. Fisher Information Field
+methods (NPA). Moreover, the methods can be specifically                           Fisher information is a crucial concept in the parameter
+classified according to the planning goal. Integrating the                      estimation problem, which summarizes the information of the
+perception quality into planning has been gradually concerned                   parameters to be estimated. A dedicated scene representation
+in recent years. Watterson et al. [32] propose an on-manifold                   named FIF is employed to query the fisher information of a
+trajectory optimization method which jointly optimizes the                      certain 6 degree-of-freedom (DoF) pose. Similar to ESDF for
+position and the yaw angle to get a less conservative                           obstacle avoidance, FIF is also represented as the voxel grid.
+trajectory. However, it can not meet the real-time requirements.                As shown in Fig. 3, for each voxel, a rotation-independent
+Falanga et al. [33] propose a real-time Model Predictive                        component of fisher information is stored, which is calculated
+Control (MPC) that concentrates on keeping the visual features                  from the visual features provided by the visual-inertial
+in the center of the image. Murali et al. [34] separately                       systems. Not all the visual features are chosen to calculate
+track position and yaw trajectory, which maximizes the co-                      a rotation-independent component of fisher information.
+visibility of the features to keep the features in the camera                   To construct the Fisher Information Field, we reserve a set
+view from one keyframe to another, increasing the estimation                    of points from SVO output, which can be categorized into
+accuracy. However, the above methods lack the obstacle                          two groups: landmarks and seeds. Seeds are points whose
+avoidance. Lu et al. [35] propose a real-time perception-                       position is still not estimated accurately. On the contrary,
+limited planning MPC method, which simultaneously plans                         landmarks are points that have been observed multiple times
+obstacle-free trajectories and generates the trajectories with                  from different frames and their positions have already been
+effective perception of the point of interest. Li et al. [36]                   estimated accurately. Therefore, landmarks are chosen to build
+propose a perception-constrained MPC method to guarantee                        the Fisher Information Field. The field is updated in a batch
+the visibility of the payload during motion. Zhou et al. [37]                   offline. The process of constructing the field is rather intricate,
+propose a robust and perception-aware trajectory replanning                     as it requires both the scene depth information and the average
+system, which considers the safety, to actively observe                         view direction for each landmark. Besides, it needs to make a
+the unknown environment. Wang et al. [38] propose a                             decision on whether a landmark can be matched from a given
+visibility-guided perception-aware trajectory framework for                     pose. It is challenging to incrementally build the field in real-
+aerial tracking, which actively adjusts the relative distance                   time. Therefore, we generate a dedicated map offline, which
+between the quadrotor and the target to reduce the probability                  subsequently is employed for efficient online planning. During
+of the occlusion. However, the localization uncertainty                         the planning, the complete fisher information for 6 DoF pose
+is not considered. In [39], a perception-aware receding                         can be recovered by the linear transformation of the rotation
+horizon system is proposed, which generates a series of                         invariant component in constant time. The derivation details
+candidate trajectories and gets the best one according to                       can be found in [40].
+the perception quality, the position collision probability
+and the distance to the goal. Zhang and Scaramuzza [40]
+summarize the perception information into a discrete grid                       B. B-Spline
+named Fisher Information Field (FIF). A perception-aware                           The B-spline curve [41] is adopted in the proposed
+trajectory incorporating FIF is generated to improve the                        trajectory optimization framework. Given n + 1 control points
+localization accuracy. However, the yaw angle safety is                         C = {C0 , C1 , . . . Cn } and the knot vector t = [t0 , t1 , . . . , tm ]T ,
+
+    Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:14 UTC from IEEE Xplore. Restrictions apply.
+8840                                                       IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 25, NO. 8, AUGUST 2024
+
+
+
+in which C i ∈ R and t i ∈ R. The B-spline curve function p(t)                     Algorithm 1 yaw Angle Planning
+is defined as follows:                                                             Input: The obstacle map Mo , the active map Ma , The start
+                                      n
+                                      X                                                position point and the end position point ps , pe , The start
+                            p(t) =          Ci Ni,d ,                       (1)        yaw angle ys .
+                                      i=0                                          Output: The position trajectory represented by B-spline C t
+                                                                                       and the yaw angle trajectory C y ;
+where d is the degree of the curve. Ni,d (t) is the B-spline
+                                                                                    1: ps , pe , ys ⇐ SetParam()
+blending function of the degree d, which can be computed
+                                                                                    2: pos_traj ⇐ PositionPlan( ps , pe , Mo )
+recursively as follows:
+              (                                                                     3: if plan.type == YAW then
+                1, ti ≤ t ≤ ti+1 ,                                                  4:      searchNodeCor ⇐ SamplePos( pos_tra j)
+      Ni,0 =                                              (2)                       5:      for all node ∈ N1 do
+                0, else,
+                                                                                    6:           node.info ⇐ GetInfo(node, Ma )
+                t − ti             ti+d+1 − t
+      Ni,d =            Ni,d−1 +               Ni+1,d−1 , (3)                       7:      end for
+              ti+d − ti          ti+d+1 − ti+1                                      8:      yaw_ pathCor ⇐ Search(Mo , sear ch N odeCor )
+An essential property of the B-spline is the convex hull                            9:      sear ch N odeFine ⇐ SamplePos(yaw_ pathCor )
+property. The control points strictly bound the B-spline                           10:      for all node ∈ N2 do
+trajectory inside the convex hull. For the safety of the                           11:           node.info ⇐ GetInfo(node, Ma )
+B-spline, all its convex hulls need to be collision-free.                          12:      end for
+Furthermore, since the derivative of the B-spline is also the                      13:      yaw_ path Fine ⇐ Search(Mo , sear ch N odeFine)
+B-spline, the dynamic feasibility constraint, including the                        14:       SetWaypoints(yaw_ path Fine, ys , ye )
+yaw angle velocity and the yaw angle acceleration, can be                          15:      B_spline ⇐ OptimizeTraj(cost1, dt)
+bound according to the convex hull property. The uniform                           16:      B_spline ⇐ OptimizeTraj(cost2, dt)
+B-spline is adopted in the proposed method, whose knot                             17:       Sample(B_spline, t)
+vector is uniformly distributed. In [30], further details are                      18: else
+described.                                                                         19:       Sample(velocit y_dir, t)
+                                                                                   20: end if
+                        IV. S YSTEM OVERVIEW
+   The overview of the system is shown in Fig. 4, consisting
+                                                                                   A. Yaw Safety Corridor
+of three modules: perception module, planning module and
+control module. The perception module utilizes the point                               Generally, the yaw angle is not refined during the path
+clouds information provided by the depth camera to build                           search and the trajectory optimization, which is a constant or
+ESDF of the surrounding environment for obstacle avoidance                         along the tangent direction of the position trajectory. However,
+and FIF for evaluating the perception quality. The planning                        they do not fully exploit the environment information for
+module generates a safe position trajectory and a safe,                            the better localization. Therefore, it is essential to plan a
+perception-aware, smooth and dynamically feasible yaw angle                        perception-aware yaw angle trajectory.
+trajectory. The control module controls the quadrotor to track                         The position trajectory is considered as safe when there
+the trajectory generated by the planning module. The detailed                      is no intersection with the edge of the obstacle. However,
+procedure of the planning module is as follows. Firstly,                           there is no specific metric to evaluate the safety of a yaw
+a safe position trajectory is obtained by an optimization-based                    angle trajectory. Therefore, a universal yaw safety metric is put
+method. The yaw safety corridor is designed to constrain the                       forward to evaluate the safety of the yaw angle. Specifically,
+direction of the quadrotor utilizing the position trajectory.                      if the obstacles directly ahead are not in the view, the flight will
+Next, a coarse-to-fine graph search strategy is proposed to                        be dangerous (see Fig. 5d). To this end, a yaw safety corridor
+search for a safe and perception-aware yaw angle path.                             is constructed, which includes all yaw angles that can see the
+Finally, by representing the trajectory as a uniform B-spline,                     front obstacles. As shown in Fig. 6, the blue part stands for
+a path-guided optimization method is put forward to quickly                        the safe region and the view of the sensors can rotate in the
+generate a safe, perception-aware and dynamically feasible                         blue region to keep safe. A yaw angle trajectory is considered
+trajectory. Above all, the yaw planning procedure is shown                         as safe if it is totally limited in the yaw safety corridor.
+in Algorithm 1.
+                                                                                   B. Coarse-to-Fine Search
+                V. C OARSE - TO -F INE PATH S EARCH                                    In the front-end, the position trajectory is uniformly sampled
+   Since cameras deployed on the UAVs usually have a                               to obtain a series of positions P = { p0 , p1 , . . . p N }, in which
+limited field of view (FOV), the UAVs can not observe the                           pl ∈ R3 and l ∈ [0, N ]. At each position except p0 and
+omnidirectional obstacles. Therefore, a yaw safety corridor                         p N , K directions are sampled and the corresponding fisher
+is proposed to ensure the safety of the yaw angle (see                             information is calculated. Let n i, j denote the search node,
+Section V-A). Then, a coarse-to-fine path search incorporating                     which contains a sampled position and direction. Two near
+the yaw safety corridor is put forward to search for a safe and                    nodes from n i, j to n i+1,s are connected with a directed edge,
+perception-aware yaw angle path (see Section V-B).                                 where i ∈ [0, N − 1], j, s ∈ [1, K ]. The weight of the edge
+
+       Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:14 UTC from IEEE Xplore. Restrictions apply.
+SUN et al.: SAFETY-DRIVEN AND LOCALIZATION UNCERTAINTY-DRIVEN PERCEPTION-AWARE TRAJECTORY PLANNING                                                            8841
+
+
+
+
+Fig. 4.   System overview.
+
+
+
+
+Fig. 5. The red line stands for the position trajectory. The gray sector
+represents the view of the UAV. The black line is the tangent line of the
+trajectory at this point. The textured grey cube is the obstacle directly in front
+of the UAV. (a): The view of the UAV is along the tangent direction of the
+position trajectory, and the UAV can see all the obstacles in the front. (b),(c):
+The bound of the sensor is exactly along the trajectory tangent line, and the
+UAV can see the obstacles directly ahead. (d): The UAV can not see the
+obstacles directly ahead at this rotation. It is a risky flight.
+                                                                                     Fig. 7. The coarse-to-fine graph search process. N + 1 points are sampled,
+                                                                                     including the start and the end points. At each point except the start and
+                                                                                     the end, K + 1 directions in the yaw safety corridor are sampled at the
+                                                                                     coarse stage. Yaw angles are sampled in a relatively large region in the
+                                                                                     coarse graph search. Once the first path search is finished, a sequence of
+                                                                                     directions is obtained, which is represented by red arrows. Based on these yaw
+                                                                                     angles, K + 1 directions, which are in the yaw safety corridor, are sampled at
+                                                                                     each point delicately. The second search will get a final path that is smooth,
+                                                                                     perception-aware and safe.
+
+
+Fig. 6. Blue part stands for the safe region, the view of the sensors can
+rotate in the blue region to keep safe.                                              of the camera. Initially, for a specific information metric,
+                                                                                     several sets of landmarks meeting the localization criteria
+                                                                                     are randomly sampled, and their average vthr is employed
+is set according to the smoothness and the fisher information.                       as the threshold. Consequently, distinct thresholds can be
+After that, a directed graph is obtained, which can be solved                        associated when utilizing different information metrics. This
+by Di jkstra algorithm. To search a series of yaw angles                             approach ensures that the thresholds for various combinations
+which consider the safety, the smoothness and the localization                       of information metrics are automatically calculated and convey
+accuracy, the objective cost function cs is designed as                              the same physical significance. Once the information exceeds
+                       N                                                             a threshold, the improvement of the localization quality is
+                                                                                     limited. Therefore, the information cost objective function is
+                       X
+               cs =      {µs (θi, j − θi+1,s )2 + µ f c f },                  (4)
+                       i=1
+                                                                                     as follows:
+                                                                                                       
+where µs ∈ R is designed to penalize the change between two                                             k1 v f + b,
+                                                                                                                          v f < 0,
+search nodes and θi, j ∈ R is the jth sampling yaw angle at                                c f (v f ) = k2 (v f − vthr ) , 0 <= v f < vthr ,
+                                                                                                                        2                        (5)
+the ith position. c f ∈ R is the cost of the fisher information                                        
+                                                                                                       
+                                                                                                         0,                v f >= vthr ,
+and µ f denotes the penalty coefficient. The fisher information
+threshold vthr ∈ R is calculated by the method in [40]. We                           where v f ∈ R is the fisher information. k2 ∈ R is chosen by
+assume that the current pose localization is considered valid                        the experiment as well as k1 ∈ R and b ∈ R are chosen to
+if at least M landmarks are present within the field of view                         keep the continuity.
+
+     Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:14 UTC from IEEE Xplore. Restrictions apply.
+8842                                                       IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 25, NO. 8, AUGUST 2024
+
+
+
+   Above all, the path search is formulated as a graph search
+problem. The sampling step of the fine path is generally
+small, which will result in many useless search nodes. Hence,
+we propose a coarse-to-fine search strategy. At the coarse
+stage, a sequence of nodes is roughly sought, and the sampling
+interval is relatively large. The objective function needs to
+promise the smoothness, which is designed as
+                        N
+                        X
+                cs1 =     {µs (θi, j − θi+1,s )2 + µ f c f }.               (6)
+                        i=1
+
+As shown in Fig. 7, the sampling yaw angles of the fine stage
+are in the vicinity of directions obtained from the first stage.
+Since the sampling interval of the fine stage is small, we can                     Fig. 8.    The horizontal axis represents time, and the longitudinal axis
+                                                                                   represents yaw angles. The blue line is calculated by the position trajectory
+ignore the smoothness. Then, a delicate path is devoted to                         along the tangent direction. Red lines are the upper and down bounds of the
+improving the localization quality. The objective function at                      planning trajectory. The final trajectory, which is in the middle of two lines,
+this stage is                                                                      is considered safe.
+
+                                      N
+                                      X
+                              cs2 =         µfcf.                           (7)    of yaw angles are obtained after the front-end search, which
+                                      i=1                                          are utilized to generate a guided B-spline. Each control point
+                                                                                   Q i is assigned with a corresponding control point L i ∈ R that
+        VI. PATH -G UIDED T RAJECTORY O PTIMIZATION                                is uniformly sampled along the guided B-spline. Then f g ∈ R
+   A safe, smooth and perception-aware path is obtained after                      is defined as the sum of the Euclidean distance between these
+the front-end yaw angle path searching. However, it is hard to                     point pairs, which can be expressed as
+execute for UAVs. A more executable trajectory is obtained                                                            N
+                                                                                                                      X
+through a path-guided trajectory optimization method. During                                                   fg =         ∥Q i − L i ∥2 .                     (9)
+the optimization, an initial trajectory is firstly generated by the                                                   i=0
+guidance of the yaw path. The first optimization is formulated
+                                                                                   Although a safe yaw path is obtained in the search stage,
+as an unconstrained QP problem, which can directly obtain
+                                                                                   the back-end optimization will make the B-spline unsafe.
+the closed-form solution. However, the trajectory is not
+                                                                                   Therefore, a cost function f c ∈ R is designed to penalize the
+exactly limited in the yaw safety corridor. In addition, it may
+                                                                                   points beyond the yaw safety corridor to make the trajectory
+be dynamically infeasible in some piecewise. Therefore,
+                                                                                   safe (see Fig. 8), which can be expressed as
+a second-step optimization is employed to obtain a better
+trajectory, wherein the gradient of the objective function                                               N
+                                                                                                         X
+pushes the trajectory to the safe area. The solution of the                                       fc =         cc (Q i ),                                      (10)
+first stage optimization is the initial value of the second                                              i=1
+                                                                                                        
+                                                                                                         |Q i − Q i lower | , Q i ≤ Q i lower ,
+                                                                                                                            2
+stage optimization. A pd degree uniform B-spline is used                                                
+to represent the trajectory. The control points are defined as                       cc (Q i , Q n i ) = |Q i − Q i upper |2 , Q i ≥ Q i upper ,               (11)
+{ Q 0 , Q 1 , . . . , Q N }. The B-spline is contained within the                                       
+                                                                                                        
+                                                                                                          0,                   else,
+convex hull of the control polyline, which can be employed to
+limit the B-spline within the yaw safety corridor. Besides, the                    where Q i lower ∈ R and Q i upper ∈ R are the lower limit
+piecewise B-spline can keep the derivative continuity. A two-                      and the upper limit of the yaw safety corridor, respectively.
+step path-guided trajectory optimization method is proposed                        Besides, a cost function similar to (11) is adopted to penalize
+to efficiently refine the trajectory. During the optimization,                     the velocity and the acceleration which exceed the maximum
+an initial trajectory is firstly generated by the guidance of                      given value
+the yaw path, which considers the smoothness. The initial                                           (
+                                                                                                      (Vi2 − Vmax 2 )2 , |Vi | ≥ Vmax ,
+trajectory can not keep the front obstacles in the view.                                 cv (vi ) =                                          (12)
+Therefore, the initial trajectory is guided to the yaw safety                                         0,                 |Vi | < Vmax .
+                                                                                                    (
+corridor in the second phase. The smoothness objective                                                (Ai2 − Amax 2 )2 , |Ai | ≥ Amax ,
+function is designed as                                                                 ca (Ai ) =                                           (13)
+                                                                                                      0,                 |Ai | < Amax ,
+                    N
+                    X −1                                                           where Vi and Ai are the velocity and the acceleration control
+             fs =          ∥(Q i+1 − Q i ) + (Q i−1 − Q i )∥2 ,             (8)    points being calculated as
+                    i=1                                                                                             1
+                                                                                                            Vi =       (Q i+1 − Q i ),                         (14)
+f s ∈ R is designed as an elastic bond cost function. The shape                                                    1t
+of the B-spline is controlled by its control points. Hence, it is                                                     1
+                                                                                                               Ai =     (Vi+1 − Vi ).                          (15)
+a straight line if f s is zero, which is ideally smooth. A series                                                   1t
+
+       Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:14 UTC from IEEE Xplore. Restrictions apply.
+SUN et al.: SAFETY-DRIVEN AND LOCALIZATION UNCERTAINTY-DRIVEN PERCEPTION-AWARE TRAJECTORY PLANNING                                                          8843
+
+
+
+Utilizing the convex hull property, f v ∈ R and f a ∈ R                                                       VII. R ESULTS
+are defined to penalize the infeasible the velocity and the                        We conduct both the simulation and real-world experiments
+acceleration control points                                                     to prove the effectiveness of the proposed yaw safety corridor.
+                                  N −1
+                                                                                In addition, perception awareness, failure rate and localization
+                           fv =
+                                  X
+                                         cv (Vi ),                     (16)     accuracy are evaluated in three methods. The simulation
+                                                                                visibility graph of the Fisher Information Field is shown in
+                                  i=0
+                                  N −2                                          Fig. 9. Colored dots represent landmarks, with different colors
+                                                                                indicating different heights of the landmarks. Colored arrows
+                                  X
+                           fa =          ca (Ai ),                     (17)
+                                  i=0
+                                                                                represent the optimal orientation under the current voxel, with
+                                                                                different colors representing different fisher information. The
+Above all, the overall objective function is built as                           distribution of textures in the environment can be observed
+                                                                                from Fig. 9.
+            f = λs f s + λl fl + λc f c + λv f v + λa f a .            (18)
+                                                                                A. Yaw Safety Corridor
+A two-step optimization strategy is proposed to efficiently
+refine the trajectory. In the first step, we employ a guided path                  We compare the proposed SLUP strategy with the FIF-based
+to attract the trajectory and ensure the smoothness. In this                    perception-aware planning method (FIFP) presented in [40]
+stage, the fisher information is fully used to localize more                    and a baseline method that does not consider perception-
+accurately. The objective function is                                           awareness (NP) [42]. Once the position trajectory is generated,
+                                                                                the yaw safety corridor is determined. As shown in Fig. 10,
+                        f 1 = λs 1 f s + λg 1 f g ,                    (19)     four groups of simulations are conducted under the different
+                                                                                scenes. As defined above, the yaw safety corridor is generated
+where λs 1 ∈ R is the smoothness coefficient and λg 1 ∈                         according to the tangent direction of the sampled points.
+R denotes the cost coefficient to penalize the difference                       Therefore, the NP planning totally satisfies the requirement.
+between the guided B-spline trajectory and the final B-                         The FIFP utilizes the trajectory optimization method to
+spline trajectory. Accordingly, we can obtain a smooth and                      generate a trajectory that completely takes advantage of the
+perception-aware trajectory. However, the trajectory is not                     fisher information. However, it does not consider the safety,
+exactly limited in the yaw safety corridor. In addition, it may                 which may lead to a fatal disaster. In the FIFP, the views
+be dynamically infeasible in some piecewise. Therefore,                         of UAVs are not always in the yaw safety corridor. Even at
+a second-step optimization is employed to get a better                          some points, the view is against the tangent direction of the
+trajectory, wherein the gradient of the objective function                      corresponding points, which is impractical during the flight.
+pushes the trajectory to the safe area. In this stage, the                         In our method, in the front-end search process, the yaw
+objective function is designed as                                               safety corridor is seen as a hard constraint to keep the yaw path
+                                                                                exactly satisfying the safety constraint, while in the back-end,
+              f 2 = λs 2 f s + λl 2 fl + λv 2 f c + λa 2 f a ,         (20)     safety is seen as a soft constraint to push the trajectory into
+                                                                                the yaw safety corridor. The same with obstacle avoidance,
+which combines the punishment for the roughness, unsafety                       it can not always satisfy the safety constraint during the
+and dynamically infeasibility. After that, we can obtain a safe,                trajectory optimization. However, when the span of the B-
+smooth, perception-aware and dynamically feasible trajectory.                   spline is small, the whole trajectory can be seen as safe
+It can effectively generate trajectories with low localization                  if the control points satisfy the safety constraint. The span
+uncertainty when employing Fisher Information Field directly                    between two control points are tunable parameters decided
+for gradient-based optimization. However, it also presents the                  by the parameterization of the B-spline. The trajectory may
+challenge of potential entrapment in local minima, which can                    be unsafe in some extreme cases such as the environment
+result in suboptimal solutions. Path-guided methods offer a                     with dense obstacles. In this situation, a smaller span can
+solution to solve the problem of getting stuck in local minima.                 be employed to re-parameterize the B-spline to meet the
+Besides, path-guided method leverages a safe path found by                      safety constraint. Although the reduction in span results in
+the front-end search, thus obtaining a safe trajectory. However,                an increase in the number of control points, the optimization
+unsafe trajectories may be generated when employing Fisher                      time also increases. However, in the experiments, with the
+Information Field directly for gradient-based optimization.                     use of the adjustment strategy, the optimization time does
+   Remark 1: Although the proposed method involves an extra                     not exceed 10ms, thus ensuring the real-time performance. At
+optimization step, it can generate more efficient trajectories                  the same time, in an optimization problem, the coefficients of
+in a shorter time. On the one hand, the initial phase of                        the optimization terms also influence the results. For different
+optimization is formulated as an unconstrained quadratic                        planning scenes, we try our best to choose the most balanced
+problem, which can directly obtain the closed-form solution.                    coefficients. As shown in Fig. 11, the yaw angle trajectories
+As a result, the computation time is more efficient. On the                     under four scenes are drawn. The upper limit and the lower
+other hand, based on the initial trajectory, fewer convergence                  limit of the yaw safety corridor are calculated by the NP
+times are required in the second stage compared with                            and the FOV. It is clear that the FIFP can not limit the yaw
+optimizing the trajectory directly.                                             angle in the yaw safety corridor. However, our method ideally
+
+    Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:14 UTC from IEEE Xplore. Restrictions apply.
+8844                                                         IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 25, NO. 8, AUGUST 2024
+
+
+
+
+Fig. 9.   The simulation visibility graph of the Fisher Information Field.
+
+limits the yaw angle in the yaw safety corridor. Besides, in the                                                     TABLE II
+simulation, a coarse-to-fine search approach processes an order                                     C OMPARISON OF D IFFERENT I NDICATORS
+of magnitude fewer nodes compared to the regular search
+method, resulting in a faster search.
+
+B. Perception Awareness and Failure Rate
+   Intuitively, the number of the visual features reflects the
+amount of perception information obtained by the quadrotor,
+which is represented by colored dots in Fig. 9. More
+theoretically, the fisher information is used for evaluating
+the localization uncertainty. Therefore, the Fisher Information
+Field is constructed, which is visualized by the colored
+arrows. Specifically, the direction of the arrow represents
+the best sampling view in this voxel and the deeper the
+color, the richer the perception information. By observing the
+sampling direction and the visibility of the FIF, the perception                                                   TABLE III
+awareness of the trajectory can be analyzed qualitatively. The                                                L OCALIZATION E RROR
+quantitative results under four scenes are listed in Tab. II. Poses
+are uniformly sampled along a trajectory and the average fisher
+information cost is calculated according to (5). A sampled yaw
+angle will be seen as a failure if it does not satisfy the safety
+constraint. A comprehensive indicator that takes into account
+perception awareness and safety (CIPS) is defined to measure
+the performance:                                                                   C. Localization Accuracy
+                      C I P S = λin f o c f + λ f ail ru ,                (21)        After getting a trajectory, some poses are sampled, and the
+                                                                                   corresponding images are rendered at these poses to evaluate
+where λin f o ∈ R and λ f ail ∈ R represent the weight of                          the localization accuracy. The average localization error results
+the fisher information cost and the failure rate, respectively.                    of the three methods are calculated in scene 4, which are
+Moreover, c f represents the fisher information cost and ru                        listed in Tab. III. As expected, the NP method performs worst
+represents the failure rate. The trajectory generated by the                       while the FIFP method has the most accurate localization due
+FIFP method will produce the lowest fisher information                             to the abundant fisher information. The localization quality
+cost. The trajectory generated by the NP will make zero                            of the proposed method is close to the FIFP, which considers
+failure rate because of the definition of the yaw safety                           the perception awareness and the safety simultaneously.
+corridor. Meanwhile, the FIFP method has the best perception
+awareness performance, and the NP performs worst. However,
+the proposed method perfectly balances the perception quality                      D. Real-World Experiments
+and the safety, which provides the best comprehensive                                In this section, a self-made quadrotor is employed to
+performance.                                                                       evaluate the performance of the proposed approach in an
+
+       Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:14 UTC from IEEE Xplore. Restrictions apply.
+SUN et al.: SAFETY-DRIVEN AND LOCALIZATION UNCERTAINTY-DRIVEN PERCEPTION-AWARE TRAJECTORY PLANNING                                                             8845
+
+
+
+
+Fig. 10. Simulation results under four scenes. In (a1), (b1), (c1), (d1), the yaw angles are generated by the NP. In (a2), (b2), (c2), d2), the yaw angles are
+generated by the FIFP. In (a3), (b3), (c3), (d3), the yaw angles are generated by our method SLUP. In the NP, the yaw angle is always along the tangent
+direction of the position trajectory, resulting in the big localization uncertainty. In the FIFP, the safety is not considered, and the MAV often can not see
+the obstacles directly ahead. In (c2), a view totally opposite to the tangent direction of the trajectory is sampled. It is impractical in the actual flight. In our
+method, yaw angles can be bound in the yaw safety corridor.
+
+
+
+indoor environment. As shown in Fig. 12, the experimental                          An intel realsense stereo camera D455 equipped on the
+site is with a size of 10m × 6m × 2.5m. In addition, the                           head of the quadrotor is utilized to build ESDF and provide
+quadrotor is equipped with an intel microcomputer (Intel                           point clouds information for SVO [13]. SVO algorithm can
+Nuc with the Core i7-10710U) to run the proposed method.                           generate landmarks to build FIF and offer the odometry for
+
+     Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:14 UTC from IEEE Xplore. Restrictions apply.
+8846                                                       IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 25, NO. 8, AUGUST 2024
+
+
+
+
+                                                                                   Fig. 14. The real-world experiment, the visible field is built by voxblox
+                                                                                   and the trajectory is planned by the proposed method. The green line is the
+                                                                                   position trajectory and the green cone represents the yaw angle direction.
+
+
+
+
+Fig. 11. The variation of yaw angle with time under four scenes. The red
+line represents the upper limit of the yaw safety corridor, and the blue line
+represents the lower limit. The purple line represents the trajectory generated
+by the proposed method. The orange line represents the yaw corridor generated
+by the FIFP.
+
+
+
+
+Fig. 12.   The quadrotor platform and experiment field.
+
+
+
+
+                                                                                   Fig. 15. The position and yaw trajectory of the odometry and the expectation.
+
+
+Fig. 13. The visibility of FIF. 200 orientations are sampled at each voxel grid,
+the optimal orientation is chosen according to fisher information. The optimal     Fig. 14, the green line indicates the sampled position trajectory,
+orientations are represented by the colorful arrows and the color indicates the    and the green sector cone the yaw trajectory sampled at
+localization quality.                                                              8 points. The planned and the actual trajectory of the quadrotor
+                                                                                   are depicted in Fig. 15. More experimental details can be found
+                                                                                   in the attached video.
+the localization. An open-source PIXHAWK4 autopilot is
+equipped to receive the control commands.
+                                                                                                             VIII. C ONCLUSION
+   We first build ESDF for the obstacles avoidance and FIF
+for perception-aware planning. The visibility of FIF is shown                         This article studies the factors related to the yaw angle
+in Fig. 13. The voxel size of ESDF and FIF is set as 0.05m                         safety and perception quality in the motion planning for the
+to promise the mapping quality. The planning trajectory is                         quadrotors. A safety-driven and localization uncertainty-driven
+executed after the quadrotor hovers at 1m. The maximum                             method is proposed to avoid obstacles directly along the
+speed is set to 0.5 m/s during the flight. Other parameters                        tangent direction of the trajectory. Besides, it can also actively
+are the same as in the simulation environment. As shown in                         obtain more information in the environment to improve the
+
+       Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:14 UTC from IEEE Xplore. Restrictions apply.
+SUN et al.: SAFETY-DRIVEN AND LOCALIZATION UNCERTAINTY-DRIVEN PERCEPTION-AWARE TRAJECTORY PLANNING                                                           8847
+
+
+
+localization accuracy. A coarse-to-fine strategy is designed to                  [19] J. Park and H. J. Kim, “Online trajectory planning for multiple
+search for a safe and perception-aware yaw angle path. After                          quadrotors in dynamic environments using relative safe flight corridor,”
+                                                                                      IEEE Robot. Autom. Lett., vol. 6, no. 2, pp. 659–666, Apr. 2021.
+that, the convex hull property is utilized to generate a safe                    [20] J. Wen, X. Zhang, H. Gao, J. Yuan, and Y. Fang, “E3 MoP: Efficient
+and perception-aware trajectory by formulating the trajectory                         motion planning based on heuristic-guided motion primitives pruning
+as a uniform B-spline. Finally, comparative simulation and                            and path optimization with sparse-banded structure,” IEEE Trans. Autom.
+                                                                                      Sci. Eng., vol. 19, no. 4, pp. 2762–2775, Oct. 2022.
+real-world experiments are carried out to verify the superior
+                                                                                 [21] D. Mellinger and V. Kumar, “Minimum snap trajectory generation
+performance of the proposed method. In our future work,                               and control for quadrotors,” in Proc. IEEE Int. Conf. Robot. Autom.,
+we will extend our safe and perception-aware planning method                          May 2011, pp. 2520–2525.
+to autonomous swarms.                                                            [22] C. Richter, A. Bry, and N. Roy, “Polynomial trajectory planning for
+                                                                                      aggressive quadrotor flight in dense indoor environments,” in Robotics
+                                                                                      Research. Berlin, Germany: Springer, 2016, pp. 649–666.
+                              R EFERENCES                                        [23] J. Chen, T. Liu, and S. Shen, “Online generation of collision-free
+ [1] F. Zhang et al., “Online ground multitarget geolocation based on 3-D             trajectories for quadrotor flight in unknown cluttered environments,” in
+     map construction using a UAV platform,” IEEE Trans. Geosci. Remote               Proc. IEEE Int. Conf. Robot. Autom. (ICRA), May 2016, pp. 1476–1483.
+     Sens., vol. 60, 2022, Art. no. 5621817.                                     [24] S. Liu et al., “Planning dynamically feasible trajectories for quadrotors
+ [2] R. Han, Y. Wen, L. Bai, J. Liu, and J. Choi, “Age of information aware           using safe flight corridors in 3-D complex environments,” IEEE Robot.
+     UAV deployment for intelligent transportation systems,” IEEE Trans.              Autom. Lett., vol. 2, no. 3, pp. 1688–1695, Jul. 2017.
+     Intell. Transp. Syst., vol. 23, no. 3, pp. 2705–2715, Mar. 2022.            [25] F. Gao, W. Wu, Y. Lin, and S. Shen, “Online safe trajectory
+ [3] S. Lee, S. Lee, and H. Kim, “Differential security barriers for virtual          generation for quadrotors using fast marching method and Bernstein
+     emotion detection in maritime transportation stations with cooperative           basis polynomial,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA),
+     mobile robots and UAVs,” IEEE Trans. Intell. Transp. Syst., vol. 24,             May 2018, pp. 344–351.
+     no. 2, pp. 2461–2471, Feb. 2023.                                            [26] F. Gao, L. Wang, B. Zhou, X. Zhou, J. Pan, and S. Shen, “Teach-repeat-
+ [4] P. Zhong, B. Chen, S. Lu, X. Meng, and Y. Liang, “Information-driven             replan: A complete and robust system for aggressive flight in complex
+     fast marching autonomous exploration with aerial robots,” IEEE Robot.            environments,” IEEE Trans. Robot., vol. 36, no. 5, pp. 1526–1545,
+     Autom. Lett., vol. 7, no. 2, pp. 810–817, Apr. 2022.                             Oct. 2020.
+ [5] S. Zhang, X. Zhang, T. Li, J. Yuan, and Y. Fang, “Fast active aerial        [27] N. Ratliff, M. Zucker, J. A. Bagnell, and S. Srinivasa, “CHOMP:
+     exploration for traversable path finding of ground robots in unknown             Gradient optimization techniques for efficient motion planning,” in Proc.
+     environments,” IEEE Trans. Instrum. Meas., vol. 71, pp. 1–13, 2022.              IEEE Int. Conf. Robot. Autom., May 2009, pp. 489–494.
+ [6] C. Wang, H. Ma, W. Chen, L. Liu, and M. Q.-H. Meng, “Efficient              [28] H. Oleynikova, M. Burri, Z. Taylor, J. Nieto, R. Siegwart, and
+     autonomous exploration with incrementally built topological map in               E. Galceran, “Continuous-time trajectory optimization for online UAV
+     3-D environments,” IEEE Trans. Instrum. Meas., vol. 69, no. 12,                  replanning,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS),
+     pp. 9853–9865, Dec. 2020.                                                        Oct. 2016, pp. 5332–5339.
+ [7] X. Zhang, Y. Chu, Y. Liu, X. Zhang, and Y. Zhuang, “A novel                 [29] V. Usenko, L. von Stumberg, A. Pangercic, and D. Cremers, “Real-
+     informative autonomous exploration strategy with uniform sampling                time trajectory replanning for MAVs using uniform B-splines and a 3D
+     for quadrotors,” IEEE Trans. Ind. Electron., vol. 69, no. 12,                    circular buffer,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS),
+     pp. 13131–13140, Dec. 2022, doi: 10.1109/TIE.2021.3137616.                       Sep. 2017, pp. 215–222.
+ [8] R. G. Ribeiro, J. R. C. Júnior, L. P. Cota, T. A. M. Euzébio, and           [30] B. Zhou, F. Gao, L. Wang, C. Liu, and S. Shen, “Robust and efficient
+     F. G. Guimar aes, “Unmanned aerial vehicle location routing problem              quadrotor trajectory generation for fast autonomous flight,” IEEE Robot.
+     with charging stations for belt conveyor inspection system in the                Autom. Lett., vol. 4, no. 4, pp. 3529–3536, Oct. 2019.
+     mining industry,” IEEE Trans. Intell. Transport. Syst., vol. 21, no. 10,
+                                                                                 [31] X. Zhou, Z. Wang, H. Ye, C. Xu, and F. Gao, “EGO-planner: An ESDF-
+     pp. 4186–4195, Oct. 2020.
+                                                                                      free gradient-based local planner for quadrotors,” IEEE Robot. Autom.
+ [9] N. Michael et al., “Collaborative mapping of an earthquake damaged               Lett., vol. 6, no. 2, pp. 478–485, Apr. 2021.
+     building via ground and aerial robots,” in Field and Service Robotics.
+     Berlin, Germany: Springer, 2014, pp. 33–47.                                 [32] M. Watterson, S. Liu, K. Sun, T. Smith, and V. Kumar, “Trajectory
+                                                                                      optimization on manifolds with applications to SO(3) and R3 ×S2 ,” in
+[10] C. Wang, H. Huang, Y. Ji, B. Wang, and M. Yang, “Vehicle localization
+                                                                                      Proc. Robot., Sci. Syst., 2018, pp. 1–9.
+     at an intersection using a traffic light map,” IEEE Trans. Intell.
+     Transp. Syst., vol. 20, no. 4, pp. 1432–1441, Apr. 2019.                    [33] D. Falanga, P. Foehn, P. Lu, and D. Scaramuzza, “PAMPC: Perception-
+[11] J. Jiang, J. Yuan, X. Zhang, and X. Zhang, “DVIO: An optimization-               aware model predictive control for quadrotors,” in Proc. IEEE/RSJ Int.
+     based tightly coupled direct visual-inertial odometry,” IEEE Trans. Ind.         Conf. Intell. Robots Syst. (IROS), Oct. 2018, pp. 1–8.
+     Electron., vol. 68, no. 11, pp. 11212–11222, Nov. 2021.                     [34] V. Murali, I. Spasojevic, W. Guerra, and S. Karaman, “Perception-aware
+[12] S. Fang, H. Li, M. Yang, and Z. Wang, “Inertial navigation system based          trajectory generation for aggressive quadrotor flight using differential
+     vehicle temporal relative localization with split covariance intersection        flatness,” in Proc. Amer. Control Conf. (ACC), Jul. 2019, pp. 3936–3943.
+     filter,” IEEE Robot. Autom. Lett., vol. 7, no. 2, pp. 5270–5277,            [35] H. Lu, Q. Zong, S. Lai, B. Tian, and L. Xie, “Real-time perception-
+     Apr. 2022.                                                                       limited motion planning using sampling-based MPC,” IEEE Trans.
+[13] C. Forster, Z. Zhang, M. Gassner, M. Werlberger, and D. Scaramuzza,              Ind. Electron., vol. 69, no. 12, pp. 13182–13191, Dec. 2022, doi:
+     “SVO: Semidirect visual odometry for monocular and multicamera                   10.1109/TIE.2022.3140533.
+     systems,” IEEE Trans. Robot., vol. 33, no. 2, pp. 249–265, Apr. 2017.       [36] G. Li, A. Tunchez, and G. Loianno, “PCMPC: Perception-constrained
+[14] S. Leutenegger, S. Lynen, M. Bosse, R. Siegwart, and P. Furgale,                 model predictive control for quadrotors with suspended loads using a
+     “Keyframe-based visual–inertial odometry using nonlinear optimiza-               single camera and IMU,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA),
+     tion,” Int. J. Robot. Res., vol. 34, no. 3, pp. 314–334, 2015.                   May 2021, pp. 2012–2018.
+[15] T. Qin, P. Li, and S. Shen, “VINS-mono: A robust and versatile              [37] B. Zhou, J. Pan, F. Gao, and S. Shen, “RAPTOR: Robust and perception-
+     monocular visual-inertial state estimator,” IEEE Trans. Robot., vol. 34,         aware trajectory replanning for quadrotor fast flight,” IEEE Trans.
+     no. 4, pp. 1004–1020, Aug. 2018.                                                 Robot., vol. 37, no. 6, pp. 1992–2009, Dec. 2021.
+[16] C. Campos, R. Elvira, J. J. G. Rodríguez, J. M. M. Montiel, and             [38] H. Wang, X. Zhang, Y. Liu, X. Zhang, and Y. Zhuang, “SVPTO:
+     J. D. Tardós, “ORB-SLAM3: An accurate open-source library for visual,            Safe visibility-guided perception-aware trajectory optimization for
+     visual-inertial, and multimap SLAM,” IEEE Trans. Robot., vol. 37, no. 6,         aerial tracking,” IEEE Trans. Ind. Electron., vol. 71, no. 3,
+     pp. 1874–1890, Dec. 2021.                                                        pp. 2716–2725, Mar. 2024.
+[17] A. Romero, R. Penicka, and D. Scaramuzza, “Time-optimal online              [39] Z. Zhang and D. Scaramuzza, “Perception-aware receding horizon
+     replanning for agile quadrotor flight,” 2022, arXiv:2203.09839.                  navigation for MAVs,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA),
+[18] X. Zhang, Y. Fang, X. Zhang, P. Shen, J. Jiang, and X. Chen, “Attitude-          May 2018, pp. 2534–2541.
+     constrained time-optimal trajectory planning for rotorcrafts: Theory        [40] Z. Zhang and D. Scaramuzza, “Fisher information field: An effi-
+     and application to visual servoing,” IEEE/ASME Trans. Mechatronics,              cient and differentiable map for perception-aware planning,” 2020,
+     vol. 25, no. 4, pp. 1912–1921, Aug. 2020.                                        arXiv:2008.03324.
+
+     Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:14 UTC from IEEE Xplore. Restrictions apply.
+8848                                                       IEEE TRANSACTIONS ON INTELLIGENT TRANSPORTATION SYSTEMS, VOL. 25, NO. 8, AUGUST 2024
+
+
+
+[41] H. Liu, X. Li, M. Fan, G. Wu, W. Pedrycz, and P. N. Suganthan,                                          Yisha Liu (Member, IEEE) received the B.S. and
+     “An autonomous path planning method for unmanned aerial vehicle                                         Ph.D. degrees in control theory and control engi-
+     based on a tangent intersection and target guidance strategy,” IEEE                                     neering from the Dalian University of Technology,
+     Trans. Intell. Transp. Syst., vol. 23, no. 4, pp. 3061–3073, Apr. 2022.                                 Dalian, China, in 2005 and 2011, respectively.
+[42] M. Burri, H. Oleynikova, M. W. Achtelik, and R. Siegwart, “Real-time                                      She is currently a Professor with the College
+     visual-inertial mapping, re-localization and planning onboard MAVs in                                   of Information Science and Technology, Dalian
+     unknown environments,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots                                      Maritime University, Dalian. Her current research
+     Syst. (IROS), Sep. 2015, pp. 1872–1878.                                                                 interests include mobile robot and UAV’s road
+                                                                                                             detection, path planning, object detection and
+                                                                                                             tracking, and outdoor scene understanding.
+
+
+
+
+                                                                                                            Xuebo Zhang (Senior Member, IEEE) received
+                           Gang Sun (Graduate Student Member, IEEE)
+                                                                                                            the B.Eng. degree in automation from Tianjin
+                           received the B.Eng. degree in automation from the
+                                                                                                            University, China, in 2002, and the Ph.D. degree in
+                           Dalian University of Technology, Dalian, China,
+                                                                                                            control theory and control engineering from Nankai
+                           in 2021, where he is currently pursuing the M.S.
+                                                                                                            University, China, in 2011.
+                           degree in control science and engineering with the
+                                                                                                              He is currently a Professor with the Institute of
+                           Intelligent Robot Laboratory.
+                                                                                                            Robotics and Automatic Information System(IRAIS)
+                             His current research interests include motion
+                                                                                                            and the Tianjin Key Laboratory of Intelligent
+                           planning and perception-aware planning.
+                                                                                                            Robotics, Nankai University. His research interests
+                                                                                                            include mobile robotics, motion planning, visual
+                                                                                                            sensor networks, localization and mapping. He is an
+                                                                                   Technical Editor of IEEE/ASME T RANSACTIONS ON M ECHATRONICS and
+                                                                                   an Associate Editor of the ASME Journal of Dynamic Systems, Measurement,
+                                                                                   and Control.
+
+
+                         Xuetao Zhang (Member, IEEE) received the B.Eng.                                   Yan Zhuang (Senior Member, IEEE) received the
+                         degree in electronic science and technology from                                  B.S. and M.S. degrees from Northeastern University,
+                         the Hebei University of Technology, Tianjin, China,                               Shenyang, China, in 1997 and 2000, respectively,
+                         in 2015, and the Ph.D. degree in control science and                              and the Ph.D. degree from the Dalian University of
+                         engineering from Nankai University, China, in 2020.                               Technology, Dalian, China, in 2004, all in control
+                            He is currently an Associate Professor with the                                theory and control engineering.
+                         Intelligent Robotic Laboratory, School of Artificial                                He is currently a Professor with the School of
+                         Intelligence, and the School of Control Science                                   Control Science and Engineering and the College of
+                         and Engineering, Dalian University of Technology,                                 Artificial Intelligence. His current research interests
+                         Dalian, China. His current research interests include                             include mobile robot 3-D environment perception
+                         autonomous exploration, motion planning, visual                                   and mapping, outdoor scene understanding, and
+servoing, and state estimation for autonomous rotorcraft UAVs.                     machine learning in robotics.
+
+
+
+
+       Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:14 UTC from IEEE Xplore. Restrictions apply.
+

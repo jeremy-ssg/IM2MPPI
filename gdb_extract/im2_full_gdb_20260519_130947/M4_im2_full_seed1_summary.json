@@ -1,0 +1,122 @@
+{
+  "algorithm": "im2_mppi",
+  "diagnostics": {
+    "end_of_run": {
+      "last_odom_t_s": 89.95,
+      "last_plan_time_t_s": null,
+      "last_target_t_s": null,
+      "plan_time_stopped_age_s": null,
+      "target_stopped_age_s": null
+    },
+    "num_events": 0,
+    "plan_latency": {
+      "count": 0,
+      "count_gt_100ms": 0,
+      "count_gt_20ms": 0,
+      "count_gt_50ms": 0,
+      "max_ms": null,
+      "mean_ms": null,
+      "p95_ms": null,
+      "p99_ms": null
+    },
+    "target_command": {
+      "count_position_jump_gt_0p3m": 0,
+      "count_position_jump_gt_1m": 0,
+      "max_cmd_accel_mps2": null,
+      "max_cmd_jerk_mps3": null,
+      "max_position_jump_m": null,
+      "p95_position_jump_m": null
+    },
+    "target_stream": {
+      "count": 0,
+      "count_gap_gt_100ms": 0,
+      "count_gap_gt_20ms": 0,
+      "count_gap_gt_50ms": 0,
+      "max_gap_s": null,
+      "mean_gap_s": null,
+      "p95_gap_s": null
+    },
+    "tracking": {
+      "first_error_gt_2m_s": null,
+      "first_error_gt_5m_s": null,
+      "max_target_error_m": null
+    },
+    "verdict": "no_clear_single_cause"
+  },
+  "planner": {
+    "max_planned_path_length_m": null,
+    "max_publish_period_s": null,
+    "mean_planned_path_length_m": null,
+    "mean_publish_period_s": null,
+    "plan_latency_max_ms": null,
+    "plan_latency_mean_ms": null,
+    "plan_latency_p95_ms": null,
+    "publish_rate_hz": null
+  },
+  "safety": {
+    "collision_near_miss_events": 0,
+    "collision_near_miss_rate": null,
+    "collision_near_miss_samples": 0,
+    "collision_near_miss_threshold_m": 0.3,
+    "collision_strict_events": 0,
+    "collision_strict_rate": null,
+    "collision_strict_samples": 0,
+    "collision_strict_threshold_m": 0.15,
+    "collision_strict_time_s": 0.0,
+    "collision_tail_events": 0,
+    "collision_tail_rate": null,
+    "collision_tail_samples": 0,
+    "collision_tail_threshold_m": 0.5,
+    "cvar_alpha": 0.05,
+    "empirical_cvar_10pct_m": null,
+    "empirical_cvar_5pct_m": null,
+    "empirical_cvar_user_m": null,
+    "mean_clearance_m": null,
+    "min_clearance_m": null,
+    "p05_clearance_m": null,
+    "planned_min_clearance_m": null,
+    "planned_near_miss_points": 0,
+    "planned_strict_collision_points": 0
+  },
+  "samples": {
+    "cmd_accel": 0,
+    "obstacle_clearance": 0,
+    "odom": 1800,
+    "plan_time_msgs": 0,
+    "planned_paths": 0,
+    "target": 0
+  },
+  "smoothness": {
+    "cmd_max_accel_mps2": null,
+    "cmd_max_jerk_mps3": null,
+    "cmd_mean_accel_mps2": null,
+    "cmd_mean_jerk_mps3": null,
+    "cmd_rms_accel_mps2": null,
+    "cmd_rms_jerk_mps3": null,
+    "max_speed_mps": 167.8348673168518,
+    "mean_speed_mps": 88.36825095417808,
+    "odom_rms_accel_mps2": 1.8666103494917072,
+    "odom_rms_jerk_mps3": 23.317292533768082
+  },
+  "task": {
+    "executed_path_length_m": 7946.289261157148,
+    "final_goal_distance_m": null,
+    "flight_duration_s": 89.95,
+    "goal_radius": 0.8,
+    "success": false,
+    "time_to_goal_s": null
+  },
+  "topics": {
+    "goal": "/move_base_simple/goal",
+    "obstacles": "/onboard_detector/GT_obstacle_bbox",
+    "odom": "/CERLAB/quadcopter/odom",
+    "plan_time": "/im2mppi/plan_time_ms",
+    "planned_path": "/im2mppi/best_trajectory",
+    "target": "/autonomous_flight/target_state"
+  },
+  "tracking": {
+    "max_target_error_m": null,
+    "mean_target_error_m": null,
+    "rms_target_error_m": null
+  }
+}

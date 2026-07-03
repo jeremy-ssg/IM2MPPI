@@ -1,0 +1,508 @@
+                                                                                                                                                                  2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)
+                                                                                                                                                                  October 1-5, 2023. Detroit, USA
+
+
+
+
+                                                                                                                                                                          Topology-guided Perception-aware Receding Horizon Trajectory
+                                                                                                                                                                                              Generation for UAVs
+                                                                                                                                                                               Gang Sun1 , Xuetao Zhang1? , IEEE Member, Yisha Liu2 , IEEE Member, Hanzhang Wang1 ,
+                                                                                                                                                                                     Xuebo Zhang3 , IEEE Senior Member, Yan Zhuang1 , IEEE Senior Member
+
+                                                                                                                                                                     Abstract— The perception-aware motion planning method
+2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) | 978-1-6654-9190-7/23/$31.00 ©2023 IEEE | DOI: 10.1109/IROS55552.2023.10342075
+
+
+
+
+                                                                                                                                                                  based on the localization uncertainty has the potential to
+                                                                                                                                                                  improve the localization accuracy for robot navigation. How-
+                                                                                                                                                                  ever, most of the existing perception-aware methods pre-build
+                                                                                                                                                                  a global feature map and can not generate the perception-
+                                                                                                                                                                  aware trajectory in real time. This paper proposes a topology-
+                                                                                                                                                                  guided perception-aware receding horizon trajectory generation
+                                                                                                                                                                  method, which contains a topology-guided position trajecto-
+                                                                                                                                                                  ry generation and a perception-aware yaw angle trajectory
+                                                                                                                                                                  generation. Specifically, a memorable active map is built by
+                                                                                                                                                                  selectively storing the visual landmarks. After that, a library
+                                                                                                                                                                  of candidate topological trajectories are generated, which are
+                                                                                                                                                                  then evaluated in terms of the perception quality based on
+                                                                                                                                                                  the active map, smoothness, collision possibility and feasibility.
+                                                                                                                                                                  In addition, the yaw angle trajectory is obtained through a
+                                                                                                                                                                  front-end multiple refined path search and a back-end path-
+                                                                                                                                                                  guided trajectory optimization. Comparative simulation and                      Fig. 1. Illustration of different motion planning methods for a quadrotor
+                                                                                                                                                                  real-world experiments are carried out to confirm that the                      from the red starting point to the green ending point. The blue trajectory
+                                                                                                                                                                  proposed method can keep more visual features in view and                       with perception awareness enables the quadrotor to see the regions with
+                                                                                                                                                                  reduce the localization error.                                                  richer textures. On the other hand, the yellow trajectory, lacking perception
+                                                                                                                                                                                                                                                  awareness, is susceptible to crossing the areas with the fewer textures,
+                                                                                                                                                                                         I. INTRODUCTION                                          resulting in inaccurate localization.
+
+                                                                                                                                                                     Unmanned aerial vehicles (UAVs) are widely used for                          the position trajectory [6]–[11], which do not consider the
+                                                                                                                                                                  different tasks such as autonomous exploration [1], mapping                     perception constraint.
+                                                                                                                                                                  [2], photography [3], goods transportation [4] and rescue [5].                     It is called perception-aware planning to consider the
+                                                                                                                                                                  In these applications, the state estimation module is crucial                   perception quality in motion planning. As shown in Fig.
+                                                                                                                                                                  to obtain the position, velocity and rotation of UAVs. The                      1, during the flight, the trajectory generation method con-
+                                                                                                                                                                  camera and inertial measurement unit (IMU) are appropriate                      sidering the perception quality will choose the path with
+                                                                                                                                                                  sensors for the state estimation of UAVs due to their low cost                  more visual features as well as face the feature-rich areas,
+                                                                                                                                                                  and weight. Typical visual-inertial navigation systems track                    obtaining the higher localization accuracy. On the contrary,
+                                                                                                                                                                  multiple visual features to estimate the state of the robot.                    perception-agnostic motion planning will potentially result
+                                                                                                                                                                  The motion planning module will affect the observation of                       in facing featureless areas and then reducing the localization
+                                                                                                                                                                  visual features. Meanwhile, the quantity and the quality of                     accuracy. Therefore, motion planning should consider the
+                                                                                                                                                                  the visual features in the view will also affect the localization               perception quality. Some studies focus on the perception-
+                                                                                                                                                                  accuracy. However, most existing motion planning methods                        aware planning, while there are still some open problems
+                                                                                                                                                                  focus on the time-optimal performance and the safety of                         listed as follows:
+                                                                                                                                                                     This work was supported in part by the National Natural Science                1) Most of the existing perception-aware planning methods
+                                                                                                                                                                  Foundation of China under 62103077, 61973049, and U1913201, in part                   pre-build the global feature map, reusing the visual
+                                                                                                                                                                  by Natural Science Foundation of Liaoning Province under Grant 2022-                  features to generate a perception-aware trajectory. How-
+                                                                                                                                                                  KF-12-05. (Corresponding author: Xuetao Zhang.)
+                                                                                                                                                                     1 Gang    Sun, Xuetao Zhang, Hanzhang Wang, Yan Zhuang                             ever, the trajectory can not be calculated in real time.
+                                                                                                                                                                  are with the Intelligent Robotic Laboratory, School of Artificial                 2) According to the differential flatness, the quadrotor
+                                                                                                                                                                  Intelligence, also School of Control Science and Engineering,                         motion planning problem can be decoupled into the
+                                                                                                                                                                  Dalian     University of    Technology,   Dalian    116024,   China.
+                                                                                                                                                                  sungang@mail.dlut.edu.cn, zhangxuetao@dlut.ed                                         position and yaw angle planning. However, the yaw
+                                                                                                                                                                  u.cn, wqwanghanzhang@mail.dlut.edu.cn, zhuang                                         perception-aware trajectory is often ignored.
+                                                                                                                                                                  @dlut.edu.cn
+                                                                                                                                                                    2 Yisha Liu is with the School of Information Science and
+                                                                                                                                                                                                                                                  A. Contributions
+                                                                                                                                                                  Technology, Dalian Maritime University, Dalian, China, 116026.
+                                                                                                                                                                  liuyisha@dlmu.edu.cn                                                              To address the issues above, we propose a topology-
+                                                                                                                                                                    3 Xuebo Zhang is with the College of Artificial Intelligence, the Institute
+                                                                                                                                                                                                                                                  guided receding horizon method for generating perception-
+                                                                                                                                                                  of Robotics and Automatic Information System (IRAIS), Tianjin Key
+                                                                                                                                                                  Laboratory of Intelligent Robotics, Nankai University, Tianjin 300350,          aware trajectories for UAVs. First, we build a memorable
+                                                                                                                                                                  China. zhangxuebo@nankai.edu.cn                                                 active map that stores the visual features from the current
+
+                                                                                                                                                                  978-1-6654-9190-7/23/$31.00 ©2023 IEEE                                      3070
+                                                                                                                                                                     Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:23 UTC from IEEE Xplore. Restrictions apply.
+            New Features         Old Features
+
+                                                                           Position Trajectories                           Yaw Path
+                       Active Map                                                                                                           ψ(t)
+
+
+                                                                                             Best Position
+                                                                                             Trajectory                                     p(t)
+
+            Active Map Construction                      Topology Trajectory Selection                       Perception-aware Yaw Trajectory
+
+                                                                Fig. 2.   System Overview
+
+and historical frames. Then, we generate a series of topo-                       compared with the optimization-based method. However, the
+logical trajectories using an ESDF-free (Euclidean Signed                        methods mentioned above aim to avoid dynamic obstacles
+Distance Field) trajectory generation method incorporating                       and actively observing the unknown environment instead of
+the proposed active map. The best trajectory is selected                         reducing the localization uncertainty.
+by evaluating the perception quality, collision probability,                        Some perception-aware planning methods aim to reduce
+smoothness, and dynamic feasibility. Next, we utilize a two-                     the localization uncertainty. Varun et al. [15] propose a
+stage trajectory generation method to obtain the yaw trajec-                     method by maximizing the co-visibility of the features
+tory. In the first stage, a multiple refined path search method                  to increase the estimation accuracy. However, the method
+is proposed to find a perception-aware and safe path, and                        lacks the obstacle avoidance. Sabdat et al. [16] propose
+an initial yaw trajectory is generated from this path. In the                    a perception-aware planning method, which considers the
+second stage, a path-guided trajectory generation considers                      perception quality in a sampling-based Rapidly-exploring
+the smoothness and dynamic feasibility. The position and                         Random Tree (RRT) for motion planning. Sampling-based
+yaw trajectories are all parameterized to the uniform B-                         planners [17] may suffer from sampling inefficiency, which
+splines. The convex hull property of the B-spline is utilized                    results in much computational cost to find a global path.
+to ensure safety and dynamic feasibility. The contributions                      Therefore, Dabin et al. [18] propose a topology-guided path
+of this paper are summarized as follows:                                         planning strategy for perception-aware navigation. Zhang et
+  1) A memorable active map generation method is put                             al. [19] propose to utilize fisher information to evaluate the
+      forward to evaluate the perception information in real                     perception quality and build a Fisher Information Field (FIF)
+      time. The map takes the advantage of the historical                        for the trajectory planning. However, the methods mentioned
+      features to improve the perception quality.                                above all pre-build a global map, which cannot generate the
+  2) We propose a perception-aware receding horizon tra-                         trajectory in real time.
+      jectory generation method, which includes a topology-                         Some recent methods focus on generating perception-
+      guided position trajectory and a perception-aware yaw                      aware trajectory in a receding horizon fashion. Reiya et al.
+      angle trajectory. The trajectory can actively observe                      [20] propose an informative path planning framework with
+      more features and reduce the localization uncertainty.                     a lidar-based state estimation system, while it is designed
+  3) Comparative simulation and real-world tests are con-                        based on a lidar model. Zhang et al. [21] use the information
+      ducted to verify the superior performance of the local-                    from the monocular state estimation and mapping system
+      ization accuracy.                                                          to evaluate a library of candidate trajectories generated
+                                                                                 by a motion-primitive method. Wu et al. [22] propose a
+                           II. R ELATED W ORK                                    receding horizon planner, which can adjust the trajectory
+   Perception-aware planning for UAVs has been gradually                         aggressiveness and reduce the motion blur. However, these
+concerned in recent years. Zhou et al. [12] propose a robust                     two methods do not plan the yaw trajectory to minimize
+and perception-aware trajectory replanning system, which                         the localization uncertainty. Motivated by the observations,
+aims to observe the unknown environment actively. Jesus et                       this paper proposes a topology-guided perception-aware re-
+al. [13] propose a real-time optimization-based perception-                      ceding horizon trajectory generation method, which contains
+aware trajectory planner for UAVs in dynamic environments,                       a topology-guided position trajectory generation for fully
+which aims to avoid dynamic obstacles and keep them in                           exploring the environment and a perception-aware yaw angle
+the sensor field of view. After that, Jesus et al. [14] further                  generation for minimizing the localization uncertainty.
+propose a learning-based perception-aware trajectory plan-                          The rest of this paper is structured as follows. In Section
+ner, which can achieve a similar cost and a lower time cost                      III, the overview of the topology-guided perception-aware
+
+                                                                           3071
+   Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:23 UTC from IEEE Xplore. Restrictions apply.
+receding horizon system is given. In Section IV, we detail
+the process of building a memorable active map and how                                                                                          Camera
+
+to incorporate the active map to generate perception-aware
+trajectories. Section V introduces a perception-aware yaw
+angle trajectory generation process. To demonstrate the per-
+formance of the proposed method, simulation and real-world
+experiments are shown in Section VI.
+                   III. S YSTEM OVERVIEW
+   The system overview is shown in Fig. 2, consisting of                             Priority Queue
+three modules: active map construction, topology trajecto-
+ry selection and perception-aware yaw trajectory genera-                            Older             Last           Current
+tion. Firstly, a memorable active map is constructed using                          Landmarks         Landmarks      Landmarks
+
+odometry [23] and features information from the current
+frame and historical frames. Secondly, multiple topological                     Fig. 3. The memorable active map generated by the output of VINS-
+                                                                                fusion. The fixed-size priority queue stores the landmarks including the
+trajectories are generated based on the grid map, and the                       current frame, last frame and older frame.
+optimal trajectory is selected by evaluating the perception
+information, collision likelihood, smoothness, and dynamic                      where proj(·) is the projection function of the camera. Tbc ∈
+feasibility. After that, a yaw angle trajectory is generated                    SE(3) is the transformation matrix from the camera frame
+for the optimal position trajectory. Specifically, the front end                to the body frame and ũkj ∈ R2×1 is the noisy observation
+is a multiple refined graph search strategy to find a yaw                       of the j-th landmark. As a nonlinear optimization problem,
+path with perception awareness, and then optimizing the                         it can be solved using the iterative optimization method. Tk
+yaw trajectory by adding constraints including smoothness,                      is updated as Tk ← Tk Exp(ξ), where Exp(·) is the map
+feasibility, and safety. Finally, a complete perception-aware                   from ξ ∈ se(3) to the element in SE(3). The problem is
+trajectory is obtained.                                                         solved by linearizing around the current estimate of Tk as
+     IV. T OPOLOGY- GUIDED P OSITION T RAJECTORY                                                         X                        2
+                                                                                          ξ ∗ = arg min        ukj − ũkj + Jkj
+                                                                                                                             ξ ξ    ,      (4)
+                            GENERATION                                                                       ξ     j∈Ok
+A. Active Map and Perception Quality Metric                                                                                        ∂u
+                                                                                                                     kj
+                                                                                where ukj = proj Tbc T−1
+                                                                                                                            2×6
+   A memorable active map is constructed to evaluate the                                                 k lj and Jξ ∈ R         = ∂ξkj .
+perception quality as shown in Fig. 3. Specifically, VINS-                      Then the information matrix can be obtained as
+fusion outputs a set of sparse features observed and tracked                                                      Hk = J>  −1
+                                                                                                                        k Σu Jk                            (5)
+from different frames, which are also called Landmarks.
+Different from [21], the active map in this method stores                       where Jk is stacked up by Jkj ξ . Σu is the covariance matrix
+the features not only in the current frame but also in the                      of {ukj }j∈Ok , which is usually with the same value on the
+history frame. Due to the limited observation region, the                       diagonal when the observations are independent and have
+quadrotor may miss the texture-rich areas when replanning                       the same noise level in a visual inertial state estimation. The
+the trajectory, resulting in poor perception quality. There-                    whole information matrix is formulated as
+                                                                                                                              
+fore, we maintain a fixed-size priority queue to store the                                             H1 0 . . . 0
+landmarks. When a new frame arrives, all the landmarks in                                            0 H2 . . . 0 
+                                                                                               H=   0 ... ... 0 
+                                                                                                                                            (6)
+the current frame enter the queue, and the landmarks in the
+last frame that overlaps with the current frame are dequeued.                                           0 . . . 0 HK
+The remaining older landmarks are dequeued based on the
+                                                                                Utilizing (6), the perception information cost using an analog
+current queue size. Let MA represent the active map with K
+                                                                                form of the D-opt criterion following [19] is:
+features, which can be mathematically expressed as                                                                             
+                                                                                                                1
+                           MA = {li }K
+                                     i=1 ,                             (1)                   cperc = − exp         log (det(H))            (7)
+                                                                                                               6K
+                    K = kolder + klast + kcur ,                        (2)
+                                                                                B. Topology-guided trajectory
+where li ∈ R3 stands for the i-th feature in the active                            Homotopy is a widely used concept in motion planning
+map. kolder , klast and kcur represent the feature numbers                      to generate topological trajectories, while it captures in-
+of the older frame, last frame and the current frame, re-                       sufficient useful trajectories. As defined in [24], we use
+spectively. Let Ok denote the landmarks set observed at                         uniform visibility deformation (UVD) to check whether the
+pose Tk ∈ SE(3). After generating the active map, a least                       two trajectories are topologically distinctive. As shown in
+square problem is constructed to estimate the pose, which is                    Fig. 4, four topologically distinctive trajectories are generated
+formulated as                                                                   from the start to the end. For each trajectory, the deeper the
+                      X                             2
+       T∗k = arg min        ũkj − proj Tbc T−1 lj       (3)                    color, the higher the perception quality. The best trajectory
+                   T                                                            is chosen by evaluating the perception awareness, collision
+                          j∈Ok
+
+
+                                                                           3072
+   Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:23 UTC from IEEE Xplore. Restrictions apply.
+                                                                          good
+
+
+
+
+                                                                          bad
+
+
+Fig. 4.      Illustration of four topologically distinctive trajectories. The
+trajectories are generated by the current memorable active map. The green
+points stand for the landmarks stored by the active map, wherein the
+different depth indicates the quantity of the perception information.
+
+                                                                                 Fig. 5.    Illustration of the multiple refined graph search. The arrows
+                                                                                 represent the sampled yaw angles, wherein the colored arrows represent
+probability, smoothness and dynamic feasibility. The specific                    the search results. The sampled area is halved after each search, which is
+evaluation function is designed as                                               represented by the colored sector.
+
+              cost = kper cper + ks cs + kc cc + kd cd                   (8)
+where cper , cs , cc and cd ∈ R stand for the perception                         where Ψmax ∈ R+ is the maximum yaw velocity and
+information cost, smoothness cost, collision cost and dy-                        cΨmax is designed for satisfying the dynamic feasibility
+namic feasibility cost, respectively. kper , ks , kc and kd                      and reducing the motion blur. When the current yaw angle
+∈ R+ are positive weights for each penalty term. After the                       velocity exceeds the maximum yaw angle velocity, the cost
+optimization, a final position trajectory is obtained, which is                  is 1, otherwise, the cost is 0. Due to the limited field of
+perception-aware, smooth, safe and feasible.                                     view (FOV) of cameras, the quadrotor is unable to observe
+                                                                                 all-around obstacles. For ensuring the flight safety, a safety
+         V. P ERCEPTION - AWARE YAW T RAJECTORY                                  cost is designed as
+A. Multiple Refined Local Path Search
+                                                                                                          csaf = (ψ − ψtag )2                           (12)
+   In most previous motion planning methods, the yaw angle
+is either not planned or along the direction of the projection                   where ψtag ∈ [−π, π) is along the tangent direction of the
+of the trajectory tangent direction in the x-y plane, lacking                    position trajectory. The cost is designed to keep the quadrotor
+the perception awareness. We plan a perception-aware yaw                         not deviating too much from the forward direction, avoiding
+trajectory to actively observe more textured areas during                        losing the visibility of the obstacles in the front. The root
+flight, thus reducing localization uncertainty. The position                     node and the goal node are the yaw angles of the start and
+trajectory is sampled into multiple points at uniform time                       end positions, respectively.
+intervals. For each point, multiple yaw angles are uniformly                        The problem is solved by Dijkstra algorithm. As illus-
+sampled from -π to π. Each position p ∈ R3 and each                              trated in Fig. 5, a multiple refined path search strategy is
+angle ψ ∈ R form a pair as a search node and different                           put forward to search the path more efficiently, avoiding
+angles at the same position form a layer. Next, we construct                     abundant useless nodes. To search for a fine trajectory, the
+a graph connecting nodes in consecutive layers through                           sampling interval is usually very small, resulting in a large
+directed edges. The nodes in the same layer share the same                       number of useless search nodes. Therefore, we first sample
+time and position values. To obtain a perception-aware, safe                     at a larger interval and gradually narrow the sampling area
+and smooth trajectory, the cost function is designed as                          based on the path searched. The search process ends when
+                                                                                 the costs of two searches do not differ much. Meanwhile,
+        c = kp cper + kψ cψ + kΨmax cΨmax + ksaf csaf ,                  (9)     the planning is based on current sensor data for receding
+where kp , kψ , kΨmax , and ksaf ∈ R are positive weights.                       horizon planning. However, during the execution, obstacles
+The cost term for perception awareness cper is the same as                       may suddenly be encountered, requiring replanning. If the
+the one designed for the position trajectory. The second cost                    yaw angle is not facing forward at this time, a collision may
+term is designed as                                                              occur. Thus, the yaw angle search is limited to a certain
+                                            2                                   horizon, not searching the entire trajectory. The latter part is
+               cψ = wrapπ−π (ψn2 − ψn1 )                 (10)                    along the tangential direction of the trajectory.
+where wrapπ−π (·) means wrapping of an angle in [−π, π)                          B. Path-guided Trajectory Generation
+and cψ ∈ R is a smooth cost to penalize the change between
+two near angles. The cost term cΨmax ∈ R is designed as                             The initial B-spline trajectory is generated guided by the
+                                                                                 searched path with the same time allocation as the position
+       cΨmax = 1|wrapπ (ψn −ψn )/(tn −tn )|>Ψmax                       (11)      trajectory. The trajectory is represented as B-spline curve
+                           −π     2     1      2     1
+
+
+
+                                                                            3073
+    Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:23 UTC from IEEE Xplore. Restrictions apply.
+                                                                          good
+                                                                                                           1                                2
+
+
+
+
+                                                                                                           0(4)                            3
+
+
+
+                                                                          bad
+
+                                                                                          Fig. 7.       Illustration of obstacle-f ree simulation scene.
+Fig. 6. The trajectory after generating the yaw angle trajectory for the best
+position trajectory. The arrows represent the yaw angle direction samplings
+and the colors indicate the perception quality.
+
+with N + 1 control points {Q0 , Q1 , ..., QN }. The initial tra-
+jectory guides the trajectory to ensure perception awareness,
+which is also sampled uniformly with N + 1 control points
+                                                                                                                                                        2
+{B0 , B1 , ..., BN }. The convex hull property of the B-spline                            0                       1
+
+
+is employed to limit the yaw angular velocity and acceler-
+ation. Meanwhile, the smoothness of the trajectory is also
+considered. A nonlinear optimization problem is constructed
+as follows:
+          XN                    N
+                                X −1                                                          Fig. 8.      Illustration of obstacle simulation scene.
+                          2                                 2
+ min αi         (Qi − Bi ) + αs      (Qi+1 − 2Qi + Qi−1 ) +
+                                                                                  the method. Under the obstacle-f ree environment, as shown
+           i=0                         i=1
+                                   N −1
+                                                                                  in Fig. 7, the quadrotor rotates around the scene once and
+                                                         2                       returns to the starting position. Since there are only walls on
+                                   X
+                              αv            Vi2 − Vmax
+                                                   2
+                                                              · 1|Vi |⩾Vmax +
+                                    i=1
+                                                                                  four sides and the target location is inside the walls, it can be
+                                     N −2                                         approximated as an unobstructed environment. The second
+                                     X                    2
+                               αa           A2i − A2max        · 1|Ai |>Amax      scenario is the obstacle environment, as shown in Fig. 8. In
+                                     i=2                                          this scenario, there are many cylindrical obstacles, and the
+The first term penalizes the error between the current                            textures on the obstacles are the same.
+trajectory and the guided path to increase the perception                            The state estimation is prone to accumulating drift over
+awareness. The second term ensures the smoothness of the                          time, decreasing the localization accuracy. In this regard,
+trajectory. The third term limits the speed of the trajectory to                  the perception-agnostic method is more likely to result in
+be less than the maximum speed, where Vi ∈ R represents                           localization inaccuracy as the quadrotor may fly in areas with
+the velocity control point and Vmax ∈ R+ represents the                           fewer textures. For instance, Fig. 9 shows the results of the
+maximum velocity. The fourth term restricts the acceleration                      perception-aware method and ego planner in an obstacle-
+of the trajectory to be less than the maximum acceleration,                       f ree environment. It is evident from Fig. 9(a) that the
+where Ai ∈ R represents the acceleration control point and                        odometry of the perception-aware method is closer to the
+Amax ∈ R+ represents the maximum acceleration. And αi ,                           ground truth. Fig. 10 shows the comparative results in an
+αs , αv and αa ∈ R+ are positive weights. The position,                           obstacle environment. Considering perception awareness in
+velocity, and acceleration constraints of the starting and end-                   motion planning allows the quadrotor to fly facing areas with
+ing points are added as hard constraints to the optimization                      richer textures, which is also beneficial for feature extraction
+problem. A safe, smooth, perception-aware and dynamically                         by visual-inertial odometry. The number of features extracted
+feasible trajectory is acquired after the optimization as shown                   by the left camera in each frame is also recorded to reflect the
+in Fig. 6.                                                                        perception awareness, as shown in Fig. 11. The perception-
+                                                                                  aware method can extract more visual features. The quanti-
+                       VI. R ESULTS                                               tative results of feature count in different scenarios are listed
+   Both the comparative simulation and real-world experi-                         in Tabs. I-II, respectively. In the obstacle-f ree scenario, the
+ments are conducted to verify the superior performance of                         mean number of features can be increased by 10.76%. In the
+the proposed method. Specifically, we compare the number                          obstacle scenario, it can be increased by 20.77%.
+of features, end position error and root mean square error
+                                                                                  B. Localization Accuracy
+(RMSE) between perception-agnostic ego planner [25] and
+the proposed method.                                                                 To reduce the localization uncertainty and reach the des-
+                                                                                  tination more accurately while ensuring safety, a topology-
+A. Perception Awareness                                                           guided receding horizon perception-aware planning strategy
+  The simulation is conducted using the XTDrone platform                          is proposed in this paper. As shown in Fig. 12, the quadrotor
+[26]. Two scenarios are designed to verify the performance of                     generates two topologically distinctive trajectories during the
+
+                                                                               3074
+    Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:23 UTC from IEEE Xplore. Restrictions apply.
+                                                                                                                       (a)
+
+
+
+                 (a)                                      (b)
+
+Fig. 9. The trajectories generation under obstacle-f ree scene in a receding
+horizon fashion. The red line represents the ground truth trajectory, the green
+line represents the odometry output. (a): proposed method (b): ego planner                                             (b)
+
+                                  TABLE I                                         Fig. 10. The trajectories generation under obstalce scene in a receding
+      C OMPARISON OF D IFFERENT I NDICATORS IN obstacle-f ree                     horizon fashion. (a): The trajectory planned by ego planner. (b): The
+                                                                                  trajectory generated by the proposed method. The red line represents the
+                             S CENE
+                                                                                  ground truth trajectory, and the blue line represents the odometry output.
+                                                                                  The red markers indicate the heading direction of the quadrotor.
+             indicator           ego planner proposed           difference
+      mean feature number          86.58          95.9          +10.76%
+      end position error (m)       0.306         0.157          -48.69%
+           RMSE (m)                0.214         0.123          -42.52%
+
+
+                             TABLE II
+      C OMPARISON OF D IFFERENT I NDICATORS IN obstacle S CENE
+
+             indicator           ego planner proposed           difference
+      mean feature number          83.69         101.07         +20.77%
+      end position error (m)       0.782         0.405           -48.2%
+           RMSE (m)                0.412          0.25          -39.32%                             (a)                                        (b)
+
+flight. After evaluating the perception quality, collision possi-                 Fig. 11. The variation of the feature number over time under two scenes
+bility, smoothness, and dynamic feasibility of the trajectories,                  obstacle and obstacle-f ree. (a): The number variation of two methods
+the optimal trajectory, i.e., the red trajectory, is selected for                 from point 0 to point 1 under the scene obstacle-f ree. (b): The number
+                                                                                  variation of topological distinctive trajectories from point 0 to point 1 under
+execution. Meanwhile, the yaw angle planning is performed                         scene obstacle.
+during flight to face areas with richer textures, reducing
+the localization uncertainty. To quantitatively evaluate the
+localization quality, we compare the position errors of the
+two methods, including end position error and RMSE, in
+two different scenarios. As listed in Tabs. I-II, the perception-
+aware method can effectively reduce errors compared with                             0                       1
+
+the perception-agnostic method. In the obstacle-f ree sce-
+nario, the end position error can be reduced by 48.69%, and                                         (a)                                      (b)
+RMSE can be reduced by 42.52%. In the obstacle scenario,
+the end position error and RMSE can be reduced by 48.2%                                         Fig. 12.   Topologically distinctive trajectories.
+and 39.2%, respectively. The average computation time of the                      is utilized to provide the ground truth.
+proposed method is 2.25ms and the real time performance                              We test the proposed method in a real-world scene, which
+is promised.                                                                      is shown in Fig. 13(b). During the flight, the maximum speed
+                                                                                  is set to 1m/s, and other parameters are same as in the
+C. Real-World Experiments
+                                                                                  simulation. Similar to the simulation results, our system was
+   A homemade quadrotor shown in Fig. 13(a) is employed                           able to command the quadrotor to follow a perception-aware
+to validate the effectiveness of the method, which is equipped                    trajectory to reach the goal. Fig. 14 shows the error mapped
+with an Intel mini-computer to run the algorithms and                             onto the trajectory on the x-axis and y-axis.
+controlled by PIXHAWK mini. VINS-fusion is employed to
+estimate the state, wherein the image input is provided by                                                  VII. C ONCLUSION
+an Intel Realsense D435i camera. In addition, it can output                          This paper studies taking perception quality into the mo-
+the features to construct a memorable active map. The depth                       tion planning problem to improve the localization accuracy
+measurement provided by D435i is used to provide point                            for the quadrotors. Unlike most previous methods that pre-
+clouds for obstacle avoidance. Moreover, the T265 camera                          build a global map, the proposed method plans the trajectory
+
+                                                                              3075
+    Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:23 UTC from IEEE Xplore. Restrictions apply.
+                                                                                 [7] X. Zhang, J. Wang, Y. Fang, and J. Yuan, “Multilevel humanlike
+                                                                                     motion planning for mobile robots in complex indoor environments,”
+                                                                                     IEEE Transactions on Automation Science and Engineering, vol. 16,
+                                                                                     no. 3, pp. 1244–1258, 2019.
+                       (a)                                                       [8] P. Shen, X. Zhang, and Y. Fang, “Complete and time-optimal path-
+                                                                                     constrained trajectory planning with torque and velocity constraints:
+                                                                                     Theory and applications,” IEEE/ASME Transactions on Mechatronics,
+                                                                                     vol. 23, no. 2, pp. 735–746, 2018.
+                                                                                 [9] J. Wen, X. Zhang, H. Gao, J. Yuan, and Y. Fang, “E3mop: Efficient
+                                                                                     motion planning based on heuristic-guided motion primitives pruning
+                (a)                                     (b)                          and path optimization with sparse-banded structure,” IEEE Transac-
+                                                                                     tions on Automation Science and Engineering, vol. 19, no. 4, pp. 2762–
+         Fig. 13.     The quadrotor platform and experiment field.                   2775, 2022.
+                                                                                [10] H. Wang, X. Zhang, Y. Liu, X. Zhang, and Y. Zhuang, “Svpto:
+                                                                                     Safe visibility-guided perception-aware trajectory optimization for
+                                                                                     aerial tracking,” IEEE Transactions on Industrial Electronics, DOI
+                                                                                     10.1109/TIE.2023.3270541, 2023.
+                                                                                [11] X. Zhang, Y. Zhuang, X. Zhang, and Y. Fang, “A novel
+                                                                                     asymptotic robust tracking control strategy for rotorcraft uavs,”
+                                                                                     IEEE Transactions on Automation Science and Engineering, DOI
+                                                                                     10.1109/TASE.2022.3211693, 2022.
+                                                                                [12] B. Zhou, J. Pan, F. Gao, and S. Shen, “Raptor: Robust and perception-
+                                                                                     aware trajectory replanning for quadrotor fast flight,” IEEE Transac-
+                                                                                     tions on Robotics, vol. 37, no. 6, pp. 1992–2009, 2021.
+                                                                                [13] J. Tordesillas and J. P. How, “Panther: Perception-aware trajectory
+                                                                                     planner in dynamic environments,” IEEE Access, vol. 10, pp. 22 662–
+                                                                                     22 677, 2022.
+                                                                                [14] J. Tordesillas and J. P. How, “Deep-panther: Learning-based
+                                                                                     perception-aware trajectory planner in dynamic environments,” IEEE
+                                                                                     Robotics and Automation Letters, vol. 8, no. 3, pp. 1399–1406, 2023.
+                                                                                [15] V. Murali, I. Spasojevic, W. Guerra, and S. Karaman, “Perception-
+                                                                                     aware trajectory generation for aggressive quadrotor flight using
+                                                                                     differential flatness,” in 2019 American Control Conference (ACC),
+                                (a)
+Fig. 14. Real-world experiment ground truth and odometry executed by                 pp. 3936–3943. IEEE, 2019.
+the proposed method.                                                            [16] S. A. Sadat, K. Chutskoff, D. Jungic, J. Wawerla, and R. Vaughan,
+                                                                                     “Feature-rich path planning for robust navigation of mavs with mono-
+                                                                                     slam,” in 2014 IEEE International Conference on Robotics and
+in a receding horizon fashion with the current sensor data.                          Automation (ICRA), pp. 3870–3875, 2014.
+The planning framework can be divided into a topology-                          [17] R. Wang, X. Zhang, Y. Fang, and B. Li, “Virtual-goal-guided rrt
+guided position trajectory generation and a perception-aware                         for visual servoing of mobile robots with fov constraint,” IEEE
+                                                                                     Transactions on Systems, Man, and Cybernetics: Systems, vol. 52,
+yaw angle generation. Finally, We demonstrate the superior                           no. 4, pp. 2073–2083, 2022.
+performance of the proposed method through comparative                          [18] D. Kim, G. C. Kim, Y. Jang, and H. J. Kim, “Topology-guided path
+simulation and real-world experiments. In future work, more                          planning for reliable visual navigation of mavs,” in 2021 IEEE/RSJ
+                                                                                     International Conference on Intelligent Robots and Systems (IROS),
+real-world experiments will be included to verify the feasi-                         pp. 3117–3124, 2021.
+bility and novelty in different scenarios. We will also extend                  [19] Z. Zhang and D. Scaramuzza, “Fisher information field: an efficient
+our perception-aware planning receding horizon method to                             and differentiable map for perception-aware planning,” arXiv preprint
+                                                                                     arXiv:2008.03324, 2020.
+autonomous swarms.                                                              [20] R. Takemura and G. Ishigami, “Perception-aware receding horizon
+                                                                                     path planning for uavs with lidar-based slam,” in 2022 IEEE In-
+                               R EFERENCES                                           ternational Conference on Multisensor Fusion and Integration for
+                                                                                     Intelligent Systems (MFI), pp. 1–8, 2022.
+                                                                                [21] Z. Zhang and D. Scaramuzza, “Perception-aware receding horizon
+ [1] X. Zhang, Y. Chu, Y. Liu, X. Zhang, and Y. Zhuang, “A novel
+                                                                                     navigation for mavs,” in 2018 IEEE International Conference on
+     informative autonomous exploration strategy with uniform sampling
+                                                                                     Robotics and Automation (ICRA), pp. 2534–2541, 2018.
+     for quadrotors,” IEEE Transactions on Industrial Electronics, vol. 69,
+                                                                                [22] X. Wu, S. Chen, K. Sreenath, and M. W. Mueller, “Perception-aware
+     no. 12, pp. 13 131–13 140, 2022.
+                                                                                     receding horizon trajectory planning for multicopters with visual-
+ [2] X. Liu, Z. Liu, F. Kong, and F. Zhang, “Large-scale lidar consistent
+                                                                                     inertial odometry,” IEEE Access, vol. 10, pp. 87 911–87 922, 2022.
+     mapping using hierarchical lidar bundle adjustment,” IEEE Robotics
+                                                                                [23] T. Qin, P. Li, and S. Shen, “Vins-mono: A robust and versatile monoc-
+     and Automation Letters, vol. 8, no. 3, pp. 1523–1530, 2023.
+                                                                                     ular visual-inertial state estimator,” IEEE Transactions on Robotics,
+ [3] Y. Cao, X. Cheng, and J. Mu, “Concentrated coverage path planning
+                                                                                     vol. 34, no. 4, pp. 1004–1020, 2018.
+     algorithm of uav formation for aerial photography,” IEEE Sensors
+                                                                                [24] B. Zhou, F. Gao, L. Wang, C. Liu, and S. Shen, “Robust and efficient
+     Journal, vol. 22, no. 11, pp. 11 098–11 111, 2022.
+                                                                                     quadrotor trajectory generation for fast autonomous flight,” IEEE
+ [4] X. Li, J. Tan, A. Liu, P. Vijayakumar, N. Kumar, and M. Alazab, “A              Robotics and Automation Letters, vol. 4, no. 4, pp. 3529–3536, 2019.
+     novel uav-enabled data collection scheme for intelligent transportation    [25] X. Zhou, J. Zhu, H. Zhou, C. Xu, and F. Gao, “Ego-swarm: A fully
+     system through uav speed control,” IEEE Transactions on Intelligent             autonomous and decentralized quadrotor swarm system in cluttered
+     Transportation Systems, vol. 22, no. 4, pp. 2100–2110, 2021.                    environments,” in 2021 IEEE International Conference on Robotics
+ [5] N. Michael, S. Shen, K. Mohta, V. Kumar, K. Nagatani, Y. Okada,                 and Automation (ICRA), pp. 4101–4107, 2021.
+     S. Kiribayashi, K. Otake, K. Yoshida, K. Ohno et al., “Collaborative       [26] K. Xiao, S. Tan, G. Wang, X. An, X. Wang, and X. Wang, “Xtdrone: A
+     mapping of an earthquake damaged building via ground and aerial                 customizable multi-rotor uavs simulation platform,” in 2020 4th Inter-
+     robots,” in Field and service robotics, pp. 33–47. Springer, 2014.              national Conference on Robotics and Automation Sciences (ICRAS),
+ [6] W. Zhang, J. Jia, S. Zhou, K. Guo, X. Yu, and Y. Zhang, “A safety               pp. 55–61, 2020.
+     planning and control architecture applied to a quadrotor autopilot,”
+     IEEE Robotics and Automation Letters, vol. 8, no. 2, pp. 680–687,
+     2023.
+
+
+                                                                           3076
+   Authorized licensed use limited to: Dalian University of Technology. Downloaded on June 06,2026 at 15:00:23 UTC from IEEE Xplore. Restrictions apply.
+
