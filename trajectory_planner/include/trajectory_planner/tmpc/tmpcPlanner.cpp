@@ -243,7 +243,7 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/local_static_map_resolution",    localStaticMapResolution_, 0.10);
     nh_.param("tmpc/local_static_map_timeout",       localStaticMapTimeout_, 0.75);
     nh_.param("tmpc/publish_guidance_markers", publishGuidanceMarkers_, true);
-    nh_.param("tmpc/guidance_process_z_offset", guidanceProcessZOffset_, 1.70);
+    nh_.param("tmpc/guidance_process_z_offset", guidanceProcessZOffset_, 0.05);
     nh_.param("tmpc/guidance_graph_line_width", guidanceGraphLineWidth_, 0.035);
     nh_.param("tmpc/guidance_node_scale", guidanceNodeScale_, 0.16);
     nh_.param("tmpc/publish_optimized_markers", publishOptimizedMarkers_, true);
@@ -396,6 +396,28 @@ void tmpcPlanner::updateCurrStates(const Eigen::Vector3d& pos,
     currPos_ = pos; currVel_ = vel; currYaw_ = yaw;
 }
 
+double tmpcPlanner::referenceZAt(int k) const {
+    if (!localRef_.empty()) {
+        const int kk = std::max(0, std::min((int)localRef_.size() - 1, k));
+        const double z = localRef_[kk].z();
+        if (std::isfinite(z)) return z;
+    }
+    if (std::isfinite(currPos_.z()) && std::abs(currPos_.z()) > 1e-3) return currPos_.z();
+    if (std::isfinite(zLap_)) return zLap_;
+    return 0.0;
+}
+
+Eigen::Vector3d tmpcPlanner::referencePoint3(const Eigen::Vector2d& xy, int k) const {
+    return Eigen::Vector3d(xy.x(), xy.y(), referenceZAt(k));
+}
+
+Eigen::Vector3d tmpcPlanner::guidanceVizPoint3(const Eigen::Vector2d& xy, int k,
+                                               double extraOffset) const {
+    Eigen::Vector3d p = referencePoint3(xy, k);
+    p.z() += guidanceProcessZOffset_ + extraOffset;
+    return p;
+}
+
 void tmpcPlanner::setObstacles(const std::vector<Eigen::Vector3d>& obstaclesPos,
                                const std::vector<Eigen::Vector3d>& obstaclesVel,
                                const std::vector<Eigen::Vector3d>& obstaclesSize) {
@@ -418,13 +440,21 @@ void tmpcPlanner::setObstacles(const std::vector<Eigen::Vector3d>& obstaclesPos,
 
 void tmpcPlanner::setReference(const std::vector<Eigen::Vector3d>& refPath) {
     refPath_ = refPath;
-    // UAV adaptation: operate at the reference lap's actual altitude rather than a
-    // hard-coded value. Guidance/homotopy stay planar (x,y); z just tracks the lap.
-    // Falls back to the yaml z_lap if the reference is empty.
+    // Keep a sane fallback altitude from the reference if it has one. The actual
+    // local horizon is still built at the UAV's current z so the guidance plane,
+    // static-map checks and RViz markers do not drift away from the vehicle.
     if (!refPath_.empty()) {
         double zsum = 0.0;
-        for (const auto& p : refPath_) zsum += p.z();
-        zLap_ = zsum / (double)refPath_.size();
+        int zcount = 0;
+        for (const auto& p : refPath_) {
+            if (!std::isfinite(p.z())) continue;
+            zsum += p.z();
+            ++zcount;
+        }
+        if (zcount > 0) {
+            const double zavg = zsum / (double)zcount;
+            if (std::isfinite(zavg) && std::abs(zavg) > 1e-3) zLap_ = zavg;
+        }
     }
 }
 
@@ -449,9 +479,11 @@ void tmpcPlanner::buildConstantVelocityPredictions() {
     for (int n = 0; n < nKeep; ++n) {
         int j = idx[n];
         std::vector<Eigen::Vector3d> pred(horizon_ + 1);
+        const double predZ = (std::isfinite(currPos_.z()) && std::abs(currPos_.z()) > 1e-3)
+            ? currPos_.z() : zLap_;
         for (int k = 0; k <= horizon_; ++k) {
             pred[k] = obsPos_[j] + obsVel_[j] * (k * dt_);
-            pred[k].z() = zLap_;
+            pred[k].z() = predZ;
         }
         obsPredPos_.push_back(std::move(pred));
         // horizontal disc radius = half of the larger horizontal bbox extent
@@ -505,9 +537,11 @@ void tmpcPlanner::buildGoalGrid() {
         int    i = projSeg;          // current segment [i, i+1]
         double segLen0 = (refPath_[i + 1].head<2>() - refPath_[i].head<2>()).norm();
         double segConsumed = projAlpha * segLen0;
+        const double nominalZ = (std::isfinite(currPos_.z()) && std::abs(currPos_.z()) > 1e-3)
+            ? currPos_.z() : zLap_;
 
         Eigen::Vector3d p0 = currPos_;
-        p0.z() = zLap_;
+        p0.z() = nominalZ;
         localRef_.push_back(p0);
 
         for (int k = 1; k <= horizon_; ++k) {
@@ -529,7 +563,7 @@ void tmpcPlanner::buildGoalGrid() {
                 double frac = (segLen > 1e-9) ? (segConsumed / segLen) : 0.0;
                 p = refPath_[i] + seg * frac;
             }
-            p.z() = zLap_;
+            p.z() = nominalZ;
             localRef_.push_back(p);
         }
     }
@@ -563,7 +597,7 @@ void tmpcPlanner::buildGoalGridFromLocalRef() {
                         : (double)la / (goalGridLat_ - 1) - 0.5;       // -0.5..0.5
             double lat = frac * goalLatSpread_;
             Eigen::Vector2d g = center + normal * lat;
-            goalGrid_.emplace_back(g.x(), g.y(), zLap_);
+            goalGrid_.emplace_back(g.x(), g.y(), localRef_[lookIdx].z());
         }
     }
 }
@@ -573,8 +607,8 @@ void tmpcPlanner::buildStaticAwareReference() {
 
     Eigen::Vector3d start = currPos_;
     Eigen::Vector3d goal = localRef_.back();
-    start.z() = zLap_;
-    goal.z() = zLap_;
+    start.z() = referenceZAt(0);
+    goal.z() = referenceZAt((int)localRef_.size() - 1);
     if ((goal.head<2>() - start.head<2>()).norm() < 0.25) return;
 
     bool directBlocked = false;
@@ -586,7 +620,6 @@ void tmpcPlanner::buildStaticAwareReference() {
     } else {
         for (const auto& p0 : localRef_) {
             Eigen::Vector3d p = p0;
-            p.z() = zLap_;
             if (pointHitsStaticMapWithMargin(p, staticPostCheckClearance_)) {
                 directBlocked = true;
                 break;
@@ -610,7 +643,7 @@ void tmpcPlanner::buildStaticAwareReference() {
 
         auto considerGoal = [&](const Eigen::Vector3d& raw) {
             Eigen::Vector3d c = raw;
-            c.z() = zLap_;
+            c.z() = goal.z();
             if ((c.head<2>() - start.head<2>()).norm() < 0.5) return;
             if (pointHitsStaticMapWithMargin(c, staticPostCheckClearance_)) return;
             const double score = (c.head<2>() - goal.head<2>()).norm();
@@ -639,8 +672,9 @@ void tmpcPlanner::buildStaticAwareReference() {
     const double dist = std::max(1.0, (goal.head<2>() - start.head<2>()).norm());
     const int xyPool = std::max(staticAstarPoolXY_,
         (int)std::ceil(dist / staticAstarStep_) + 24);
-    const double minH = std::max(0.05, zLap_ - 0.35);
-    const double maxH = zLap_ + (vertical_ ? std::max(0.8, vClearance_ + 0.8) : 0.35);
+    const double baseH = 0.5 * (start.z() + goal.z());
+    const double minH = std::max(0.05, baseH - 0.35);
+    const double maxH = baseH + (vertical_ ? std::max(0.8, vClearance_ + 0.8) : 0.35);
 
     AStar astar;
     astar.initGridMap(map_, Eigen::Vector3i(xyPool, xyPool, staticAstarPoolZ_),
@@ -654,7 +688,7 @@ void tmpcPlanner::buildStaticAwareReference() {
 
     std::vector<Eigen::Vector3d> astarPath = astar.getPath();
     if (astarPath.size() < 2) return;
-    std::vector<Eigen::Vector3d> ref = resamplePolyline(astarPath, horizon_ + 1, zLap_);
+    std::vector<Eigen::Vector3d> ref = resamplePolyline(astarPath, horizon_ + 1, goal.z());
     if ((int)ref.size() == horizon_ + 1) {
         ref.front() = start;
         ref.back() = goal;
@@ -712,7 +746,7 @@ bool tmpcPlanner::runGuidance() {
         // available. This avoids guidance accepting samples that the solver later
         // rejects as static collisions.
         return !pointHitsStaticMapWithMargin(
-            Eigen::Vector3d(p.x(), p.y(), zLap_), staticMarginAtK(k));
+            referencePoint3(p, k), staticMarginAtK(k));
     };
 
     auto dynamicFree = [&](const Eigen::Vector2d& p, int k) -> bool {
@@ -781,8 +815,7 @@ bool tmpcPlanner::runGuidance() {
         for (size_t i = 0; i < nodes.size(); ++i) {
             if (nodes[i].replaced) continue;
             GuidanceVizNode v;
-            v.p = Eigen::Vector3d(nodes[i].p.x(), nodes[i].p.y(),
-                                  zLap_ + guidanceProcessZOffset_);
+            v.p = guidanceVizPoint3(nodes[i].p, nodes[i].k);
             if (nodes[i].type == GuidanceNodeType::Goal) {
                 v.type = 2;
             } else if (nodes[i].type == GuidanceNodeType::Connector) {
@@ -875,9 +908,9 @@ bool tmpcPlanner::runGuidance() {
     if (map_ || localStaticMapFresh()) {
         const int minAnchorGap = std::max(2, N / 8);
         int lastAnchorK = -1000;
-        Eigen::Vector3d prev = localRef_[0]; prev.z() = zLap_;
+        Eigen::Vector3d prev = referencePoint3(localRef_[0].head<2>(), 0);
         for (int k = 1; k < N; ++k) {
-            Eigen::Vector3d p = localRef_[k]; p.z() = zLap_;
+            Eigen::Vector3d p = referencePoint3(localRef_[k].head<2>(), k);
             const bool blocked = segmentHitsStaticMapWithMargin(prev, p, staticPostCheckClearance_);
             prev = p;
             if (!blocked) continue;
@@ -933,7 +966,7 @@ bool tmpcPlanner::runGuidance() {
         const double dtSpan = std::max(1e-3, (double)(kB - kA) * dt_);
         if ((B - A).norm() / dtSpan > guidanceSpeedLimit) return false;
         const int visStep = std::max(1, (int)std::round(visibilityDt_ / dt_));
-        Eigen::Vector3d prevStatic(A.x(), A.y(), zLap_);
+        Eigen::Vector3d prevStatic = referencePoint3(A, kA);
         for (int k = kA; k <= kB; ++k) {
             const double u = (double)(k - kA) / (double)std::max(1, kB - kA);
             const Eigen::Vector2d p2 = A + u * (B - A);
@@ -943,7 +976,7 @@ bool tmpcPlanner::runGuidance() {
                     return false;
             }
             if ((k - kA) % visStep == 0 || k == kB) {
-                const Eigen::Vector3d p3(p2.x(), p2.y(), zLap_);
+                const Eigen::Vector3d p3 = referencePoint3(p2, k);
                 if (segmentHitsStaticMapWithMargin(prevStatic, p3, staticMarginAtK(k))) return false;
                 prevStatic = p3;
             }
@@ -979,7 +1012,7 @@ bool tmpcPlanner::runGuidance() {
                         break;
                     }
                 }
-                traj[k] = Eigen::Vector3d(p.x(), p.y(), zLap_);
+                traj[k] = referencePoint3(p, k);
             }
             return traj;
         };
@@ -1155,9 +1188,8 @@ bool tmpcPlanner::runGuidance() {
         lastGuidanceVizSamples_.reserve(
             (size_t)std::min(maxSamplesViz, (int)samplesToCache.size()));
         for (size_t i = 0; i < samplesToCache.size(); i += (size_t)stride) {
-            lastGuidanceVizSamples_.emplace_back(samplesToCache[i].p.x(),
-                                                 samplesToCache[i].p.y(),
-                                                 zLap_ + guidanceProcessZOffset_ - 0.18);
+            lastGuidanceVizSamples_.push_back(
+                guidanceVizPoint3(samplesToCache[i].p, samplesToCache[i].k, -0.03));
         }
     };
 
@@ -1349,7 +1381,7 @@ bool tmpcPlanner::runGuidance() {
         std::vector<Eigen::Vector3d> traj(N + 1);
         for (int k = 0; k <= N; ++k) {
             Eigen::Vector2d p = interpolateGuidancePath(nodes, path, k);
-            traj[k] = Eigen::Vector3d(p.x(), p.y(), zLap_);
+            traj[k] = referencePoint3(p, k);
         }
         // Smooth the piecewise-linear guidance so the local MPC tracks a smooth
         // reference (the paper fits cubic splines) -> smoother optimized trajectory.
@@ -1796,7 +1828,7 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
 
         for (int k = firstAvoidK; k <= N && k < (int)guidancePath.size(); ++k) {
             Eigen::Vector3d gp3 = guidancePath[k];
-            gp3.z() = zLap_;
+            if (!std::isfinite(gp3.z())) gp3.z() = referenceZAt(k);
             int staticSlackIdx = -1;
             for (int r = 0; r < rays; ++r) {
                 const double th = 2.0 * M_PI * (double)r / (double)rays;
@@ -2318,7 +2350,7 @@ void tmpcPlanner::publishGuidancePaths() const {
         double rgb[3]; guidancePalette((size_t)guidedCount, rgb);
         auto m = lineMarker(mid++, rgb[0], rgb[1], rgb[2], 0.11, "tmpc_guidance");
         m.color.a = 1.0;
-        const double zOffset = guidanceProcessZOffset_ + 0.18 + 0.06 * (double)guidedCount;
+        const double zOffset = guidanceProcessZOffset_ + 0.05 * (double)guidedCount;
         for (const auto& p : branches_[i].guidanceTraj) {
             geometry_msgs::Point pt; pt.x = p.x(); pt.y = p.y(); pt.z = p.z() + zOffset;
             m.points.push_back(pt);
@@ -2357,7 +2389,7 @@ void tmpcPlanner::publishGuidancePaths() const {
         txt.pose.orientation.w = 1.0;
         txt.pose.position.x = currPos_.x();
         txt.pose.position.y = currPos_.y();
-        txt.pose.position.z = zLap_ + guidanceProcessZOffset_ + 0.85;
+        txt.pose.position.z = referenceZAt(0) + guidanceProcessZOffset_ + 0.65;
         txt.scale.z = 0.28;
         txt.color.r = 1.0; txt.color.g = 1.0; txt.color.b = 1.0; txt.color.a = 0.95;
         txt.text = "status=" + lastPlanStatus_ +
@@ -2385,7 +2417,7 @@ void tmpcPlanner::publishGuidancePaths() const {
         txt.pose.orientation.w = 1.0;
         txt.pose.position.x = currPos_.x();
         txt.pose.position.y = currPos_.y();
-        txt.pose.position.z = zLap_ + guidanceProcessZOffset_ + 1.20;
+        txt.pose.position.z = referenceZAt(0) + guidanceProcessZOffset_ + 0.95;
         txt.scale.z = 0.32;
         txt.color.r = 1.0; txt.color.g = 0.15; txt.color.b = 0.10; txt.color.a = 1.0;
         txt.text = "no guided topology path";
@@ -2478,7 +2510,7 @@ void tmpcPlanner::publishObstaclePredictions() const {
         // predicted-motion line (constant velocity)
         auto line = lineMarker(mid++, 1.0, 0.35, 0.2, 0.05, "tmpc_obstacles");
         for (const auto& p : obsPredPos_[j]) {
-            geometry_msgs::Point pt; pt.x = p.x(); pt.y = p.y(); pt.z = zLap_;
+            geometry_msgs::Point pt; pt.x = p.x(); pt.y = p.y(); pt.z = p.z();
             line.points.push_back(pt);
         }
         arr.markers.push_back(line);
@@ -2493,7 +2525,7 @@ void tmpcPlanner::publishObstaclePredictions() const {
         disc.action = visualization_msgs::Marker::ADD;
         disc.pose.position.x = obsPredPos_[j].front().x();
         disc.pose.position.y = obsPredPos_[j].front().y();
-        disc.pose.position.z = zLap_;
+        disc.pose.position.z = obsPredPos_[j].front().z();
         disc.pose.orientation.w = 1.0;
         disc.scale.x = disc.scale.y = 2.0 * obsRadius_[j];
         disc.scale.z = 0.1;

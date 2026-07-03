@@ -158,6 +158,10 @@ private:
     bool localStaticMapOccupied(const Eigen::Vector3d& p) const;
     void resetDiagnostics();
     void updateDiagnosticsAfterSolve();
+    double referenceZAt(int k) const;
+    Eigen::Vector3d referencePoint3(const Eigen::Vector2d& xy, int k) const;
+    Eigen::Vector3d guidanceVizPoint3(const Eigen::Vector2d& xy, int k,
+                                      double extraOffset = 0.0) const;
 
     // ===========================================================================
     ros::NodeHandle nh_;
@@ -224,7 +228,7 @@ private:
     double localStaticMapResolution_ = 0.10;
     double localStaticMapTimeout_ = 0.75;
     bool   publishGuidanceMarkers_ = true;
-    double guidanceProcessZOffset_ = 1.70;
+    double guidanceProcessZOffset_ = 0.05;
     double guidanceGraphLineWidth_ = 0.035;
     double guidanceNodeScale_ = 0.16;
     bool   publishOptimizedMarkers_ = true;
