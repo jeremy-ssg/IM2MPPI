@@ -263,6 +263,7 @@ private:
     // Visibility-PRM graph propagation: guidance samples from the previous iteration,
     // re-seeded (time-decremented) so topology classes persist across cycles.
     std::vector<std::pair<Eigen::Vector2d, int>> prevGuidanceSeed_;
+    std::vector<Eigen::Vector3d> lastGuidanceVizSamples_;
     std::vector<GuidanceVizNode> lastGuidanceVizNodes_;
     std::vector<std::pair<int, int>> lastGuidanceVizEdges_;
     mutable std::mutex localStaticMapMutex_;
@@ -273,9 +274,13 @@ private:
     uint32_t guidanceSampleCounter_ = 0;
     double planTimeMs_ = 0.0;
     std::string lastPlanStatus_ = "not_started";
+    int lastGuidanceSamples_ = 0;
     int lastGuidanceNodes_ = 0;
     int lastGuidanceGoals_ = 0;
+    int lastGuidanceGuards_ = 0;
+    int lastGuidanceConnectors_ = 0;
     int lastGuidanceExpansions_ = 0;
+    int lastGuidanceRawCandidates_ = 0;
     int lastGuidedBranches_ = 0;
     int lastTotalBranches_ = 0;
     int lastFeasibleBranches_ = 0;
