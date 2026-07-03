@@ -44,6 +44,22 @@
         name="tracking_controller_node"
         output="screen"/>
 
+  <!-- Local static map for T-MPC++: crop the global inflated map to the UAV FOV. -->
+  <node pkg="trajectory_planner"
+        type="local_static_map_node"
+        name="local_static_map_node"
+        output="screen">
+    <param name="global_static_map_topic" value="/dynamic_map/inflated_voxel_map"/>
+    <param name="odom_topic" value="/CERLAB/quadcopter/odom"/>
+    <param name="local_static_map_topic" value="/tmpc/local_static_map"/>
+    <param name="perception_range" value="5.0"/>
+    <param name="z_min" value="-0.1"/>
+    <param name="z_max" value="2.5"/>
+    <param name="publish_rate" value="10.0"/>
+    <param name="max_points" value="30000"/>
+    <param name="use_horizontal_range" value="true"/>
+  </node>
+
   <!-- T-MPC++ navigation node -->
   <node pkg="autonomous_flight"
         type="tmpc_navigation_node"

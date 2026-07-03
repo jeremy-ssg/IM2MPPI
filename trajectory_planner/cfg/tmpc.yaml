@@ -56,8 +56,12 @@ tmpc:
   static_halfplane_clearance: 0.25    # [m] extra half-plane margin; map is already inflated
   static_halfplane_rays: 16       # angular samples for local static half-plane constraints
   static_post_check_clearance: 0.25 # [m] extra static clearance used by PRM, post-check, and execution guard
-  static_fov_range: 7.0             # [m] only consider static obstacles within this range of the drone
-                                    # (FOV-consistent with dynamic; mirrors map raycast_max_length)
+  static_fov_range: 5.0             # [m] only consider static obstacles within this range of the drone
+                                    # (same range as /tmpc/local_static_map)
+  use_local_static_map_topic: true
+  local_static_map_topic: "/tmpc/local_static_map"
+  local_static_map_resolution: 0.10
+  local_static_map_timeout: 0.75
 
   # -- Decision making (Eq.12 consistency) ---------------------------
   consistency_ci: 0.75           # weight preferring the previously-executed homotopy class

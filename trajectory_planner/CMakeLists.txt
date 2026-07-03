@@ -32,6 +32,11 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
+  sensor_msgs
+  nav_msgs
+  geometry_msgs
+  pcl_conversions
+  pcl_ros
   octomap_ros
   global_planner
   map_manager
@@ -138,7 +143,7 @@ endif()
 catkin_package(
  INCLUDE_DIRS include
  LIBRARIES trajectory_planner
- CATKIN_DEPENDS roscpp rospy std_msgs map_manager
+ CATKIN_DEPENDS roscpp rospy std_msgs sensor_msgs nav_msgs geometry_msgs pcl_conversions pcl_ros map_manager
  # DEPENDS OsqpEigen
 )
 
@@ -240,6 +245,7 @@ add_executable(bspline_node src/bspline_node.cpp)
 add_executable(testObstacleClustering src/test/testObstacleClustering.cpp)
 add_executable(mpc_node src/mpc_node.cpp)
 add_executable(mpc_solver_setup src/mpc_solver_setup.cpp)
+add_executable(local_static_map_node src/local_static_map_node.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -288,6 +294,7 @@ target_link_libraries(bspline_node ${catkin_LIBRARIES} ${PROJECT_NAME})
 target_link_libraries(testObstacleClustering ${catkin_LIBRARIES} ${PROJECT_NAME})
 target_link_libraries(mpc_node ${catkin_LIBRARIES} ${PROJECT_NAME})
 target_link_libraries(mpc_solver_setup ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/third_party/ACADO/libacado_toolkit_s.so)
+target_link_libraries(local_static_map_node ${catkin_LIBRARIES})
 
 #############
 ## Install ##
@@ -330,7 +337,7 @@ install(PROGRAMS
 
 ## Mark libraries for installation
 ## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_libraries.html
-install(TARGETS ${PROJECT_NAME}
+install(TARGETS ${PROJECT_NAME} local_static_map_node
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}

@@ -25,14 +25,20 @@
 #include <trajectory_planner/path_search/astarOcc.h>
 #include <trajectory_planner/third_party/OsqpEigen/OsqpEigen.h>
 
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl_conversions/pcl_conversions.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <random>
 #include <sstream>
+#include <unordered_set>
 
 namespace trajPlanner {
 
@@ -90,6 +96,34 @@ static Eigen::Vector2d localTangent(const std::vector<Eigen::Vector3d>& path, in
 
 static double cross2d(const Eigen::Vector2d& a, const Eigen::Vector2d& b) {
     return a.x() * b.y() - a.y() * b.x();
+}
+
+static long long localStaticVoxelKey(const Eigen::Vector3d& p, double res) {
+    const double r = std::max(0.03, res);
+    const long long ix = (long long)std::floor(p.x() / r);
+    const long long iy = (long long)std::floor(p.y() / r);
+    const long long iz = (long long)std::floor(p.z() / r);
+    const long long offset = 1048576LL;
+    const long long mask = 0x1fffffLL;
+    return (((ix + offset) & mask) << 42) |
+           (((iy + offset) & mask) << 21) |
+           ((iz + offset) & mask);
+}
+
+static bool localStaticVoxelSetOccupied(const std::unordered_set<long long>& keys,
+                                        const Eigen::Vector3d& p,
+                                        double res) {
+    if (keys.empty()) return false;
+    const double r = std::max(0.03, res);
+    for (int dx = -1; dx <= 1; ++dx) {
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dz = -1; dz <= 1; ++dz) {
+                Eigen::Vector3d q = p + Eigen::Vector3d(dx * r, dy * r, dz * r);
+                if (keys.find(localStaticVoxelKey(q, r)) != keys.end()) return true;
+            }
+        }
+    }
+    return false;
 }
 
 // Smooth a guidance polyline with a few moving-average passes (endpoints fixed).
@@ -203,6 +237,10 @@ void tmpcPlanner::initParam() {
     nh_.param("tmpc/static_halfplane_rays",          staticHalfplaneRays_, 16);
     nh_.param("tmpc/static_post_check_clearance",    staticPostCheckClearance_, 0.25);
     nh_.param("tmpc/static_fov_range",               staticFovRange_, 7.0);
+    nh_.param("tmpc/use_local_static_map_topic",     useLocalStaticMapTopic_, true);
+    nh_.param<std::string>("tmpc/local_static_map_topic", localStaticMapTopic_, "/tmpc/local_static_map");
+    nh_.param("tmpc/local_static_map_resolution",    localStaticMapResolution_, 0.10);
+    nh_.param("tmpc/local_static_map_timeout",       localStaticMapTimeout_, 0.75);
     nh_.param("tmpc/publish_guidance_markers", publishGuidanceMarkers_, true);
     nh_.param("tmpc/publish_optimized_markers", publishOptimizedMarkers_, true);
     nh_.param("tmpc/publish_obstacle_prediction_markers", publishObstaclePredictionMarkers_, false);
@@ -232,6 +270,8 @@ void tmpcPlanner::initParam() {
     staticHalfplaneRays_ = std::max(4, staticHalfplaneRays_);
     staticPostCheckClearance_ = std::max(0.0, staticPostCheckClearance_);
     staticFovRange_ = std::max(1.0, staticFovRange_);
+    localStaticMapResolution_ = std::max(0.03, localStaticMapResolution_);
+    localStaticMapTimeout_ = std::max(0.0, localStaticMapTimeout_);
     visibleStaticMarkerStride_ = std::max(1, visibleStaticMarkerStride_);
     visibleStaticMarkerMaxPoints_ = std::max(100, visibleStaticMarkerMaxPoints_);
     if (visibleStaticZMax_ < visibleStaticZMin_) std::swap(visibleStaticZMax_, visibleStaticZMin_);
@@ -248,6 +288,47 @@ void tmpcPlanner::registerPub() {
     goalGridPub_        = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/goal", 1);
     dynObsPub_          = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/dynamic_obstacle_predictions", 1);
     visibleStaticPub_   = nh_.advertise<visualization_msgs::MarkerArray>("tmpc/visible_static_obstacles", 1);
+    if (useLocalStaticMapTopic_) {
+        localStaticMapSub_ = nh_.subscribe(localStaticMapTopic_, 1,
+                                           &tmpcPlanner::localStaticMapCB, this);
+    }
+}
+
+void tmpcPlanner::localStaticMapCB(const sensor_msgs::PointCloud2ConstPtr& msg) {
+    pcl::PointCloud<pcl::PointXYZ> cloud;
+    pcl::fromROSMsg(*msg, cloud);
+
+    std::unordered_set<long long> keys;
+    std::vector<Eigen::Vector3d> points;
+    keys.reserve(cloud.points.size() * 2 + 1);
+    points.reserve(cloud.points.size());
+
+    for (const auto& pt : cloud.points) {
+        if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) continue;
+        Eigen::Vector3d p(pt.x, pt.y, pt.z);
+        keys.insert(localStaticVoxelKey(p, localStaticMapResolution_));
+        points.push_back(p);
+    }
+
+    std::lock_guard<std::mutex> lk(localStaticMapMutex_);
+    localStaticVoxelKeys_.swap(keys);
+    localStaticPoints_.swap(points);
+    localStaticMapStamp_ = msg->header.stamp.isZero() ? ros::Time::now() : msg->header.stamp;
+    haveLocalStaticMap_ = true;
+}
+
+bool tmpcPlanner::localStaticMapFresh() const {
+    if (!useLocalStaticMapTopic_) return false;
+    std::lock_guard<std::mutex> lk(localStaticMapMutex_);
+    if (!haveLocalStaticMap_) return false;
+    if (localStaticMapTimeout_ <= 1e-9) return true;
+    return (ros::Time::now() - localStaticMapStamp_).toSec() <= localStaticMapTimeout_;
+}
+
+bool tmpcPlanner::localStaticMapOccupied(const Eigen::Vector3d& p) const {
+    std::lock_guard<std::mutex> lk(localStaticMapMutex_);
+    if (!haveLocalStaticMap_) return false;
+    return localStaticVoxelSetOccupied(localStaticVoxelKeys_, p, localStaticMapResolution_);
 }
 
 void tmpcPlanner::resetDiagnostics() {
@@ -1565,11 +1646,24 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
         }
     }
 
-    if (map_ && staticHalfplaneSearchRadius_ > 1e-3) {
+    const bool useLocalStaticForHalfplanes = localStaticMapFresh();
+    if ((map_ || useLocalStaticForHalfplanes) && staticHalfplaneSearchRadius_ > 1e-3) {
         const int rays = std::max(4, staticHalfplaneRays_);
-        const double step = std::max(0.05, map_->getRes());
+        const double step = useLocalStaticForHalfplanes ?
+            std::max(0.05, localStaticMapResolution_) :
+            std::max(0.05, map_->getRes());
         const int radialSteps = std::max(1, (int)std::ceil(staticHalfplaneSearchRadius_ / step));
         const double clearance = std::max(0.02, staticHalfplaneClearance_);
+        std::unordered_set<long long> localStaticKeysSnapshot;
+        if (useLocalStaticForHalfplanes) {
+            std::lock_guard<std::mutex> lk(localStaticMapMutex_);
+            localStaticKeysSnapshot = localStaticVoxelKeys_;
+        }
+        auto occupiedStatic = [&](const Eigen::Vector3d& q) {
+            return useLocalStaticForHalfplanes ?
+                localStaticVoxelSetOccupied(localStaticKeysSnapshot, q, localStaticMapResolution_) :
+                (map_ && map_->isInflatedOccupied(q));
+        };
 
         for (int k = firstAvoidK; k <= N && k < (int)guidancePath.size(); ++k) {
             Eigen::Vector3d gp3 = guidancePath[k];
@@ -1584,7 +1678,7 @@ void tmpcPlanner::solveBranch(TMPCBranch& branch) {
                     Eigen::Vector3d q = gp3;
                     q.x() += dir.x() * step * (double)s;
                     q.y() += dir.y() * step * (double)s;
-                    if (map_->isInflatedOccupied(q)) {
+                    if (occupiedStatic(q)) {
                         occ = q;
                         found = true;
                         break;
@@ -1810,11 +1904,14 @@ bool tmpcPlanner::getLocalReference(std::vector<Eigen::Vector3d>& ref) const {
 }
 
 bool tmpcPlanner::trajectoryHitsStaticMap(const std::vector<Eigen::VectorXd>& states) const {
-    if (!map_) return false;
+    const bool useLocalStatic = localStaticMapFresh();
+    if (!map_ && !useLocalStatic) return false;
     Eigen::Vector3d prev = Eigen::Vector3d::Zero();
     bool havePrev = false;
     double prevMargin = 0.0;
-    const double step = std::max(0.05, map_->getRes());
+    const double step = useLocalStatic ?
+        std::max(0.05, localStaticMapResolution_) :
+        std::max(0.05, map_->getRes());
     for (size_t k = 0; k < states.size(); ++k) {
         const auto& s = states[k];
         if (s.size() < 3 || !s.allFinite()) return true;
@@ -1841,12 +1938,48 @@ bool tmpcPlanner::trajectoryHitsStaticMap(const std::vector<Eigen::VectorXd>& st
 }
 
 bool tmpcPlanner::pointHitsStaticMapWithMargin(const Eigen::Vector3d& p, double margin) const {
-    if (!map_) return false;
     // Static obstacles are only considered within the sensor FOV range of the drone
     // (consistent with dynamic obstacles, which come from getObstaclesInSensorRange).
     // Beyond it the prebuilt global map is ignored (treated as free); the drone re-plans
     // as it approaches. staticFovRange_ mirrors the map raycast range.
     if ((p.head<2>() - currPos_.head<2>()).norm() > staticFovRange_) return false;
+
+    if (useLocalStaticMapTopic_) {
+        std::lock_guard<std::mutex> lk(localStaticMapMutex_);
+        const bool fresh = haveLocalStaticMap_ &&
+            (localStaticMapTimeout_ <= 1e-9 ||
+             (ros::Time::now() - localStaticMapStamp_).toSec() <= localStaticMapTimeout_);
+        if (fresh) {
+            auto occupiedLocal = [&](const Eigen::Vector3d& q) {
+                return localStaticVoxelSetOccupied(localStaticVoxelKeys_, q, localStaticMapResolution_);
+            };
+            if (occupiedLocal(p)) return true;
+            if (margin <= 1e-6) return false;
+
+            const double step = std::max(0.05, localStaticMapResolution_);
+            const int radialSteps = std::max(1, (int)std::ceil(margin / step));
+            const int dirs = 8;
+            for (int r = 1; r <= radialSteps; ++r) {
+                const double radius = std::min(margin, step * (double)r);
+                Eigen::Vector3d qz = p;
+                qz.z() += radius;
+                if (occupiedLocal(qz)) return true;
+                qz = p;
+                qz.z() -= radius;
+                if (occupiedLocal(qz)) return true;
+                for (int d = 0; d < dirs; ++d) {
+                    const double th = 2.0 * M_PI * (double)d / (double)dirs;
+                    Eigen::Vector3d q = p;
+                    q.x() += radius * std::cos(th);
+                    q.y() += radius * std::sin(th);
+                    if (occupiedLocal(q)) return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    if (!map_) return false;
     if (map_->isInflatedOccupied(p)) return true;
     if (margin <= 1e-6) return false;
 
@@ -1875,14 +2008,17 @@ bool tmpcPlanner::pointHitsStaticMapWithMargin(const Eigen::Vector3d& p, double 
 bool tmpcPlanner::segmentHitsStaticMapWithMargin(const Eigen::Vector3d& a,
                                                  const Eigen::Vector3d& b,
                                                  double margin) const {
-    if (!map_) return false;
+    const bool useLocalStatic = localStaticMapFresh();
+    if (!map_ && !useLocalStatic) return false;
     if (pointHitsStaticMapWithMargin(a, margin) ||
         pointHitsStaticMapWithMargin(b, margin)) {
         return true;
     }
     if ((b - a).squaredNorm() <= 1e-10) return false;
 
-    const double step = std::max(0.05, map_->getRes());
+    const double step = useLocalStatic ?
+        std::max(0.05, localStaticMapResolution_) :
+        std::max(0.05, map_->getRes());
     const int samples = std::max(1, (int)std::ceil((b - a).norm() / step));
     for (int i = 1; i < samples; ++i) {
         const double u = (double)i / (double)samples;
@@ -2179,7 +2315,7 @@ void tmpcPlanner::publishObstaclePredictions() const {
 
 void tmpcPlanner::publishVisibleStaticObstacles() const {
     if (!publishVisibleStaticMarkers_) return;
-    if (!map_ || visibleStaticPub_.getNumSubscribers() == 0) return;
+    if (visibleStaticPub_.getNumSubscribers() == 0) return;
 
     visualization_msgs::MarkerArray arr;
 
@@ -2189,6 +2325,50 @@ void tmpcPlanner::publishVisibleStaticObstacles() const {
     del.ns = "tmpc_visible_static";
     del.action = visualization_msgs::Marker::DELETEALL;
     arr.markers.push_back(del);
+
+    if (localStaticMapFresh()) {
+        std::vector<Eigen::Vector3d> points;
+        {
+            std::lock_guard<std::mutex> lk(localStaticMapMutex_);
+            points = localStaticPoints_;
+        }
+
+        visualization_msgs::Marker vox;
+        vox.header.frame_id = "map";
+        vox.header.stamp = ros::Time::now();
+        vox.ns = "tmpc_visible_static";
+        vox.id = 0;
+        vox.type = visualization_msgs::Marker::CUBE_LIST;
+        vox.action = visualization_msgs::Marker::ADD;
+        vox.pose.orientation.w = 1.0;
+        vox.scale.x = vox.scale.y = vox.scale.z = std::max(0.03, localStaticMapResolution_);
+        vox.color.r = 0.25;
+        vox.color.g = 0.55;
+        vox.color.b = 0.95;
+        vox.color.a = 0.45;
+        vox.lifetime = ros::Duration(0.0);
+
+        const int publishStride = std::max(1, visibleStaticMarkerStride_);
+        vox.points.reserve((size_t)std::min(visibleStaticMarkerMaxPoints_, (int)points.size()));
+        int seen = 0;
+        for (const auto& p : points) {
+            if (p.z() < visibleStaticZMin_ || p.z() > visibleStaticZMax_) continue;
+            if ((seen++ % publishStride) != 0) continue;
+            geometry_msgs::Point pt;
+            pt.x = p.x(); pt.y = p.y(); pt.z = p.z();
+            vox.points.push_back(pt);
+            if ((int)vox.points.size() >= visibleStaticMarkerMaxPoints_) break;
+        }
+
+        arr.markers.push_back(vox);
+        visibleStaticPub_.publish(arr);
+        return;
+    }
+
+    if (!map_) {
+        visibleStaticPub_.publish(arr);
+        return;
+    }
 
     Eigen::Vector3d mapMin, mapMax;
     map_->getMapRange(mapMin, mapMax);

@@ -35,9 +35,12 @@
 #include <limits>
 #include <cstdint>
 #include <utility>
+#include <mutex>
+#include <unordered_set>
 #include <Eigen/Dense>
 
 #include <nav_msgs/Path.h>
+#include <sensor_msgs/PointCloud2.h>
 #include <visualization_msgs/MarkerArray.h>
 
 #include <map_manager/occupancyMap.h>
@@ -150,6 +153,9 @@ private:
     bool segmentHitsStaticMapWithMargin(const Eigen::Vector3d& a,
                                         const Eigen::Vector3d& b,
                                         double margin) const;
+    void localStaticMapCB(const sensor_msgs::PointCloud2ConstPtr& msg);
+    bool localStaticMapFresh() const;
+    bool localStaticMapOccupied(const Eigen::Vector3d& p) const;
     void resetDiagnostics();
     void updateDiagnosticsAfterSolve();
 
@@ -163,6 +169,7 @@ private:
     ros::Publisher goalGridPub_;            // /tmpc/goal
     ros::Publisher dynObsPub_;              // /tmpc/dynamic_obstacle_predictions
     ros::Publisher visibleStaticPub_;       // /tmpc/visible_static_obstacles
+    ros::Subscriber localStaticMapSub_;      // /tmpc/local_static_map
 
     // --- parameters (from tmpc.yaml) -------------------------------------------
     double dt_              = 0.05;
@@ -211,6 +218,10 @@ private:
     double staticPostCheckClearance_ = 0.12;
     double staticFovRange_ = 7.0;      // [m] only consider static obstacles within this
                                        // range of the drone (FOV-consistent with dynamic)
+    bool   useLocalStaticMapTopic_ = true;
+    std::string localStaticMapTopic_ = "/tmpc/local_static_map";
+    double localStaticMapResolution_ = 0.10;
+    double localStaticMapTimeout_ = 0.75;
     bool   publishGuidanceMarkers_ = true;
     bool   publishOptimizedMarkers_ = true;
     bool   publishObstaclePredictionMarkers_ = false;
@@ -250,6 +261,11 @@ private:
     std::vector<std::pair<Eigen::Vector2d, int>> prevGuidanceSeed_;
     std::vector<GuidanceVizNode> lastGuidanceVizNodes_;
     std::vector<std::pair<int, int>> lastGuidanceVizEdges_;
+    mutable std::mutex localStaticMapMutex_;
+    std::unordered_set<long long> localStaticVoxelKeys_;
+    std::vector<Eigen::Vector3d> localStaticPoints_;
+    ros::Time localStaticMapStamp_;
+    bool haveLocalStaticMap_ = false;
     uint32_t guidanceSampleCounter_ = 0;
     double planTimeMs_ = 0.0;
     std::string lastPlanStatus_ = "not_started";
