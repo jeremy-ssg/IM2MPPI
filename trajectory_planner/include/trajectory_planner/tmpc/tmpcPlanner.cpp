@@ -1113,9 +1113,20 @@ bool tmpcPlanner::runGuidance() {
     auto topologySignature = [&](const std::vector<Eigen::Vector3d>& traj) {
         std::ostringstream oss;
         int relevant = 0;
+
+        // Dynamic-obstacle topology label. This is still a fast label rather than
+        // the full pairwise H-signature from the paper, but it avoids two failure
+        // modes of the previous version:
+        //   1) using only bestK collapsed left/right passing if bestK jittered;
+        //   2) treating any high bestK sample as OVER collapsed horizontally
+        //      different branches into the same class.
+        // We therefore evaluate an interaction window and use a weighted side vote.
+        const double interactClear = std::max(0.35, safetyMargin_ + 0.65);
+        const double sideEps = 0.05;
         for (size_t j = 0; j < obsPredPos_.size(); ++j) {
             double minClear = std::numeric_limits<double>::infinity();
             int bestK = 0;
+            std::vector<int> activeKs;
             for (int k = 0; k <= N && k < (int)obsPredPos_[j].size(); ++k) {
                 const double clear =
                     (traj[k].head<2>() - obsPredPos_[j][k].head<2>()).norm()
@@ -1124,18 +1135,32 @@ bool tmpcPlanner::runGuidance() {
                     minClear = clear;
                     bestK = k;
                 }
+                if (clear < interactClear) activeKs.push_back(k);
             }
-            // minClear is already measured after subtracting r_uav+r_obs. Do not
-            // add the radii again here, otherwise far-away obstacles enter the
-            // signature and fragment equivalent topology classes.
+            // minClear is already measured after subtracting r_uav+r_obs.
             if (minClear >= halfWidth + safetyMargin_ + 0.8) continue;
+            if (activeKs.empty()) activeKs.push_back(bestK);
 
-            if (bestK < (int)obsPredPos_[j].size() && j < obsTop_.size() &&
-                traj[bestK].z() >= obsTop_[j] + vClearance_) {
-                oss << j << ":OVER;";
-                ++relevant;
-                continue;
+            bool allOver = true;
+            bool anyOver = false;
+            double sideVote = 0.0;
+            for (int k : activeKs) {
+                if (k < 0 || k >= (int)traj.size() || k >= (int)obsPredPos_[j].size()) continue;
+                const bool over = (j < obsTop_.size() &&
+                    traj[k].z() >= obsTop_[j] + vClearance_);
+                anyOver = anyOver || over;
+                allOver = allOver && over;
+
+                Eigen::Vector2d tangent = localTangent(traj, k);
+                if (tangent.norm() < 1e-6) tangent = localTangent(localRef_, k);
+                if (tangent.norm() < 1e-6) tangent = Eigen::Vector2d::UnitX();
+                tangent.normalize();
+                const Eigen::Vector2d rel = traj[k].head<2>() - obsPredPos_[j][k].head<2>();
+                const double clear = std::max(1e-3, rel.norm() - (rUav_ + obsRadius_[j]));
+                const double w = 1.0 / (0.20 + std::max(0.0, clear));
+                sideVote += w * cross2d(tangent, rel);
             }
+            const int sideClass = (std::abs(sideVote) < sideEps) ? 0 : (sideVote > 0.0 ? 1 : -1);
 
             double wind = 0.0;
             for (int k = 1; k <= N && k < (int)obsPredPos_[j].size(); ++k) {
@@ -1144,12 +1169,22 @@ bool tmpcPlanner::runGuidance() {
                 if (a.norm() < 1e-6 || b.norm() < 1e-6) continue;
                 wind += std::atan2(cross2d(a, b), a.dot(b));
             }
-            Eigen::Vector2d rel = traj[bestK].head<2>() - obsPredPos_[j][bestK].head<2>();
-            Eigen::Vector2d tangent = localTangent(traj, bestK);
-            const double side = cross2d(tangent, rel);
-            const int sideClass = (std::abs(side) < 0.05) ? 0 : (side > 0.0 ? 1 : -1);
-            const int windClass = (int)std::llround(wind / M_PI);
-            oss << j << ":" << windClass << ":" << sideClass << ";";
+            int windClass = (int)std::llround(wind / (2.0 * M_PI));
+            windClass = std::max(-1, std::min(1, windClass));
+
+            if (allOver) {
+                oss << j << ":OVER";
+                // Keep side information for UAV behavior classes. Pure 3-D
+                // topology may merge these, but the planner needs to preserve
+                // distinct passing behaviors for parallel optimization.
+                if (sideClass > 0) oss << "L";
+                else if (sideClass < 0) oss << "R";
+                oss << ";";
+            } else if (anyOver) {
+                oss << j << ":MIX:" << windClass << ":" << sideClass << ";";
+            } else {
+                oss << j << ":" << windClass << ":" << sideClass << ";";
+            }
             ++relevant;
         }
         for (const auto& a : staticAnchors) {
@@ -1470,30 +1505,15 @@ bool tmpcPlanner::runGuidance() {
         if (visibleGoals.empty() && visibleGuards.empty()) {
             // Guard: no other guard-like node is visible from this sample.
             addNode(p, k, GuidanceNodeType::Guard, 0.0);
-        } else if (visibleGoals.empty() && visibleGuards.size() >= 2) {
-            // Connector: the sample can bridge two visible Guard regions.
-            bool added = false;
-            for (size_t a = 0; a < visibleGuards.size() && !added; ++a) {
-                for (size_t b = a + 1; b < visibleGuards.size(); ++b) {
-                    if (addConnector(visibleGuards[a], p, k, visibleGuards[b]) >= 0) {
-                        added = true;
-                        break;
-                    }
-                }
-            }
-        } else if (!visibleGoals.empty() && !visibleGuards.empty()) {
-            // Multi-goal extension from the paper: if a connector can connect to
-            // multiple goals, select the best goal. Try all visible Guards because
-            // rejecting visibleGuards>1 was causing the graph to miss valid links.
-            bool added = false;
+        } else if (visibleGoals.empty() && visibleGuards.size() == 2) {
+            // Paper Visibility-PRM rule: a Connector is admitted only when exactly
+            // two Guards are visible. Samples seeing 1 or >2 Guards are discarded.
+            addConnector(visibleGuards[0], p, k, visibleGuards[1]);
+        } else if (!visibleGoals.empty() && visibleGuards.size() == 1) {
+            // Multi-goal extension: connect the one visible Guard to the best
+            // visible Goal. If multiple Goals are visible, try them by goal cost.
             for (int gid : visibleGoals) {
-                for (int guard : visibleGuards) {
-                    if (addConnector(guard, p, k, gid) >= 0) {
-                        added = true;
-                        break;
-                    }
-                }
-                if (added) break;
+                if (addConnector(visibleGuards[0], p, k, gid) >= 0) break;
             }
         }
     };
@@ -1544,14 +1564,22 @@ bool tmpcPlanner::runGuidance() {
 
     int expansions = 0;
     const int maxExpansions = std::max(4000, prmSamplesN_ * std::max(1, (int)goalIds.size()) * 25);
-    const int perGoalLimit = std::max(1, numTrajP_);
+    // Do not stop DFS after P raw paths. The first few shortest paths to a goal
+    // can easily have the same dynamic signature, which prevents alternative
+    // homotopy classes from ever reaching FilterAndSelect. Stop after enough raw
+    // paths or after P unique signatures for that goal.
+    const int perGoalUniqueLimit = std::max(1, numTrajP_);
+    const int perGoalRawLimit = std::max(12, 6 * std::max(1, numTrajP_));
     const int maxDepth = 32;
     for (int gid : goalIds) {
-        int foundForGoal = 0;
+        int rawFoundForGoal = 0;
+        std::vector<std::string> uniqueForGoal;
         std::vector<int> path;
         path.push_back(startId);
         std::function<void(int)> dfs = [&](int u) {
-            if (foundForGoal >= perGoalLimit || expansions >= maxExpansions) return;
+            if (rawFoundForGoal >= perGoalRawLimit ||
+                (int)uniqueForGoal.size() >= perGoalUniqueLimit ||
+                expansions >= maxExpansions) return;
             if ((int)path.size() > maxDepth) return;
             ++expansions;
 
@@ -1573,12 +1601,20 @@ bool tmpcPlanner::runGuidance() {
 
                 path.push_back(nb);
                 if (nb == gid) {
-                    if (addRawCandidate(path)) ++foundForGoal;
+                    if (addRawCandidate(path)) {
+                        ++rawFoundForGoal;
+                        const std::string& sig = rawCandidates.back().signature;
+                        if (std::find(uniqueForGoal.begin(), uniqueForGoal.end(), sig) == uniqueForGoal.end()) {
+                            uniqueForGoal.push_back(sig);
+                        }
+                    }
                 } else {
                     dfs(nb);
                 }
                 path.pop_back();
-                if (foundForGoal >= perGoalLimit || expansions >= maxExpansions) break;
+                if (rawFoundForGoal >= perGoalRawLimit ||
+                    (int)uniqueForGoal.size() >= perGoalUniqueLimit ||
+                    expansions >= maxExpansions) break;
             }
         };
         dfs(startId);
